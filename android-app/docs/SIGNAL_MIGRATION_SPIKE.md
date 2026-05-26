@@ -27,12 +27,26 @@ The repository already pins both official artifacts at `0.94.1` in a separate
 `core:signal-protocol` module. Its Java-only compile gate resolves the API, but
 `MIGRATION_ENABLED` is `false` and the app runtime does not use it.
 
+## Storage Boundary Added By This Spike
+
+- `core:signalstore` defines neutral asynchronous boundaries for identity, session,
+  prekey, signed prekey and Kyber prekey records, plus a reserved future sender-key
+  boundary. It does not import official libsignal classes.
+- `SIGNAL_BACKED_SESSIONS_ENABLED` is a compile-time `false` constant and
+  `DisabledSignalSessionManagerAdapter` cannot open sessions.
+- Room schema v5 has five storage-only record tables. Their serialized record payloads
+  are encrypted with the existing local vault before persistence and tested at rest.
+- `INVITE_V2_SIGNAL_PQXDH_EXPERIMENTAL` is serializable as a neutral DTO. Its
+  prekey/signature fields are placeholders, not authenticated PQXDH behavior.
+- The active ViewModel remains on `SimplifiedSessionManager`; no working message is
+  sent, received or migrated through this spike.
+
 ## Blockers
 
 | Area | Current finding | Migration gate |
 | --- | --- | --- |
-| Protocol state | Current chats store a prototype ECDH root/counter, not Signal records. | Implement encrypted durable Identity/Session/PreKey/SignedPreKey/KyberPreKey stores and failure tests. |
-| Invitation flow | Current QR exchanges a static public key and receive queue. | Define versioned prekey/PQXDH invitation envelopes and migration/interoperability behavior. |
+| Protocol state | Encrypted opaque record tables exist, but current chats still store a prototype ECDH root/counter and no official types are mapped. | Map reviewed official records and transaction semantics into the disabled stores, then test failure/restart behavior. |
+| Invitation flow | Active QR remains v1 static public key/receive queue; experimental v2 is only a neutral placeholder DTO. | Define and verify real prekey/PQXDH envelope semantics and migration/interoperability behavior. |
 | Device model | Local status blocks untrusted targets; there is no per-device ratchet fan-out. | Establish an independently verified session per approved device; specify revoke/key-change behavior. |
 | Kotlin/Gradle | App is on Kotlin `1.9.24`; artifact POM depends on Kotlin `2.2.20`. Java gate compiles, but a Kotlin runtime adapter has not been compatibility-reviewed. | Perform controlled toolchain/dependency upgrade with app and instrumentation regression tests. |
 | NDK/ABI | Official AAR supplies four Android ABIs; packaging and release size/stripping behavior is unreviewed. | Validate ABI packaging and device/emulator runs in release-like artifacts. |
@@ -45,8 +59,8 @@ The repository already pins both official artifacts at `0.94.1` in a separate
    implementation rather than changing existing ciphertext in place.
 2. Define versioned conversation/session records and QR/prekey payloads so prototype and
    Signal messages cannot be confused or silently downgraded.
-3. Implement all required `libsignal` stores encrypted at rest, with transactional replay
-   and identity-change handling, and never use in-memory stores in the app path.
+3. Map official `libsignal` record types to the encrypted-at-rest store boundary, with
+   transactional replay and identity-change handling, and never use in-memory stores in the app path.
 4. Model every approved device as a separate protocol recipient; fan out only to
    independently established verified sessions and block pending/revoked/key-changed devices.
 5. Add two-device and multi-device interoperability tests across restart, failed relay
@@ -67,3 +81,4 @@ The repository already pins both official artifacts at `0.94.1` in a separate
 - Official repository and Android ABI/support notes: <https://github.com/signalapp/libsignal>
 - Official Maven metadata: <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/maven-metadata.xml>
 - Official `0.94.1` POM: <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/0.94.1/libsignal-client-0.94.1.pom>
+- Detailed toolchain record: `LIBSIGNAL_TOOLCHAIN_REVIEW.md`

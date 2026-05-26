@@ -16,8 +16,11 @@
 - Replace prototype ECDH state with an established Signal-like implementation:
   X3DH or PQXDH and Double Ratchet.
 - Started: an official `libsignal 0.94.1` adapter module is dependency-checked but disabled.
-- Remaining: encrypted durable Signal stores, prekey/PQXDH invitations, signed device
-  records, delivery fan-out/revocation, Kotlin toolchain and licensing review.
+- Started: a disabled `core:signalstore` spike defines neutral store boundaries,
+  vault-encrypted opaque Room records and an experimental invitation v2 DTO. It is
+  not active in chats and is not an official protocol-store adapter.
+- Remaining: official libsignal record mapping, verified PQXDH invitations, signed
+  device semantics, delivery fan-out/revocation, Kotlin toolchain and licensing review.
 - Investigation record: see `SIGNAL_MIGRATION_SPIKE.md`; no homemade ratchet is accepted
   as a shortcut around the migration gate.
 

@@ -18,6 +18,9 @@ server or privacy audit.
   app lock, secure backup and attachment handling are incomplete.
 - The official `libsignal` dependency is only a disabled migration gate. It does not
   make current chats Double Ratchet sessions.
+- `core:signalstore` stores encrypted opaque spike records and an experimental v2
+  invitation DTO only. `SIGNAL_BACKED_SESSIONS_ENABLED` is false; none of this
+  creates a Signal-backed chat or verifies PQXDH data.
 - No forensic secure-delete assurance is possible in this version.
 - Basic release defaults now disable cleartext networking and enable shrinking, but
   no reproducible-build review or external release-hardening audit has been completed.

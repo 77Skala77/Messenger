@@ -13,10 +13,13 @@ The official Signal artifact repository reports `libsignal-client` and
 pulls Kotlin stdlib `2.2.20`. The existing app is built with Kotlin `1.9.24`.
 
 `core:signal-protocol` therefore contains a disabled Java compile-time boundary only.
+The separate `core:signalstore` storage spike intentionally avoids official libsignal
+types and remains disabled from chat execution.
 Do not turn it into the runtime session provider until:
 
 - the application toolchain is upgraded and retested as a controlled change;
-- encrypted durable Signal protocol stores and PQXDH/prekey invitations exist;
+- neutral encrypted record storage is mapped and tested with official protocol store
+  types, and verified PQXDH/prekey invitations exist;
 - AGPL/commercial licensing implications are reviewed;
 - an independent protocol integration audit is completed.
 
@@ -61,5 +64,6 @@ only stable versions were considered for the snapshot.
 
 - Signal official repository and integration notice: <https://github.com/signalapp/libsignal>
 - Signal official Maven repository: <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/maven-metadata.xml>
+- Spike-specific toolchain findings: [LIBSIGNAL_TOOLCHAIN_REVIEW.md](LIBSIGNAL_TOOLCHAIN_REVIEW.md)
 - Android/AndroidX official Maven metadata: <https://dl.google.com/dl/android/maven2/master-index.xml>
 - Maven Central metadata for Kotlin, Coroutines and ZXing: <https://repo1.maven.org/maven2/>

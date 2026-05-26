@@ -60,13 +60,32 @@ The library provides Signal Protocol/Double Ratchet, but the adapter is delibera
 disabled and is not part of the app runtime path.
 
 Activation requires an encrypted durable implementation of every required
-`SignalProtocolStore`, prekey/PQXDH invitation design, identity-change semantics,
-device fan-out/revocation tests, Kotlin/Compose toolchain migration, AGPL licensing
-review and independent cryptographic integration review. Until then the prototype
-session remains explicitly non-production.
+official `SignalProtocolStore` mapping, verified prekey/PQXDH invitation design,
+identity-change semantics, device fan-out/revocation tests, Kotlin/Compose toolchain
+migration, AGPL licensing review and independent cryptographic integration review.
+Until then the prototype session remains explicitly non-production.
 
 See `SIGNAL_MIGRATION_SPIKE.md` for artifact/ABI findings and the minimum gated
 migration sequence.
+
+## Disabled Signal Store Spike
+
+`core:signalstore` is a compile-time boundary with
+`SIGNAL_BACKED_SESSIONS_ENABLED=false`. It provides neutral interfaces for identity,
+session, prekey, signed prekey and Kyber prekey records, plus a reserved sender-key
+interface for future group assessment. Its disabled `SignalSessionManagerAdapter`
+cannot create a session.
+
+Room schema v5 contains storage-only tables for the five one-to-one record types.
+`EncryptedSignalStoreRepository` wraps opaque serialized bytes with the existing
+local vault before persistence. Lookup identifiers remain local metadata; record
+contents, including any future private record material, are not stored plaintext.
+This boundary has not been mapped to official libsignal records or made reachable
+from chat UI/delivery.
+
+`INVITE_V2_SIGNAL_PQXDH_EXPERIMENTAL` is a neutral serialized DTO for future design
+tests. Its signature and prekey fields are placeholders, are not verified by a
+protocol implementation, and are never accepted by active v1 chat invitations.
 
 ## Associated Data
 

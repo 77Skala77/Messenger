@@ -25,6 +25,15 @@ class LocalizationResourcesTest {
         assertFalse(source.contains("println("))
     }
 
+    @Test
+    fun `active conversation path remains on prototype session manager`() {
+        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerViewModel.kt").readText()
+
+        assertTrue(source.contains("SimplifiedSessionManager"))
+        assertFalse(source.contains("SignalSessionManagerAdapter"))
+        assertFalse(source.contains("SignalStoreFeatureFlags"))
+    }
+
     private fun resourceNames(file: File): Set<String> {
         val document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
         val strings = document.getElementsByTagName("string")

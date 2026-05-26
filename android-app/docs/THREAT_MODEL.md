@@ -12,6 +12,8 @@ it is not an assurance report.
 - Persisted local message payloads from being stored as plaintext.
 - Local profile display name and prototype session state using an Android
   Keystore-backed vault key.
+- Opaque disabled Signal-store spike record contents, when populated in tests, using
+  the same local vault; this adds no active messaging protocol guarantee.
 - Basic QR invitation import, displayed safety fingerprint, manual verification status,
   and warnings when an observed contact key changes.
 - Durable rejection of a replayed authenticated message number across app restarts.
@@ -24,6 +26,8 @@ it is not an assurance report.
 
 - Timing metadata, IP addresses, message size, or traffic frequency.
 - Server-side queue metadata and complete social-graph resistance.
+- Local Signal-store lookup metadata such as record/address identifiers; only opaque
+  record payload bytes are wrapped by the vault.
 - A device compromised while unlocked or a malicious operating system.
 - Screenshots, keyboard collection, notification leakage, or memory inspection.
 - Cryptographic multi-device delivery fan-out, synchronized revocation and cross-device state synchronization.

@@ -18,6 +18,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 kapt {
@@ -30,6 +33,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:crypto"))
     implementation(project(":core:delivery"))
+    implementation(project(":core:signalstore"))
     implementation(libs.androidx.core.ktx)
     api(libs.room.runtime)
     implementation(libs.room.ktx)

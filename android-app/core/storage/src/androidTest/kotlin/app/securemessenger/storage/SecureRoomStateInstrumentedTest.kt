@@ -10,11 +10,14 @@ import app.securemessenger.domain.Contact
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.MessageStatus
 import app.securemessenger.domain.VerificationStatus
+import app.securemessenger.signalstore.SignalProtocolAddress
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,6 +27,7 @@ class SecureRoomStateInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val database = Room.inMemoryDatabaseBuilder(context, SecureMessengerDatabase::class.java).build()
     private val repository = SecureLocalRepository(database.dao(), JcaLocalVaultCipher(ByteArray(32) { 4 }))
+    private val signalStore = EncryptedSignalStoreRepository(database.dao(), JcaLocalVaultCipher(ByteArray(32) { 7 }))
 
     @After
     fun closeDatabase() {
@@ -79,5 +83,52 @@ class SecureRoomStateInstrumentedTest {
         repository.revokeDevice("remote", remote.publicIdentity)
         repository.storeContact(contact)
         assertEquals(DeviceApprovalStatus.REVOKED, repository.observeDevices("remote").first().single().approvalStatus)
+    }
+
+    @Test
+    fun signalSpikeRecordsAreEncryptedAtRestAndCanBeDeleted() = runBlocking {
+        val address = SignalProtocolAddress("future-recipient", 2)
+        val identityRecord = "identity-record-private-material".toByteArray()
+        val sessionRecord = "session-record-secret-state".toByteArray()
+        val preKeyRecord = "prekey-private-material".toByteArray()
+        val signedPreKeyRecord = "signed-prekey-private-material".toByteArray()
+        val kyberPreKeyRecord = "kyber-prekey-private-material".toByteArray()
+
+        signalStore.saveIdentityRecord(address, identityRecord)
+        signalStore.saveSessionRecord(address, sessionRecord)
+        signalStore.savePreKeyRecord(11, preKeyRecord)
+        signalStore.saveSignedPreKeyRecord(12, signedPreKeyRecord)
+        signalStore.saveKyberPreKeyRecord(13, kyberPreKeyRecord)
+
+        val encryptedRecords = listOf(
+            database.dao().getSignalIdentityRecord(address.recipientId, address.deviceId)!!.encryptedRecord,
+            database.dao().getSignalSessionRecord(address.recipientId, address.deviceId)!!.encryptedRecord,
+            database.dao().getSignalPreKeyRecord(11)!!.encryptedRecord,
+            database.dao().getSignalSignedPreKeyRecord(12)!!.encryptedRecord,
+            database.dao().getSignalKyberPreKeyRecord(13)!!.encryptedRecord,
+        )
+        listOf(identityRecord, sessionRecord, preKeyRecord, signedPreKeyRecord, kyberPreKeyRecord)
+            .zip(encryptedRecords)
+            .forEach { (record, stored) ->
+                assertFalse(stored.toString(Charsets.UTF_8).contains(record.toString(Charsets.UTF_8)))
+            }
+
+        assertArrayEquals(identityRecord, signalStore.loadIdentityRecord(address))
+        assertArrayEquals(sessionRecord, signalStore.loadSessionRecord(address))
+        assertArrayEquals(preKeyRecord, signalStore.loadPreKeyRecord(11))
+        assertArrayEquals(signedPreKeyRecord, signalStore.loadSignedPreKeyRecord(12))
+        assertArrayEquals(kyberPreKeyRecord, signalStore.loadKyberPreKeyRecord(13))
+
+        signalStore.deleteIdentityRecord(address)
+        signalStore.deleteSessionRecord(address)
+        signalStore.deletePreKeyRecord(11)
+        signalStore.deleteSignedPreKeyRecord(12)
+        signalStore.deleteKyberPreKeyRecord(13)
+
+        assertNull(signalStore.loadIdentityRecord(address))
+        assertNull(signalStore.loadSessionRecord(address))
+        assertNull(signalStore.loadPreKeyRecord(11))
+        assertNull(signalStore.loadSignedPreKeyRecord(12))
+        assertNull(signalStore.loadKyberPreKeyRecord(13))
     }
 }

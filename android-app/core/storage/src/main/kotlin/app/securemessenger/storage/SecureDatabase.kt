@@ -71,6 +71,38 @@ data class AcceptedReplayEntity(
     val acceptedAtEpochMillis: Long,
 )
 
+@Entity(tableName = "signal_identity_records", primaryKeys = ["recipientId", "deviceId"])
+data class EncryptedSignalIdentityRecordEntity(
+    val recipientId: String,
+    val deviceId: Int,
+    val encryptedRecord: ByteArray,
+)
+
+@Entity(tableName = "signal_session_records", primaryKeys = ["recipientId", "deviceId"])
+data class EncryptedSignalSessionRecordEntity(
+    val recipientId: String,
+    val deviceId: Int,
+    val encryptedRecord: ByteArray,
+)
+
+@Entity(tableName = "signal_prekey_records", primaryKeys = ["preKeyId"])
+data class EncryptedSignalPreKeyRecordEntity(
+    val preKeyId: Int,
+    val encryptedRecord: ByteArray,
+)
+
+@Entity(tableName = "signal_signed_prekey_records", primaryKeys = ["signedPreKeyId"])
+data class EncryptedSignalSignedPreKeyRecordEntity(
+    val signedPreKeyId: Int,
+    val encryptedRecord: ByteArray,
+)
+
+@Entity(tableName = "signal_kyber_prekey_records", primaryKeys = ["kyberPreKeyId"])
+data class EncryptedSignalKyberPreKeyRecordEntity(
+    val kyberPreKeyId: Int,
+    val encryptedRecord: ByteArray,
+)
+
 @Dao
 interface SecureMessengerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -152,6 +184,51 @@ interface SecureMessengerDao {
         return true
     }
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSignalIdentityRecord(record: EncryptedSignalIdentityRecordEntity)
+
+    @Query("SELECT * FROM signal_identity_records WHERE recipientId = :recipientId AND deviceId = :deviceId LIMIT 1")
+    suspend fun getSignalIdentityRecord(recipientId: String, deviceId: Int): EncryptedSignalIdentityRecordEntity?
+
+    @Query("DELETE FROM signal_identity_records WHERE recipientId = :recipientId AND deviceId = :deviceId")
+    suspend fun deleteSignalIdentityRecord(recipientId: String, deviceId: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSignalSessionRecord(record: EncryptedSignalSessionRecordEntity)
+
+    @Query("SELECT * FROM signal_session_records WHERE recipientId = :recipientId AND deviceId = :deviceId LIMIT 1")
+    suspend fun getSignalSessionRecord(recipientId: String, deviceId: Int): EncryptedSignalSessionRecordEntity?
+
+    @Query("DELETE FROM signal_session_records WHERE recipientId = :recipientId AND deviceId = :deviceId")
+    suspend fun deleteSignalSessionRecord(recipientId: String, deviceId: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSignalPreKeyRecord(record: EncryptedSignalPreKeyRecordEntity)
+
+    @Query("SELECT * FROM signal_prekey_records WHERE preKeyId = :preKeyId LIMIT 1")
+    suspend fun getSignalPreKeyRecord(preKeyId: Int): EncryptedSignalPreKeyRecordEntity?
+
+    @Query("DELETE FROM signal_prekey_records WHERE preKeyId = :preKeyId")
+    suspend fun deleteSignalPreKeyRecord(preKeyId: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSignalSignedPreKeyRecord(record: EncryptedSignalSignedPreKeyRecordEntity)
+
+    @Query("SELECT * FROM signal_signed_prekey_records WHERE signedPreKeyId = :signedPreKeyId LIMIT 1")
+    suspend fun getSignalSignedPreKeyRecord(signedPreKeyId: Int): EncryptedSignalSignedPreKeyRecordEntity?
+
+    @Query("DELETE FROM signal_signed_prekey_records WHERE signedPreKeyId = :signedPreKeyId")
+    suspend fun deleteSignalSignedPreKeyRecord(signedPreKeyId: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSignalKyberPreKeyRecord(record: EncryptedSignalKyberPreKeyRecordEntity)
+
+    @Query("SELECT * FROM signal_kyber_prekey_records WHERE kyberPreKeyId = :kyberPreKeyId LIMIT 1")
+    suspend fun getSignalKyberPreKeyRecord(kyberPreKeyId: Int): EncryptedSignalKyberPreKeyRecordEntity?
+
+    @Query("DELETE FROM signal_kyber_prekey_records WHERE kyberPreKeyId = :kyberPreKeyId")
+    suspend fun deleteSignalKyberPreKeyRecord(kyberPreKeyId: Int)
+
     @Query("DELETE FROM local_profile")
     suspend fun deleteProfile()
 
@@ -169,6 +246,21 @@ interface SecureMessengerDao {
 
     @Query("DELETE FROM accepted_replay")
     suspend fun deleteAcceptedReplay()
+
+    @Query("DELETE FROM signal_identity_records")
+    suspend fun deleteSignalIdentityRecords()
+
+    @Query("DELETE FROM signal_session_records")
+    suspend fun deleteSignalSessionRecords()
+
+    @Query("DELETE FROM signal_prekey_records")
+    suspend fun deleteSignalPreKeyRecords()
+
+    @Query("DELETE FROM signal_signed_prekey_records")
+    suspend fun deleteSignalSignedPreKeyRecords()
+
+    @Query("DELETE FROM signal_kyber_prekey_records")
+    suspend fun deleteSignalKyberPreKeyRecords()
 }
 
 @Database(
@@ -179,8 +271,13 @@ interface SecureMessengerDao {
         EncryptedMessageEntity::class,
         ContactDeviceEntity::class,
         AcceptedReplayEntity::class,
+        EncryptedSignalIdentityRecordEntity::class,
+        EncryptedSignalSessionRecordEntity::class,
+        EncryptedSignalPreKeyRecordEntity::class,
+        EncryptedSignalSignedPreKeyRecordEntity::class,
+        EncryptedSignalKyberPreKeyRecordEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -189,7 +286,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
     companion object {
         fun create(context: Context): SecureMessengerDatabase =
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -254,6 +351,58 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `encrypted_messages` ADD COLUMN `deliveryAttemptCount` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `encrypted_messages` ADD COLUMN `nextRetryAtEpochMillis` INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_identity_records` (
+                        `recipientId` TEXT NOT NULL,
+                        `deviceId` INTEGER NOT NULL,
+                        `encryptedRecord` BLOB NOT NULL,
+                        PRIMARY KEY(`recipientId`, `deviceId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_session_records` (
+                        `recipientId` TEXT NOT NULL,
+                        `deviceId` INTEGER NOT NULL,
+                        `encryptedRecord` BLOB NOT NULL,
+                        PRIMARY KEY(`recipientId`, `deviceId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_prekey_records` (
+                        `preKeyId` INTEGER NOT NULL,
+                        `encryptedRecord` BLOB NOT NULL,
+                        PRIMARY KEY(`preKeyId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_signed_prekey_records` (
+                        `signedPreKeyId` INTEGER NOT NULL,
+                        `encryptedRecord` BLOB NOT NULL,
+                        PRIMARY KEY(`signedPreKeyId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_kyber_prekey_records` (
+                        `kyberPreKeyId` INTEGER NOT NULL,
+                        `encryptedRecord` BLOB NOT NULL,
+                        PRIMARY KEY(`kyberPreKeyId`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

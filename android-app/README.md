@@ -9,7 +9,7 @@ default in-app language; English is available from Settings.
 ## Implemented In This Version
 
 - Kotlin and Jetpack Compose application split into `domain`, `crypto`, `delivery`,
-  `storage`, `transport`, and `ui` modules.
+  `storage`, `signalstore`, `transport`, and `ui` modules.
 - Russian-first onboarding, contact, conversation, contact security, and settings screens.
 - Persistent manual language selection (`Русский` / `English`); first launch selects Russian.
 - Per-device EC key agreement key created in Android Keystore on API 31+.
@@ -34,14 +34,17 @@ default in-app language; English is available from Settings.
 - Disabled `PARANOIA_C4_AEAD` module boundary and explicit experimental warning.
 - Disabled official `libsignal` migration module pinned at `0.94.1`; it compiles as a
   dependency gate but is not used by the running MVP.
+- Disabled `core:signalstore` spike: neutral Signal record interfaces, vault-encrypted
+  Room record tables and experimental v2 PQXDH invitation DTOs; no working chat uses it.
 
 ## Placeholders And Boundaries
 
 - The simplified static ECDH session is **not** Signal X3DH/PQXDH or Double Ratchet:
   it does not yet provide the required production-grade forward secrecy or post-compromise security.
-- Official `libsignal` is not switched on: encrypted durable Signal protocol stores,
-  PQXDH/prekey invitations, Kotlin toolchain migration, licensing review and an
-  independent integration audit are prerequisites.
+- Official `libsignal` is not switched on: the new storage-only opaque record boundary
+  is not wired to official library types or message processing. PQXDH semantics,
+  Kotlin toolchain migration, licensing review and an independent integration audit
+  remain prerequisites.
 - Proper per-device session fan-out, app lock, biometric unlock, encrypted backup,
   attachments, and secure wipe are not implemented. Revocation is local delivery blocking,
   not synchronized protocol revocation.
@@ -72,7 +75,7 @@ Requirements: JDK 17 and Android SDK Platform 34.
 ```bash
 cd android-app
 ./gradlew :app:assembleDebug
-./gradlew :app:lintDebug :core:signal-protocol:testDebugUnitTest test
+./gradlew :app:lintDebug :core:signal-protocol:testDebugUnitTest :core:signalstore:test test
 ```
 
 Install on an API 31+ emulator or device:
@@ -145,4 +148,6 @@ See [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for the checklist.
 - [Localization](docs/LOCALIZATION.md)
 - [Dependency Review](docs/DEPENDENCY_REVIEW.md)
 - [Signal Migration Spike](docs/SIGNAL_MIGRATION_SPIKE.md)
+- [libsignal Toolchain Review](docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md)
+- [MVP Delivery Baseline](docs/MVP_DELIVERY_BASELINE.md)
 - [Audit Readiness](docs/AUDIT_READINESS.md)
