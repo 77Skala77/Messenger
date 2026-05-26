@@ -5,6 +5,7 @@ import app.securemessenger.domain.TransportClient
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Base64
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -50,7 +51,13 @@ class RelayHttpTransportClient(
 
     override fun observeIncomingMessages(queueId: String): Flow<RelayEncryptedBlob> = flow {
         while (true) {
-            fetchMessages(queueId).forEach { emit(it) }
+            try {
+                fetchMessages(queueId).forEach { emit(it) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A local relay can be offline in MVP development; do not log ciphertext or routing material.
+            }
             delay(pollIntervalMillis)
         }
     }

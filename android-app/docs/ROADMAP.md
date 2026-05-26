@@ -5,13 +5,16 @@
 - Compose screens, Russian-first localization, invitations, verification indicators.
 - Working standard payload AEAD, encrypted-at-rest records and opaque relay prototype.
 - Security tests, threat model and explicit placeholder boundaries.
+- Completed in prototype: debug relay send/fetch/delete pipeline, durable session
+  counters/replay state, pending new-device records, and emulator CI coverage.
 
 ## Phase 2: Reviewed Session Protocol
 
 - Replace prototype ECDH state with an established Signal-like implementation:
   X3DH or PQXDH and Double Ratchet.
-- Add prekey management, signed device records, delivery integration, durable replay
-  windows and explicit new-device approval.
+- Started: an official `libsignal 0.94.1` adapter module is dependency-checked but disabled.
+- Remaining: encrypted durable Signal stores, prekey/PQXDH invitations, signed device
+  records, delivery fan-out/revocation, Kotlin toolchain and licensing review.
 
 ## Phase 3: Post-Quantum Hybrid Handshake
 
@@ -30,8 +33,11 @@
 
 - Protocol, cryptography, Android keystore/storage, server privacy, dependency and UI
   security review. Paranoia C4 cannot graduate before this gate.
+- Status: audit scope/checklist prepared; no external audit has been performed.
 
 ## Phase 7: Release Discipline
 
 - Reproducible builds, signed artifacts, dependency pinning/SBOM, hardened release
   configuration and incident-response process.
+- Started: release cleartext denial and R8/resource shrinking are enabled; complete
+  signing/reproducibility/SBOM work remains.

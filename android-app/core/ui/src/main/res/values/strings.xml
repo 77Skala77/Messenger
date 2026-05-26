@@ -24,6 +24,8 @@
     <string name="import_invitation">Import Invitation</string>
     <string name="invalid_invitation">The invitation code is invalid or unsupported.</string>
     <string name="contact_added">Contact added. Verify the safety number before important messages.</string>
+    <string name="device_staged_notice">New device recorded as pending approval. Delivery to it is not enabled.</string>
+    <string name="session_unavailable">This prototype cannot open the stored session. Re-verification is required before sending.</string>
     <string name="conversation_title">Conversation</string>
     <string name="encryption_suite">Encryption Suite</string>
     <string name="suite_value_format">%1$s: %2$s</string>
@@ -52,6 +54,14 @@
     <string name="mark_verified">Mark as Verified</string>
     <string name="devices">Devices</string>
     <string name="single_device">Known contact device</string>
+    <string name="device_id_format">Device: %1$s</string>
+    <string name="pending_approval">Pending approval</string>
+    <string name="device_rejected">Rejected</string>
+    <string name="new_device_warning">New device detected. Verify its safety number through a trusted channel before approving it. Messages are not sent to this device automatically.</string>
+    <string name="approve_device">Approve verified device</string>
+    <string name="link_device_title">Link another device</string>
+    <string name="link_device_explanation">Paste a separate invitation received from this contact. A new device remains inactive until you verify it.</string>
+    <string name="stage_device">Record new device</string>
     <string name="verified">Verified</string>
     <string name="unverified">Unverified</string>
     <string name="key_changed">Key Changed</string>
@@ -71,5 +81,5 @@
     <string name="diagnostics_notice">Diagnostics export is a placeholder. No message text, private keys, session keys, nonces, or decrypted files may be exported.</string>
     <string name="no_secrets_logs">No Secrets in Logs</string>
     <string name="security_screen_action">Security</string>
-    <string name="relay_pending_notice">The relay endpoint is not configured in this prototype build; encrypted outgoing messages remain pending locally.</string>
+    <string name="relay_development_notice">Development relay delivery is active when a local relay server is running. The relay receives encrypted blobs only.</string>
 </resources>

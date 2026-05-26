@@ -19,6 +19,14 @@ enum class MessageStatus {
     FAILED,
 }
 
+enum class DeviceApprovalStatus {
+    PRIMARY_UNVERIFIED,
+    VERIFIED,
+    PENDING_APPROVAL,
+    KEY_CHANGED,
+    REJECTED,
+}
+
 data class DevicePublicIdentity(
     val deviceId: String,
     val encodedPublicKey: ByteArray,
@@ -37,6 +45,14 @@ data class Contact(
     val queueId: String,
     val identity: DevicePublicIdentity,
     val verificationStatus: VerificationStatus,
+)
+
+data class ContactDevice(
+    val contactId: String,
+    val queueId: String,
+    val identity: DevicePublicIdentity,
+    val approvalStatus: DeviceApprovalStatus,
+    val firstSeenEpochMillis: Long,
 )
 
 data class ConversationSummary(

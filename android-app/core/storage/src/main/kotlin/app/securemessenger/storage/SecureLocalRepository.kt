@@ -1,12 +1,17 @@
 package app.securemessenger.storage
 
-import app.securemessenger.crypto.CiphertextPackageCodec
 import app.securemessenger.crypto.EncryptedSessionMessage
 import app.securemessenger.crypto.EstablishedSession
+import app.securemessenger.crypto.SessionMessageCodec
+import app.securemessenger.crypto.SessionStateCodec
 import app.securemessenger.domain.Contact
+import app.securemessenger.domain.ContactDevice
+import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.DevicePublicIdentity
+import app.securemessenger.domain.Invitation
 import app.securemessenger.domain.VerificationStatus
-import java.nio.ByteBuffer
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class SecureLocalRepository(
     private val dao: SecureMessengerDao,
@@ -30,6 +35,22 @@ class SecureLocalRepository(
                 contact.verificationStatus.name,
             ),
         )
+        val approvalStatus = when (contact.verificationStatus) {
+            VerificationStatus.VERIFIED -> DeviceApprovalStatus.VERIFIED
+            VerificationStatus.KEY_CHANGED -> DeviceApprovalStatus.KEY_CHANGED
+            else -> DeviceApprovalStatus.PRIMARY_UNVERIFIED
+        }
+        dao.putContactDevice(
+            ContactDeviceEntity(
+                contactId = contact.contactId,
+                deviceId = contact.identity.deviceId,
+                queueId = contact.queueId,
+                encodedPublicKey = contact.identity.encodedPublicKey,
+                fingerprint = contact.identity.fingerprint,
+                approvalStatus = approvalStatus.name,
+                firstSeenEpochMillis = System.currentTimeMillis(),
+            ),
+        )
     }
 
     fun readContact(entity: ContactEntity): Contact {
@@ -45,14 +66,21 @@ class SecureLocalRepository(
     }
 
     suspend fun storeSession(contactId: String, session: EstablishedSession) {
-        val encoded = ByteBuffer.allocate(Int.SIZE_BYTES + session.rootKey.size)
-            .putInt(session.rootKey.size)
-            .put(session.rootKey)
-            .array()
+        val encoded = SessionStateCodec.encode(session)
         try {
             dao.putSession(
                 EncryptedSessionEntity(contactId, vault.encrypt(encoded, contactId.toByteArray()), System.currentTimeMillis()),
             )
+        } finally {
+            encoded.fill(0)
+        }
+    }
+
+    suspend fun loadSession(contactId: String): EstablishedSession? {
+        val stored = dao.getSession(contactId) ?: return null
+        val encoded = vault.decrypt(stored.encryptedState, contactId.toByteArray())
+        return try {
+            SessionStateCodec.decode(encoded)
         } finally {
             encoded.fill(0)
         }
@@ -69,7 +97,7 @@ class SecureLocalRepository(
             EncryptedMessageEntity(
                 messageId = messageId,
                 contactId = contactId,
-                encryptedPayload = CiphertextPackageCodec.encode(message.ciphertextPackage),
+                encryptedPayload = SessionMessageCodec.encode(message),
                 encodedAssociatedData = message.associatedData,
                 outgoing = outgoing,
                 status = status,
@@ -78,9 +106,82 @@ class SecureLocalRepository(
         )
     }
 
+    fun readEncryptedMessage(entity: EncryptedMessageEntity): EncryptedSessionMessage =
+        SessionMessageCodec.decode(entity.encryptedPayload)
+
+    suspend fun updateMessageStatus(messageId: String, status: String) =
+        dao.updateMessageStatus(messageId, status)
+
+    suspend fun acceptAndStoreIncoming(
+        messageId: String,
+        contactId: String,
+        session: EstablishedSession,
+        message: EncryptedSessionMessage,
+    ): Boolean =
+        dao.acceptAndStoreIncoming(
+            AcceptedReplayEntity(
+                conversationId = session.conversationId,
+                senderDeviceId = session.remoteDeviceId,
+                messageNumber = message.messageNumber,
+                acceptedAtEpochMillis = System.currentTimeMillis(),
+            ),
+            EncryptedMessageEntity(
+                messageId = messageId,
+                contactId = contactId,
+                encryptedPayload = SessionMessageCodec.encode(message),
+                encodedAssociatedData = message.associatedData,
+                outgoing = false,
+                status = app.securemessenger.domain.MessageStatus.RECEIVED.name,
+                createdAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+
+    fun observeDevices(contactId: String): Flow<List<ContactDevice>> =
+        dao.observeContactDevices(contactId).map { devices ->
+            devices.map(::readDevice)
+        }
+
+    suspend fun stageNewDevice(contactId: String, invitation: Invitation): DeviceApprovalStatus {
+        val identity = invitation.identity
+        val existing = dao.getContactDevice(contactId, identity.deviceId)
+        val status = when {
+            existing == null -> DeviceApprovalStatus.PENDING_APPROVAL
+            existing.fingerprint != identity.fingerprint -> DeviceApprovalStatus.KEY_CHANGED
+            else -> DeviceApprovalStatus.valueOf(existing.approvalStatus)
+        }
+        dao.putContactDevice(
+            ContactDeviceEntity(
+                contactId = contactId,
+                deviceId = identity.deviceId,
+                queueId = invitation.queueId,
+                encodedPublicKey = identity.encodedPublicKey,
+                fingerprint = identity.fingerprint,
+                approvalStatus = status.name,
+                firstSeenEpochMillis = existing?.firstSeenEpochMillis ?: System.currentTimeMillis(),
+            ),
+        )
+        return status
+    }
+
+    suspend fun approveDevice(contactId: String, identity: DevicePublicIdentity) {
+        val existing = dao.getContactDevice(contactId, identity.deviceId) ?: return
+        dao.putContactDevice(existing.copy(approvalStatus = DeviceApprovalStatus.VERIFIED.name))
+    }
+
+    private fun readDevice(entity: ContactDeviceEntity): ContactDevice =
+        ContactDevice(
+            contactId = entity.contactId,
+            queueId = entity.queueId,
+            identity = DevicePublicIdentity(entity.deviceId, entity.encodedPublicKey, entity.fingerprint),
+            approvalStatus = DeviceApprovalStatus.valueOf(entity.approvalStatus),
+            firstSeenEpochMillis = entity.firstSeenEpochMillis,
+        )
+
     suspend fun wipeLocalData() {
+        dao.deleteAcceptedReplay()
         dao.deleteMessages()
         dao.deleteSessions()
+        dao.deleteContactDevices()
         dao.deleteContacts()
         dao.deleteProfile()
     }

@@ -16,6 +16,8 @@ The public-key SHA-256 fingerprint is displayed as the safety number.
 Accepting an invitation records the public identity locally as `UNVERIFIED`.
 The user must compare fingerprints or QR data over a trusted path to mark it verified.
 A different public-key fingerprint for an existing device produces `KEY_CHANGED`.
+An additional device invitation is persisted as `PENDING_APPROVAL`; the current
+prototype retains its queue endpoint but does not send to it automatically.
 
 ## Prototype Sessions
 
@@ -28,6 +30,26 @@ This is intentionally limited: static ECDH plus per-message KDF does **not** del
 the forward secrecy or break-in recovery of a real Double Ratchet. The `SessionManager`
 boundary is meant to be replaced with X3DH/PQXDH plus Double Ratchet after protocol
 library selection and review.
+
+`SessionStateCodec` serializes the send counter together with the session root inside
+the Keystore-wrapped session blob. A counter increment is persisted before network
+delivery begins, with sends per contact serialized so older counter state cannot
+overwrite newer state. `SessionMessageCodec` serializes only encrypted wire material and
+authenticated routing data. Incoming AEAD authentication occurs before an atomic Room
+transaction records both the encrypted message and accepted replay tuple.
+
+## Signal Protocol Migration Gate
+
+The isolated `core:signal-protocol` module resolves official Signal artifacts
+`org.signal:libsignal-client:0.94.1` and `org.signal:libsignal-android:0.94.1`.
+The library provides Signal Protocol/Double Ratchet, but the adapter is deliberately
+disabled and is not part of the app runtime path.
+
+Activation requires an encrypted durable implementation of every required
+`SignalProtocolStore`, prekey/PQXDH invitation design, identity-change semantics,
+device fan-out/revocation tests, Kotlin/Compose toolchain migration, AGPL licensing
+review and independent cryptographic integration review. Until then the prototype
+session remains explicitly non-production.
 
 ## Associated Data
 

@@ -21,7 +21,8 @@ android {
             buildConfigField("boolean", "ENABLE_PARANOIA_C4", "false")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             buildConfigField("boolean", "ENABLE_PARANOIA_C4", "false")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

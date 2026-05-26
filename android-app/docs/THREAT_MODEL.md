@@ -14,7 +14,9 @@ it is not an assurance report.
   Keystore-backed vault key.
 - Basic QR invitation import, displayed safety fingerprint, manual verification status,
   and warnings when an observed contact key changes.
-- Duplicate accepted message numbers within the running prototype session.
+- Durable rejection of a replayed authenticated message number across app restarts.
+- Staging an explicitly imported additional device without automatically trusting it
+  or enabling delivery to it.
 
 ## MVP Does Not Fully Protect Yet
 
@@ -22,7 +24,7 @@ it is not an assurance report.
 - Server-side queue metadata and complete social-graph resistance.
 - A device compromised while unlocked or a malicious operating system.
 - Screenshots, keyboard collection, notification leakage, or memory inspection.
-- Full multi-device verification and revocation.
+- Multi-device delivery fan-out, revocation and cross-device state synchronization.
 - Forward secrecy and post-compromise recovery equivalent to Double Ratchet.
 - Authenticity of an invitation acquired over an untrusted channel before the user
   compares its safety number.
@@ -43,6 +45,8 @@ The relay stores opaque encrypted blobs with TTL and supports deletion after rec
 It does not receive plaintext or private keys. It still observes a queue identifier,
 arrival/retrieval times, approximate message sizes and network-layer source data.
 Relay denial of service, deletion, withholding and traffic analysis remain possible.
+The runnable endpoint is limited to a localhost debug development transport; it is
+not a deployable anonymity or production relay design.
 
 ## Device Compromise
 

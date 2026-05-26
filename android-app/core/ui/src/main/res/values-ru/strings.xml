@@ -24,6 +24,8 @@
     <string name="import_invitation">Импортировать приглашение</string>
     <string name="invalid_invitation">Код приглашения повреждён или не поддерживается.</string>
     <string name="contact_added">Контакт добавлен. Перед важными сообщениями проверьте контрольный код безопасности.</string>
+    <string name="device_staged_notice">Новое устройство записано как ожидающее проверки. Доставка на него не включена.</string>
+    <string name="session_unavailable">Прототип не может открыть сохранённую сессию. Перед отправкой требуется повторная проверка.</string>
     <string name="conversation_title">Переписка</string>
     <string name="encryption_suite">Режим шифрования</string>
     <string name="suite_value_format">%1$s: %2$s</string>
@@ -52,6 +54,14 @@
     <string name="mark_verified">Отметить как проверенное</string>
     <string name="devices">Устройства</string>
     <string name="single_device">Известное устройство контакта</string>
+    <string name="device_id_format">Устройство: %1$s</string>
+    <string name="pending_approval">Ожидает проверки</string>
+    <string name="device_rejected">Отклонено</string>
+    <string name="new_device_warning">Обнаружено новое устройство. Перед подтверждением проверьте его контрольный код по доверенному каналу. Сообщения не отправляются на это устройство автоматически.</string>
+    <string name="approve_device">Подтвердить проверенное устройство</string>
+    <string name="link_device_title">Подключить другое устройство</string>
+    <string name="link_device_explanation">Вставьте отдельное приглашение, полученное от этого контакта. Новое устройство останется неактивным до проверки.</string>
+    <string name="stage_device">Записать новое устройство</string>
     <string name="verified">Проверено</string>
     <string name="unverified">Не проверено</string>
     <string name="key_changed">Ключ изменён</string>
@@ -71,5 +81,5 @@
     <string name="diagnostics_notice">Экспорт диагностики пока является заглушкой. Тексты сообщений, закрытые ключи, сеансовые ключи, nonce и расшифрованные файлы не должны экспортироваться.</string>
     <string name="no_secrets_logs">Без секретов в журналах</string>
     <string name="security_screen_action">Безопасность</string>
-    <string name="relay_pending_notice">Адрес сервера доставки в этой прототипной сборке не настроен; исходящие зашифрованные сообщения остаются локально в ожидании отправки.</string>
+    <string name="relay_development_notice">Доставка через локальный сервер разработки активна, когда сервер запущен. Сервер получает только зашифрованные пакеты.</string>
 </resources>

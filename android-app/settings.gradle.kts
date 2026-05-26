@@ -11,6 +11,11 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            name = "SignalBuildArtifacts"
+            url = uri("https://build-artifacts.signal.org/libraries/maven/")
+            content { includeGroup("org.signal") }
+        }
     }
 }
 
@@ -21,3 +26,4 @@ include(":core:crypto")
 include(":core:storage")
 include(":core:transport")
 include(":core:ui")
+include(":core:signal-protocol")

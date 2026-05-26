@@ -9,11 +9,16 @@ server or privacy audit.
 ## Explicitly Unsafe Or Incomplete For Production
 
 - Simplified ECDH session setup is not X3DH/PQXDH plus Double Ratchet.
-- Real relay synchronization and authenticated delivery lifecycle are not wired to UI.
-- Metadata protection, background safety, multi-device approval, app lock, secure
-  backup and attachment handling are incomplete.
+- Debug relay synchronization is wired, but it exposes queue/timing/size/IP metadata
+  and is not a production transport.
+- New devices can be staged and approved locally; multi-device message fan-out,
+  revocation, metadata protection, background safety, app lock, secure backup and
+  attachment handling are incomplete.
+- The official `libsignal` dependency is only a disabled migration gate. It does not
+  make current chats Double Ratchet sessions.
 - No forensic secure-delete assurance is possible in this version.
-- No reproducible build or release-hardening audit has been completed.
+- Basic release defaults now disable cleartext networking and enable shrinking, but
+  no reproducible-build review or external release-hardening audit has been completed.
 
 ## Paranoia C4
 

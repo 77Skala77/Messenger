@@ -19,9 +19,9 @@ class SessionManagerTest {
         val timeBucket = 100L
         val message = aliceManager.encryptMessage(aliceSession, "hello".toByteArray(), timeBucket)
 
-        assertArrayEquals("hello".toByteArray(), bobManager.decryptMessage(bobSession, message, timeBucket))
+        assertArrayEquals("hello".toByteArray(), bobManager.decryptMessage(bobSession, message))
         assertThrows(ReplayDetectedException::class.java) {
-            bobManager.decryptMessage(bobSession, message, timeBucket)
+            bobManager.decryptMessage(bobSession, message)
         }
     }
 
@@ -37,9 +37,9 @@ class SessionManagerTest {
         val invalid = valid.copy(associatedData = "forged".toByteArray())
 
         assertThrows(InvalidCiphertextException::class.java) {
-            receiverManager.decryptMessage(receivingSession, invalid, 42)
+            receiverManager.decryptMessage(receivingSession, invalid)
         }
-        assertArrayEquals("hello".toByteArray(), receiverManager.decryptMessage(receivingSession, valid, 42))
+        assertArrayEquals("hello".toByteArray(), receiverManager.decryptMessage(receivingSession, valid))
     }
 
     @Test

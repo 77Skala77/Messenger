@@ -33,6 +33,31 @@ class SerializationAndInvitationTest {
     }
 
     @Test
+    fun `session wire message preserves counter timestamp and ciphertext`() {
+        val manager = SimplifiedSessionManager(StandardAead())
+        val local = manager.createIdentity()
+        val remote = manager.createIdentity()
+        val session = manager.createSession(local, remote.publicIdentity)
+        val original = manager.encryptMessage(session, "wire".toByteArray(), 123)
+        val restored = SessionMessageCodec.decode(SessionMessageCodec.encode(original))
+
+        assertEquals(original.messageNumber, restored.messageNumber)
+        assertEquals(original.timestampBucket, restored.timestampBucket)
+        assertArrayEquals(original.associatedData, restored.associatedData)
+        assertArrayEquals(original.ciphertextPackage.ciphertext, restored.ciphertextPackage.ciphertext)
+    }
+
+    @Test
+    fun `session state preserves send counter across encrypted repository boundary`() {
+        val original = EstablishedSession("conversation", "local", "remote", ByteArray(32) { 9 }, 47)
+        val restored = SessionStateCodec.decode(SessionStateCodec.encode(original))
+
+        assertEquals(original.conversationId, restored.conversationId)
+        assertEquals(original.nextSendingNumber, restored.nextSendingNumber)
+        assertArrayEquals(original.rootKey, restored.rootKey)
+    }
+
+    @Test
     fun `paranoia c4 remains disabled without audited primitives`() {
         assertThrows(ExperimentalSuiteDisabledException::class.java) {
             ParanoiaC4Aead().encrypt(ByteArray(32), ByteArray(1), ByteArray(0))

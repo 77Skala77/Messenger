@@ -48,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.securemessenger.domain.Contact
+import app.securemessenger.domain.ContactDevice
+import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.DisplayMessage
 import app.securemessenger.domain.MessageStatus
 import app.securemessenger.domain.VerificationStatus
@@ -72,6 +74,8 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val invalidInvitation = stringResource(R.string.invalid_invitation)
     val contactAdded = stringResource(R.string.contact_added)
+    val deviceStaged = stringResource(R.string.device_staged_notice)
+    val sessionUnavailable = stringResource(R.string.session_unavailable)
 
     LaunchedEffect(state.profileCreated) {
         if (state.profileCreated && screen == Screen.ONBOARDING) screen = Screen.HOME
@@ -80,6 +84,8 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
         val notice = when (state.notice) {
             UiNotice.INVALID_INVITATION -> invalidInvitation
             UiNotice.CONTACT_ADDED -> contactAdded
+            UiNotice.DEVICE_STAGED -> deviceStaged
+            UiNotice.SESSION_UNAVAILABLE -> sessionUnavailable
             null -> null
         }
         if (notice != null) {
@@ -128,8 +134,11 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         } else {
                             ContactSecurityScreen(
                                 contact = contact,
+                                devices = state.devices[contact.contactId].orEmpty(),
                                 onBack = { screen = Screen.CONVERSATION },
                                 onVerify = viewModel::verifySelectedContact,
+                                onStageDevice = viewModel::stageDeviceInvitation,
+                                onApproveDevice = viewModel::approveDevice,
                             )
                         }
                     }
@@ -308,7 +317,7 @@ private fun ConversationScreen(
             } else if (contact.verificationStatus != VerificationStatus.VERIFIED) {
                 SecurityWarning(stringResource(R.string.unverified_warning))
             }
-            Text(stringResource(R.string.relay_pending_notice), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.relay_development_notice), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (messages.isEmpty()) item { Text(stringResource(R.string.empty_conversation)) }
@@ -329,7 +338,7 @@ private fun ConversationScreen(
                         onSend(message)
                         message = ""
                     },
-                    enabled = message.isNotBlank(),
+                    enabled = message.isNotBlank() && contact.verificationStatus != VerificationStatus.KEY_CHANGED,
                 ) { Text(stringResource(R.string.send)) }
             }
         }
@@ -348,8 +357,16 @@ private fun MessageCard(message: DisplayMessage) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ContactSecurityScreen(contact: Contact, onBack: () -> Unit, onVerify: () -> Unit) {
+private fun ContactSecurityScreen(
+    contact: Contact,
+    devices: List<ContactDevice>,
+    onBack: () -> Unit,
+    onVerify: () -> Unit,
+    onStageDevice: (String) -> Unit,
+    onApproveDevice: (ContactDevice) -> Unit,
+) {
     var verificationMismatch by remember(contact.contactId) { mutableStateOf(false) }
+    var linkedInvitation by remember(contact.contactId) { mutableStateOf("") }
     val scanPrompt = stringResource(R.string.verification_scan_prompt)
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
@@ -362,36 +379,76 @@ private fun ContactSecurityScreen(contact: Contact, onBack: () -> Unit, onVerify
         }
     }
     Scaffold(topBar = { NavigationTopBar(stringResource(R.string.contact_security), onBack) }) { padding ->
-        Column(
+        LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.security_status), fontWeight = FontWeight.Bold)
-            Text(verificationLabel(contact.verificationStatus))
+            item {
+                Text(stringResource(R.string.security_status), fontWeight = FontWeight.Bold)
+                Text(verificationLabel(contact.verificationStatus))
+            }
             if (contact.verificationStatus == VerificationStatus.KEY_CHANGED) {
-                SecurityWarning(stringResource(R.string.key_changed_warning))
+                item { SecurityWarning(stringResource(R.string.key_changed_warning)) }
             }
-            Text(stringResource(R.string.safety_number), style = MaterialTheme.typography.titleMedium)
-            SelectionContainer { Text(contact.identity.fingerprint) }
-            Text(stringResource(R.string.compare_safety_number))
-            Text(stringResource(R.string.qr_verification), style = MaterialTheme.typography.titleMedium)
-            QrCode(contact.identity.fingerprint, stringResource(R.string.verification_qr_content_description))
-            OutlinedButton(
-                onClick = {
-                    scanner.launch(
-                        ScanOptions()
-                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            .setPrompt(scanPrompt)
-                            .setBeepEnabled(false),
-                    )
-                },
-            ) { Text(stringResource(R.string.scan_verification)) }
+            item {
+                Text(stringResource(R.string.safety_number), style = MaterialTheme.typography.titleMedium)
+                SelectionContainer { Text(contact.identity.fingerprint) }
+                Text(stringResource(R.string.compare_safety_number))
+            }
+            item {
+                Text(stringResource(R.string.qr_verification), style = MaterialTheme.typography.titleMedium)
+                QrCode(contact.identity.fingerprint, stringResource(R.string.verification_qr_content_description))
+                OutlinedButton(
+                    onClick = {
+                        scanner.launch(
+                            ScanOptions()
+                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                .setPrompt(scanPrompt)
+                                .setBeepEnabled(false),
+                        )
+                    },
+                ) { Text(stringResource(R.string.scan_verification)) }
+            }
             if (verificationMismatch) {
-                SecurityWarning(stringResource(R.string.verification_mismatch))
+                item { SecurityWarning(stringResource(R.string.verification_mismatch)) }
             }
-            Button(onClick = onVerify) { Text(stringResource(R.string.mark_verified)) }
-            Text(stringResource(R.string.devices), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.single_device))
+            item {
+                Button(onClick = onVerify) { Text(stringResource(R.string.mark_verified)) }
+                Text(stringResource(R.string.devices), style = MaterialTheme.typography.titleMedium)
+            }
+            items(devices, key = { it.identity.deviceId }) { device ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(R.string.device_id_format, device.identity.deviceId))
+                        Text(deviceApprovalLabel(device.approvalStatus), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.safety_number), style = MaterialTheme.typography.labelMedium)
+                        SelectionContainer { Text(device.identity.fingerprint) }
+                        if (device.approvalStatus == DeviceApprovalStatus.PENDING_APPROVAL) {
+                            SecurityWarning(stringResource(R.string.new_device_warning))
+                            Button(onClick = { onApproveDevice(device) }) {
+                                Text(stringResource(R.string.approve_device))
+                            }
+                        }
+                        if (device.approvalStatus == DeviceApprovalStatus.KEY_CHANGED) {
+                            SecurityWarning(stringResource(R.string.key_changed_warning))
+                        }
+                    }
+                }
+            }
+            item {
+                Text(stringResource(R.string.link_device_title), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.link_device_explanation))
+                OutlinedTextField(
+                    value = linkedInvitation,
+                    onValueChange = { linkedInvitation = it },
+                    label = { Text(stringResource(R.string.invitation_code)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = { onStageDevice(linkedInvitation); linkedInvitation = "" },
+                    enabled = linkedInvitation.isNotBlank(),
+                ) { Text(stringResource(R.string.stage_device)) }
+            }
         }
     }
 }
@@ -473,6 +530,15 @@ private fun LanguageChoice(label: String, selected: Boolean, enabled: Boolean = 
         RadioButton(selected = selected, onClick = onClick, enabled = enabled)
         Text(label, color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+@Composable
+private fun deviceApprovalLabel(status: DeviceApprovalStatus): String = when (status) {
+    DeviceApprovalStatus.PRIMARY_UNVERIFIED -> stringResource(R.string.unverified)
+    DeviceApprovalStatus.VERIFIED -> stringResource(R.string.verified)
+    DeviceApprovalStatus.PENDING_APPROVAL -> stringResource(R.string.pending_approval)
+    DeviceApprovalStatus.KEY_CHANGED -> stringResource(R.string.key_changed)
+    DeviceApprovalStatus.REJECTED -> stringResource(R.string.device_rejected)
 }
 
 @Composable

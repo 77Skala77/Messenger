@@ -1,0 +1,54 @@
+package app.securemessenger.storage
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.securemessenger.crypto.SimplifiedSessionManager
+import app.securemessenger.crypto.StandardAead
+import app.securemessenger.domain.Contact
+import app.securemessenger.domain.MessageStatus
+import app.securemessenger.domain.VerificationStatus
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class SecureRoomStateInstrumentedTest {
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val database = Room.inMemoryDatabaseBuilder(context, SecureMessengerDatabase::class.java).build()
+    private val repository = SecureLocalRepository(database.dao(), JcaLocalVaultCipher(ByteArray(32) { 4 }))
+
+    @After
+    fun closeDatabase() {
+        database.close()
+    }
+
+    @Test
+    fun encryptedMessageSessionCounterAndReplayMarkerSurviveRoomBoundary() = runBlocking {
+        val aliceManager = SimplifiedSessionManager(StandardAead())
+        val bobManager = SimplifiedSessionManager(StandardAead())
+        val alice = aliceManager.createIdentity()
+        val bob = bobManager.createIdentity()
+        val aliceSession = aliceManager.createSession(alice, bob.publicIdentity)
+        val bobSession = bobManager.createSession(bob, alice.publicIdentity)
+        val contact = Contact("alice", "Alice", "queue", alice.publicIdentity, VerificationStatus.UNVERIFIED)
+        repository.storeContact(contact)
+        val message = aliceManager.encryptMessage(aliceSession, "room-secret".toByteArray(), 8)
+        repository.storeSession("alice", bobSession.copy(nextSendingNumber = 17))
+
+        val storedSession = repository.loadSession("alice")!!
+        assertEquals(17, storedSession.nextSendingNumber)
+        assertTrue(repository.acceptAndStoreIncoming("m1", "alice", storedSession, message))
+        assertFalse(repository.acceptAndStoreIncoming("m2", "alice", storedSession, message))
+
+        val stored = database.dao().observeMessages("alice").first().single()
+        assertFalse(stored.encryptedPayload.toString(Charsets.UTF_8).contains("room-secret"))
+        assertEquals(MessageStatus.RECEIVED.name, stored.status)
+    }
+}

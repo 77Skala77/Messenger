@@ -18,19 +18,31 @@ default in-app language; English is available from Settings.
 - Working `STANDARD_AEAD`: AES-256-GCM with authenticated associated data and
   persisted counter-based nonce allocation.
 - Per-message HKDF-derived encryption keys and replay tracking in the prototype session layer.
+- Real debug relay send/fetch/delete pipeline. Received authenticated envelopes are durably
+  recorded with their replay marker before they are deleted from the relay while the
+  app process is active.
 - Room persistence with no plaintext message column; profile name and session state
-  are encrypted with a Keystore-backed local vault key.
+  are encrypted with a Keystore-backed local vault key. Session send counters survive restart.
 - Abstract transport client and a minimal Node relay with opaque blobs, delivery deletion, and TTL.
+- Explicit device staging: an additional device is `Pending approval` until the user
+  verifies and approves it; it is not automatically enabled for delivery.
 - Disabled `PARANOIA_C4_AEAD` module boundary and explicit experimental warning.
+- Disabled official `libsignal` migration module pinned at `0.94.1`; it compiles as a
+  dependency gate but is not used by the running MVP.
 
 ## Placeholders And Boundaries
 
 - The simplified static ECDH session is **not** Signal X3DH/PQXDH or Double Ratchet:
   it does not yet provide the required production-grade forward secrecy or post-compromise security.
-- Relay transport classes and the pending-message pipeline exist, but the UI does not yet
-  run background sync/delivery; sent demo messages remain locally pending.
-- Restored conversation history decryption, device-link approval workflow, app lock,
-  biometric unlock, encrypted backup, attachments, and secure wipe are not implemented.
+- Official `libsignal` is not switched on: encrypted durable Signal protocol stores,
+  PQXDH/prekey invitations, Kotlin toolchain migration, licensing review and an
+  independent integration audit are prerequisites.
+- Additional device fan-out/revocation, app lock, biometric unlock, encrypted backup,
+  attachments, and secure wipe are not implemented.
+- Background delivery workers and automatic retry of failed outgoing sends are not
+  implemented; delivery status remains persisted for future workflow work.
+- The active relay URL is a debug-only localhost development endpoint. Release builds
+  disallow cleartext networking and do not yet have a production transport configuration.
 - Room stores ciphertext rather than using SQLCipher; routing AAD and database shape still
   expose local metadata.
 - Android secure deletion cannot guarantee erasure of historical flash-storage blocks.
@@ -54,7 +66,7 @@ Requirements: JDK 17 and Android SDK Platform 34.
 ```bash
 cd android-app
 ./gradlew :app:assembleDebug
-./gradlew testDebugUnitTest
+./gradlew :app:lintDebug :core:signal-protocol:testDebugUnitTest test
 ```
 
 Install on an API 31+ emulator or device:
@@ -66,7 +78,7 @@ Install on an API 31+ emulator or device:
 The generated debug APK is under `app/build/outputs/apk/debug/`.
 
 With a USB-debugging device connected, run the instrumented checks for saved
-language selection and Android Keystore behavior:
+language selection, Room delivery/replay persistence and Android Keystore behavior:
 
 ```bash
 ./gradlew :core:ui:connectedDebugAndroidTest :core:storage:connectedDebugAndroidTest
@@ -82,7 +94,14 @@ node --test
 node src/server.mjs
 ```
 
-It listens on `http://127.0.0.1:8787` by default and implements:
+For an attached Android device, expose only the local development relay through ADB:
+
+```bash
+adb reverse tcp:8787 tcp:8787
+```
+
+The debug app then reaches `http://127.0.0.1:8787`; the release network policy
+does not allow this cleartext endpoint. The relay implements:
 
 ```text
 POST   /v1/messages
@@ -111,3 +130,5 @@ See [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for the checklist.
 - [Security Warnings](docs/SECURITY_WARNINGS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Localization](docs/LOCALIZATION.md)
+- [Dependency Review](docs/DEPENDENCY_REVIEW.md)
+- [Audit Readiness](docs/AUDIT_READINESS.md)

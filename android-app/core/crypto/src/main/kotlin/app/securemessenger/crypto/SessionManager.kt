@@ -30,6 +30,7 @@ data class EstablishedSession(
 
 data class EncryptedSessionMessage(
     val messageNumber: Long,
+    val timestampBucket: Long,
     val associatedData: ByteArray,
     val ciphertextPackage: CiphertextPackage,
 )
@@ -40,7 +41,8 @@ interface SessionManager {
     fun acceptInvitation(localIdentity: DeviceKeyMaterial, encodedInvitation: String): EstablishedSession
     fun createSession(localIdentity: DeviceKeyMaterial, remoteIdentity: DevicePublicIdentity): EstablishedSession
     fun encryptMessage(session: EstablishedSession, plaintext: ByteArray, timestampBucket: Long): EncryptedSessionMessage
-    fun decryptMessage(session: EstablishedSession, message: EncryptedSessionMessage, timestampBucket: Long): ByteArray
+    fun decryptMessage(session: EstablishedSession, message: EncryptedSessionMessage): ByteArray
+    fun decryptStoredMessage(session: EstablishedSession, message: EncryptedSessionMessage, outgoing: Boolean): ByteArray
     fun rotateKeys(session: EstablishedSession): EstablishedSession
     fun detectReplay(conversationId: String, messageNumber: Long)
 }
@@ -111,7 +113,7 @@ class SimplifiedSessionManager(
             session.remoteDeviceId,
         )
         return try {
-            EncryptedSessionMessage(number, aad, suite.encrypt(messageKey, plaintext, aad))
+            EncryptedSessionMessage(number, timestampBucket, aad, suite.encrypt(messageKey, plaintext, aad))
         } finally {
             // A derived per-message key must not remain live once AEAD processing completes.
             messageKey.fill(0)
@@ -121,28 +123,37 @@ class SimplifiedSessionManager(
     override fun decryptMessage(
         session: EstablishedSession,
         message: EncryptedSessionMessage,
-        timestampBucket: Long,
     ): ByteArray {
-        detectReplay(session.conversationId, message.messageNumber)
+        val plaintext = decryptStoredMessage(session, message, outgoing = false)
+        // Authentication precedes replay acceptance, so malformed input cannot burn a counter.
         return try {
-            val expectedAad = associatedData(session, message.messageNumber, timestampBucket, outgoing = false)
-            if (!expectedAad.contentEquals(message.associatedData)) {
-                throw InvalidCiphertextException("Message routing associated data does not match")
-            }
-            val messageKey = deriveMessageKey(
-                session.rootKey,
-                message.messageNumber,
-                session.remoteDeviceId,
-                session.localDeviceId,
-            )
-            try {
-            suite.decrypt(messageKey, message.ciphertextPackage, expectedAad)
-            } finally {
-                messageKey.fill(0)
-            }
+            detectReplay(session.conversationId, message.messageNumber)
+            plaintext
         } catch (failure: Exception) {
-            receivedNumbers[session.conversationId]?.remove(message.messageNumber)
+            plaintext.fill(0)
             throw failure
+        }
+    }
+
+    override fun decryptStoredMessage(
+        session: EstablishedSession,
+        message: EncryptedSessionMessage,
+        outgoing: Boolean,
+    ): ByteArray {
+        val expectedAad = associatedData(session, message.messageNumber, message.timestampBucket, outgoing)
+        if (!expectedAad.contentEquals(message.associatedData)) {
+            throw InvalidCiphertextException("Message routing associated data does not match")
+        }
+        val messageKey = deriveMessageKey(
+            session.rootKey,
+            message.messageNumber,
+            if (outgoing) session.localDeviceId else session.remoteDeviceId,
+            if (outgoing) session.remoteDeviceId else session.localDeviceId,
+        )
+        return try {
+            suite.decrypt(messageKey, message.ciphertextPackage, expectedAad)
+        } finally {
+            messageKey.fill(0)
         }
     }
 
