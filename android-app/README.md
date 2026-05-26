@@ -8,8 +8,8 @@ default in-app language; English is available from Settings.
 
 ## Implemented In This Version
 
-- Kotlin and Jetpack Compose application split into `domain`, `crypto`, `storage`,
-  `transport`, and `ui` modules.
+- Kotlin and Jetpack Compose application split into `domain`, `crypto`, `delivery`,
+  `storage`, `transport`, and `ui` modules.
 - Russian-first onboarding, contact, conversation, contact security, and settings screens.
 - Persistent manual language selection (`Русский` / `English`); first launch selects Russian.
 - Per-device EC key agreement key created in Android Keystore on API 31+.
@@ -21,11 +21,16 @@ default in-app language; English is available from Settings.
 - Real debug relay send/fetch/delete pipeline. Received authenticated envelopes are durably
   recorded with their replay marker before they are deleted from the relay while the
   app process is active.
+- Durable pending/failed outgoing state with attempt count and exponential retry metadata.
+  A foreground-only retry coordinator resends due ciphertext without logging its contents.
+- A two-peer integration test exercises reciprocal invitations, encrypted relay delivery,
+  authenticated receive/storage/delete, duplicate replay suppression and tamper rejection.
 - Room persistence with no plaintext message column; profile name and session state
   are encrypted with a Keystore-backed local vault key. Session send counters survive restart.
 - Abstract transport client and a minimal Node relay with opaque blobs, delivery deletion, and TTL.
-- Explicit device staging: an additional device is `Pending approval` until the user
-  verifies and approves it; it is not automatically enabled for delivery.
+- Explicit device states (`pending`, `verified`, `revoked`, `key_changed`). The current
+  single-device delivery policy fails closed for pending, revoked, changed or missing
+  primary device state and never silently fans out to a secondary device.
 - Disabled `PARANOIA_C4_AEAD` module boundary and explicit experimental warning.
 - Disabled official `libsignal` migration module pinned at `0.94.1`; it compiles as a
   dependency gate but is not used by the running MVP.
@@ -37,10 +42,11 @@ default in-app language; English is available from Settings.
 - Official `libsignal` is not switched on: encrypted durable Signal protocol stores,
   PQXDH/prekey invitations, Kotlin toolchain migration, licensing review and an
   independent integration audit are prerequisites.
-- Additional device fan-out/revocation, app lock, biometric unlock, encrypted backup,
-  attachments, and secure wipe are not implemented.
-- Background delivery workers and automatic retry of failed outgoing sends are not
-  implemented; delivery status remains persisted for future workflow work.
+- Proper per-device session fan-out, app lock, biometric unlock, encrypted backup,
+  attachments, and secure wipe are not implemented. Revocation is local delivery blocking,
+  not synchronized protocol revocation.
+- Retry metadata and foreground retries are implemented, but `WorkManager`/offline
+  background delivery is still a deliberately explicit placeholder.
 - The active relay URL is a debug-only localhost development endpoint. Release builds
   disallow cleartext networking and do not yet have a production transport configuration.
 - Room stores ciphertext rather than using SQLCipher; routing AAD and database shape still
@@ -78,10 +84,12 @@ Install on an API 31+ emulator or device:
 The generated debug APK is under `app/build/outputs/apk/debug/`.
 
 With a USB-debugging device connected, run the instrumented checks for saved
-language selection, Room delivery/replay persistence and Android Keystore behavior:
+language selection, Room delivery/replay persistence, Android Keystore behavior and
+the real HTTP relay delivery scenario. For the transport test, start the Node relay
+and apply the `adb reverse` command shown below first:
 
 ```bash
-./gradlew :core:ui:connectedDebugAndroidTest :core:storage:connectedDebugAndroidTest
+./gradlew :core:ui:connectedDebugAndroidTest :core:storage:connectedDebugAndroidTest :core:transport:connectedDebugAndroidTest
 ```
 
 ## Run Relay Server
@@ -112,6 +120,11 @@ DELETE /v1/messages/{messageId}
 The service stores opaque ciphertext envelopes and expiration timestamps only. In
 this MVP it can still observe queue identifiers, timing, message size and source IP.
 
+An invitation advertises its creator's receive queue. Consequently, bidirectional
+testing requires reciprocal invitation import: B imports A's invitation to send to A,
+and A imports B's invitation to send to B. The delivery integration test uses this
+two-way setup rather than treating one invitation as a global contact address.
+
 ## Localization
 
 The UI defaults to Russian on first start, even on a non-Russian system locale.
@@ -131,4 +144,5 @@ See [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for the checklist.
 - [Roadmap](docs/ROADMAP.md)
 - [Localization](docs/LOCALIZATION.md)
 - [Dependency Review](docs/DEPENDENCY_REVIEW.md)
+- [Signal Migration Spike](docs/SIGNAL_MIGRATION_SPIKE.md)
 - [Audit Readiness](docs/AUDIT_READINESS.md)

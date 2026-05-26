@@ -11,9 +11,11 @@ server or privacy audit.
 - Simplified ECDH session setup is not X3DH/PQXDH plus Double Ratchet.
 - Debug relay synchronization is wired, but it exposes queue/timing/size/IP metadata
   and is not a production transport.
-- New devices can be staged and approved locally; multi-device message fan-out,
-  revocation, metadata protection, background safety, app lock, secure backup and
-  attachment handling are incomplete.
+- Failed delivery is persisted and retried while the app is active only. There is no
+  reliable offline/background delivery worker yet.
+- New devices can be staged, approved and locally revoked; true per-device sessions,
+  cryptographic multi-device fan-out, synchronized revocation, metadata protection,
+  app lock, secure backup and attachment handling are incomplete.
 - The official `libsignal` dependency is only a disabled migration gate. It does not
   make current chats Double Ratchet sessions.
 - No forensic secure-delete assurance is possible in this version.

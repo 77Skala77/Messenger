@@ -1,0 +1,242 @@
+package app.securemessenger.delivery
+
+import app.securemessenger.crypto.EncryptedSessionMessage
+import app.securemessenger.crypto.EstablishedSession
+import app.securemessenger.crypto.SessionMessageCodec
+import app.securemessenger.crypto.SimplifiedSessionManager
+import app.securemessenger.crypto.StandardAead
+import app.securemessenger.domain.Contact
+import app.securemessenger.domain.ContactDevice
+import app.securemessenger.domain.DeviceApprovalStatus
+import app.securemessenger.domain.RelayEncryptedBlob
+import app.securemessenger.domain.TransportClient
+import app.securemessenger.domain.VerificationStatus
+import java.util.UUID
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DeliveryPipelineTest {
+    @Test
+    fun `two peers exchange authenticated message through relay and reject duplicate`() = runBlocking {
+        val fixture = PairedPeers()
+        val plaintext = "relay-delivery-check".toByteArray()
+        val encrypted = fixture.aliceManager.encryptMessage(fixture.aliceSession, plaintext, 41)
+        fixture.aliceStore.enqueue("message-1", fixture.bobContact, encrypted)
+        val outbound = fixture.outgoing.attemptMessage("message-1")
+        val deliveredBlob = fixture.relay.fetchMessages(BOB_QUEUE).single()
+
+        assertEquals(OutgoingAttemptResult.SENT, outbound)
+        assertFalse(deliveredBlob.opaqueCiphertext.toString(Charsets.UTF_8).contains("relay-delivery-check"))
+        assertEquals(
+            IncomingResult.ACCEPTED,
+            fixture.incoming.processFetched(deliveredBlob, listOf(ReceiveBinding("alice", fixture.bobSession))),
+        )
+        assertTrue(fixture.relay.fetchMessages(BOB_QUEUE).isEmpty())
+        assertEquals(1, fixture.bobStore.acceptedMessages.size)
+        assertArrayEquals(
+            plaintext,
+            fixture.bobManager.decryptStoredMessage(
+                fixture.bobSession,
+                fixture.bobStore.acceptedMessages.single(),
+                outgoing = false,
+            ),
+        )
+
+        fixture.relay.sendMessage(deliveredBlob)
+        assertEquals(
+            IncomingResult.AUTHENTICATED_DUPLICATE,
+            fixture.incoming.processFetched(deliveredBlob, listOf(ReceiveBinding("alice", fixture.bobSession))),
+        )
+        assertEquals(1, fixture.bobStore.acceptedMessages.size)
+        assertTrue(fixture.relay.fetchMessages(BOB_QUEUE).isEmpty())
+    }
+
+    @Test
+    fun `wrong aad and tag remain unauthenticated and are never stored`() = runBlocking {
+        val fixture = PairedPeers()
+        val valid = fixture.aliceManager.encryptMessage(fixture.aliceSession, "do-not-store".toByteArray(), 9)
+        val wrongAad = valid.copy(associatedData = "wrong-aad".toByteArray())
+        val wrongTag = valid.copy(
+            ciphertextPackage = valid.ciphertextPackage.copy(
+                tag = valid.ciphertextPackage.tag.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() },
+            ),
+        )
+
+        listOf(wrongAad, wrongTag).forEachIndexed { index, tampered ->
+            val blob = RelayEncryptedBlob(
+                messageId = "tampered-$index",
+                queueId = BOB_QUEUE,
+                opaqueCiphertext = SessionMessageCodec.encode(tampered),
+                expiresAtEpochMillis = Long.MAX_VALUE,
+            )
+            fixture.relay.sendMessage(blob)
+            assertEquals(
+                IncomingResult.UNAUTHENTICATED,
+                fixture.incoming.processFetched(blob, listOf(ReceiveBinding("alice", fixture.bobSession))),
+            )
+        }
+
+        assertTrue(fixture.bobStore.acceptedMessages.isEmpty())
+        assertEquals(2, fixture.relay.fetchMessages(BOB_QUEUE).size)
+    }
+
+    @Test
+    fun `network failure persists retry metadata and a due retry succeeds`() = runBlocking {
+        var now = 1_000L
+        val fixture = PairedPeers(now = { now })
+        fixture.relay.failNextSends = 1
+        val encrypted = fixture.aliceManager.encryptMessage(fixture.aliceSession, "retry".toByteArray(), 10)
+        fixture.aliceStore.enqueue("retry-1", fixture.bobContact, encrypted)
+
+        assertEquals(OutgoingAttemptResult.RETRY_SCHEDULED, fixture.outgoing.attemptMessage("retry-1"))
+        val failed = fixture.aliceStore.outgoing.getValue("retry-1")
+        assertEquals(1, failed.attemptCount)
+        assertEquals(6_000L, failed.nextRetryAtEpochMillis)
+        assertTrue(fixture.outgoing.retryDueMessages().isEmpty())
+
+        now = 6_000L
+        assertEquals(listOf(OutgoingAttemptResult.SENT), fixture.outgoing.retryDueMessages())
+        assertEquals(2, fixture.aliceStore.outgoing.getValue("retry-1").attemptCount)
+        assertEquals(1, fixture.relay.fetchMessages(BOB_QUEUE).size)
+    }
+
+    @Test
+    fun `fan out policy never selects pending revoked changed or secondary devices`() {
+        val fixture = PairedPeers()
+        val planner = PrimarySessionOnlyFanOutPlanner()
+        val primary = fixture.bobDevice
+
+        assertTrue(planner.targetsForSingleDeviceCiphertext(fixture.bobContact, emptyList()).isEmpty())
+        assertEquals(1, planner.targetsForSingleDeviceCiphertext(fixture.bobContact, listOf(primary)).size)
+        listOf(
+            DeviceApprovalStatus.PENDING_APPROVAL,
+            DeviceApprovalStatus.REVOKED,
+            DeviceApprovalStatus.KEY_CHANGED,
+        ).forEach { state ->
+            assertTrue(planner.targetsForSingleDeviceCiphertext(fixture.bobContact, listOf(primary.copy(approvalStatus = state))).isEmpty())
+        }
+        val secondary = primary.copy(
+            identity = fixture.aliceIdentity.publicIdentity,
+            queueId = "secondary-queue",
+            approvalStatus = DeviceApprovalStatus.VERIFIED,
+        )
+        assertEquals(1, planner.targetsForSingleDeviceCiphertext(fixture.bobContact, listOf(primary, secondary)).size)
+        assertFalse(ForegroundOnlyDeliveryRegistration().backgroundExecutionEnabled)
+    }
+
+    private class PairedPeers(now: () -> Long = { 1_000L }) {
+        val aliceManager = SimplifiedSessionManager(StandardAead())
+        val bobManager = SimplifiedSessionManager(StandardAead())
+        val aliceIdentity = aliceManager.createIdentity()
+        private val bobIdentity = bobManager.createIdentity()
+        // Invitation QR represents the creator's receiving queue; reciprocal pairing enables A -> B.
+        private val aliceInvite = aliceManager.createInvitation(aliceIdentity.publicIdentity, ALICE_QUEUE)
+        private val bobInvite = bobManager.createInvitation(bobIdentity.publicIdentity, BOB_QUEUE)
+        val bobSession = bobManager.acceptInvitation(bobIdentity, aliceInvite)
+        val aliceSession = aliceManager.acceptInvitation(aliceIdentity, bobInvite)
+        val bobContact = Contact("bob", "Bob", BOB_QUEUE, bobIdentity.publicIdentity, VerificationStatus.UNVERIFIED)
+        val bobDevice = ContactDevice(
+            "bob",
+            BOB_QUEUE,
+            bobIdentity.publicIdentity,
+            DeviceApprovalStatus.PRIMARY_UNVERIFIED,
+            1,
+        )
+        val relay = MailboxRelay()
+        val aliceStore = MemoryDeliveryStore()
+        val bobStore = MemoryDeliveryStore()
+        val outgoing = OutgoingDeliveryProcessor(aliceStore, relay, now = now)
+        val incoming = IncomingDeliveryProcessor(bobStore, relay, bobManager)
+
+        init {
+            aliceStore.devices["bob"] = listOf(bobDevice)
+        }
+    }
+
+    private data class MutableOutbound(
+        val record: StoredOutgoingMessage,
+        val nextRetryAtEpochMillis: Long? = null,
+    ) {
+        val attemptCount: Int get() = record.attemptCount
+    }
+
+    private class MemoryDeliveryStore : DeliveryPersistence {
+        val outgoing = mutableMapOf<String, MutableOutbound>()
+        val devices = mutableMapOf<String, List<ContactDevice>>()
+        val acceptedMessages = mutableListOf<EncryptedSessionMessage>()
+        private val replayNumbers = mutableSetOf<Triple<String, String, Long>>()
+
+        fun enqueue(id: String, contact: Contact, message: EncryptedSessionMessage) {
+            outgoing[id] = MutableOutbound(
+                StoredOutgoingMessage(id, contact, devices[contact.contactId].orEmpty(), message, 0),
+            )
+        }
+
+        override suspend fun outgoingMessage(messageId: String): StoredOutgoingMessage? =
+            outgoing[messageId]?.record
+
+        override suspend fun dueOutgoingMessages(nowEpochMillis: Long): List<StoredOutgoingMessage> =
+            outgoing.values.filter {
+                it.nextRetryAtEpochMillis == null || it.nextRetryAtEpochMillis <= nowEpochMillis
+            }.map { it.record }
+
+        override suspend fun recordSent(messageId: String, attemptCount: Int) {
+            outgoing[messageId] = outgoing.getValue(messageId).copy(
+                record = outgoing.getValue(messageId).record.copy(attemptCount = attemptCount),
+                nextRetryAtEpochMillis = Long.MAX_VALUE,
+            )
+        }
+
+        override suspend fun recordFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long) {
+            outgoing[messageId] = outgoing.getValue(messageId).copy(
+                record = outgoing.getValue(messageId).record.copy(attemptCount = attemptCount),
+                nextRetryAtEpochMillis = nextAttemptAtEpochMillis,
+            )
+        }
+
+        override suspend fun acceptIncoming(
+            messageId: String,
+            contactId: String,
+            session: EstablishedSession,
+            message: EncryptedSessionMessage,
+        ): Boolean {
+            val key = Triple(session.conversationId, session.remoteDeviceId, message.messageNumber)
+            if (!replayNumbers.add(key)) return false
+            acceptedMessages += message
+            return true
+        }
+    }
+
+    private class MailboxRelay : TransportClient {
+        private val queued = mutableMapOf<String, RelayEncryptedBlob>()
+        var failNextSends = 0
+
+        override suspend fun sendMessage(blob: RelayEncryptedBlob) {
+            if (failNextSends > 0) {
+                failNextSends--
+                error("offline")
+            }
+            queued[blob.messageId] = blob
+        }
+
+        override suspend fun fetchMessages(queueId: String): List<RelayEncryptedBlob> =
+            queued.values.filter { it.queueId == queueId }
+
+        override suspend fun deleteMessage(messageId: String) {
+            queued.remove(messageId)
+        }
+
+        override fun observeIncomingMessages(queueId: String): Flow<RelayEncryptedBlob> = emptyFlow()
+    }
+
+    private companion object {
+        const val ALICE_QUEUE = "alice-queue"
+        const val BOB_QUEUE = "bob-queue-1"
+    }
+}

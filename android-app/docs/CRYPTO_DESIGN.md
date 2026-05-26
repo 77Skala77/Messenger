@@ -17,7 +17,14 @@ Accepting an invitation records the public identity locally as `UNVERIFIED`.
 The user must compare fingerprints or QR data over a trusted path to mark it verified.
 A different public-key fingerprint for an existing device produces `KEY_CHANGED`.
 An additional device invitation is persisted as `PENDING_APPROVAL`; the current
-prototype retains its queue endpoint but does not send to it automatically.
+prototype retains its queue endpoint but does not send to it automatically. A locally
+revoked or key-changed primary device blocks sending. A `DeviceFanOutPlanner`
+boundary exists, but the implementation intentionally emits only the established
+primary-session target; it does not simulate multi-device cryptography.
+
+Each invitation is a receive address for its creator. A peer that must receive a
+reply must publish its own invitation, so the authenticated A-to-B delivery test first
+performs reciprocal imports.
 
 ## Prototype Sessions
 
@@ -36,7 +43,14 @@ the Keystore-wrapped session blob. A counter increment is persisted before netwo
 delivery begins, with sends per contact serialized so older counter state cannot
 overwrite newer state. `SessionMessageCodec` serializes only encrypted wire material and
 authenticated routing data. Incoming AEAD authentication occurs before an atomic Room
-transaction records both the encrypted message and accepted replay tuple.
+transaction records both the encrypted message and accepted replay tuple. The relay
+envelope is deleted only after that transaction succeeds, or after a later delivery is
+recognized as an already durably accepted authenticated replay.
+
+Outgoing ciphertext is stored as `PENDING` before a relay attempt. Network failures
+retain it as `FAILED` with durable attempt count and next-retry timestamp. The current
+coordinator retries while the app process is active; reliable offline/background
+scheduling remains outside this prototype boundary.
 
 ## Signal Protocol Migration Gate
 
@@ -50,6 +64,9 @@ Activation requires an encrypted durable implementation of every required
 device fan-out/revocation tests, Kotlin/Compose toolchain migration, AGPL licensing
 review and independent cryptographic integration review. Until then the prototype
 session remains explicitly non-production.
+
+See `SIGNAL_MIGRATION_SPIKE.md` for artifact/ABI findings and the minimum gated
+migration sequence.
 
 ## Associated Data
 

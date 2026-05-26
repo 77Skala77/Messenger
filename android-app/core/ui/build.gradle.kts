@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":core:crypto"))
     implementation(project(":core:storage"))
     implementation(project(":core:transport"))
+    implementation(project(":core:delivery"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.compose)

@@ -6,7 +6,10 @@
 - Working standard payload AEAD, encrypted-at-rest records and opaque relay prototype.
 - Security tests, threat model and explicit placeholder boundaries.
 - Completed in prototype: debug relay send/fetch/delete pipeline, durable session
-  counters/replay state, pending new-device records, and emulator CI coverage.
+  counters/replay state, durable outgoing retry metadata with foreground retries,
+  fail-closed local device delivery policy, and emulator CI coverage.
+- Explicitly deferred: WorkManager/offline synchronization and cryptographic
+  multi-device fan-out require reviewed session semantics first.
 
 ## Phase 2: Reviewed Session Protocol
 
@@ -15,6 +18,8 @@
 - Started: an official `libsignal 0.94.1` adapter module is dependency-checked but disabled.
 - Remaining: encrypted durable Signal stores, prekey/PQXDH invitations, signed device
   records, delivery fan-out/revocation, Kotlin toolchain and licensing review.
+- Investigation record: see `SIGNAL_MIGRATION_SPIKE.md`; no homemade ratchet is accepted
+  as a shortcut around the migration gate.
 
 ## Phase 3: Post-Quantum Hybrid Handshake
 

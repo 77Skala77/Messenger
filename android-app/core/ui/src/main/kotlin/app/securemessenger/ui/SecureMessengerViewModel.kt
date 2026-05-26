@@ -7,9 +7,13 @@ import app.securemessenger.crypto.CryptoFeatureFlags
 import app.securemessenger.crypto.EstablishedSession
 import app.securemessenger.crypto.InvitationCodec
 import app.securemessenger.crypto.PersistentCounterNonceManager
-import app.securemessenger.crypto.SessionMessageCodec
 import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
+import app.securemessenger.delivery.ForegroundOnlyDeliveryRegistration
+import app.securemessenger.delivery.IncomingDeliveryProcessor
+import app.securemessenger.delivery.OutgoingDeliveryProcessor
+import app.securemessenger.delivery.PrimarySessionOnlyFanOutPlanner
+import app.securemessenger.delivery.ReceiveBinding
 import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
 import app.securemessenger.domain.DisplayMessage
@@ -27,6 +31,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +45,7 @@ enum class UiNotice {
     CONTACT_ADDED,
     DEVICE_STAGED,
     SESSION_UNAVAILABLE,
+    DELIVERY_BLOCKED,
 }
 
 data class SecureMessengerUiState(
@@ -65,6 +71,10 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     )
     private val sessionManager = SimplifiedSessionManager(standardAead)
     private val transport = RelayHttpTransportClient(RELAY_BASE_URL)
+    private val fanOutPlanner = PrimarySessionOnlyFanOutPlanner()
+    private val outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
+    private val incomingDelivery = IncomingDeliveryProcessor(localRepository, transport, sessionManager)
+    private val backgroundDeliveryRegistration = ForegroundOnlyDeliveryRegistration()
     private val sessions = mutableMapOf<String, EstablishedSession>()
     private val sendingMutexes = mutableMapOf<String, Mutex>()
     private val mutationJobs = mutableSetOf<Job>()
@@ -72,6 +82,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     private var messageJob: Job? = null
     private var devicesJob: Job? = null
     private var selectionJob: Job? = null
+    private var retryJob: Job? = null
     private val mutableState = MutableStateFlow(SecureMessengerUiState())
     val state: StateFlow<SecureMessengerUiState> = mutableState.asStateFlow()
 
@@ -84,6 +95,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                     invitationCode = sessionManager.createInvitation(identity.publicIdentity, localQueueId()),
                 )
                 startIncomingPolling()
+                startForegroundRetryLoop()
             }
             dao.observeContacts().collectLatest { entities ->
                 val contacts = entities.map(localRepository::readContact)
@@ -102,6 +114,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 invitationCode = sessionManager.createInvitation(identity.publicIdentity, localQueueId()),
             )
             startIncomingPolling()
+            startForegroundRetryLoop()
         }
     }
 
@@ -168,7 +181,11 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         val contact = mutableState.value.contacts.firstOrNull { it.contactId == contactId } ?: return
         if (plaintext.isBlank() || contact.verificationStatus == VerificationStatus.KEY_CHANGED) return
         launchMutation {
-            val (id, encrypted) = sendingMutexes.getOrPut(contactId) { Mutex() }.withLock {
+            if (fanOutPlanner.targetsForSingleDeviceCiphertext(contact, localRepository.deliveryDevices(contactId)).size != 1) {
+                mutableState.value = mutableState.value.copy(notice = UiNotice.DELIVERY_BLOCKED)
+                return@launchMutation
+            }
+            val id = sendingMutexes.getOrPut(contactId) { Mutex() }.withLock {
                 val timestampBucket = System.currentTimeMillis() / TIMESTAMP_BUCKET_MILLIS
                 val plaintextBytes = plaintext.toByteArray()
                 val encryptedMessage = try {
@@ -186,23 +203,10 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                     outgoing = true,
                     MessageStatus.PENDING.name,
                 )
-                messageId to encryptedMessage
+                messageId
             }
-            try {
-                transport.sendMessage(
-                    RelayEncryptedBlob(
-                        messageId = id,
-                        queueId = contact.queueId,
-                        opaqueCiphertext = SessionMessageCodec.encode(encrypted),
-                        expiresAtEpochMillis = System.currentTimeMillis() + RELAY_TTL_MILLIS,
-                    ),
-                )
-                localRepository.updateMessageStatus(id, MessageStatus.SENT.name)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                localRepository.updateMessageStatus(id, MessageStatus.FAILED.name)
-            }
+            outgoingDelivery.attemptMessage(id)
+            backgroundDeliveryRegistration.requestRetry()
         }
     }
 
@@ -242,6 +246,12 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
+    fun revokeDevice(device: ContactDevice) {
+        launchMutation {
+            localRepository.revokeDevice(device.contactId, device.identity)
+        }
+    }
+
     fun clearNotice() {
         mutableState.value = mutableState.value.copy(notice = null)
     }
@@ -256,6 +266,8 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             devicesJob = null
             selectionJob?.cancelAndJoin()
             selectionJob = null
+            retryJob?.cancelAndJoin()
+            retryJob = null
             mutationJobs.toList().forEach { it.cancelAndJoin() }
             mutationJobs.clear()
             localRepository.wipeLocalData()
@@ -282,6 +294,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         messageJob?.cancel()
         devicesJob?.cancel()
         selectionJob?.cancel()
+        retryJob?.cancel()
         mutationJobs.forEach(Job::cancel)
         database.close()
         super.onCleared()
@@ -311,32 +324,15 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     private suspend fun processIncoming(blob: RelayEncryptedBlob) {
-        val wireMessage = try {
-            SessionMessageCodec.decode(blob.opaqueCiphertext)
-        } catch (_: Exception) {
-            return
-        }
-        for (contact in mutableState.value.contacts) {
+        val bindings = mutableState.value.contacts.mapNotNull { contact ->
             val session = sessions[contact.contactId] ?: try {
                 localRepository.loadSession(contact.contactId)?.also { sessions[contact.contactId] = it }
             } catch (_: Exception) {
                 null
-            } ?: continue
-            val authenticatedPlaintext = try {
-                sessionManager.decryptStoredMessage(session, wireMessage, outgoing = false)
-            } catch (_: Exception) {
-                continue
             }
-            authenticatedPlaintext.fill(0)
-            localRepository.acceptAndStoreIncoming(blob.messageId, contact.contactId, session, wireMessage)
-            // Successfully accepted messages and authenticated duplicates no longer need relay retention.
-            try {
-                transport.deleteMessage(blob.messageId)
-            } catch (_: Exception) {
-                // The durable replay record makes a later relay retry harmless.
-            }
-            return
+            session?.let { ReceiveBinding(contact.contactId, it) }
         }
+        incomingDelivery.processFetched(blob, bindings)
     }
 
     private fun observeMessages(contact: Contact, session: EstablishedSession) {
@@ -379,13 +375,29 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
+    private fun startForegroundRetryLoop() {
+        if (retryJob != null) return
+        retryJob = viewModelScope.launch {
+            while (true) {
+                try {
+                    outgoingDelivery.retryDueMessages()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep pending ciphertext queued for a later foreground attempt.
+                }
+                delay(RETRY_POLL_INTERVAL_MILLIS)
+            }
+        }
+    }
+
     private fun launchMutation(block: suspend () -> Unit) {
         mutationJobs += viewModelScope.launch { block() }
     }
 
     private companion object {
         const val TIMESTAMP_BUCKET_MILLIS = 60_000L
-        const val RELAY_TTL_MILLIS = 24 * 60 * 60 * 1000L
+        const val RETRY_POLL_INTERVAL_MILLIS = 15_000L
         const val RELAY_BASE_URL = "http://127.0.0.1:8787"
     }
 }

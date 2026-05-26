@@ -19,8 +19,11 @@ and must not be used to make security claims.
 ## Evidence Available
 
 - Crypto round-trip, wrong-AAD/tag, nonce, replay and serialization tests.
-- Android instrumented language persistence, Keystore and Room replay/state tests.
+- Android instrumented language persistence, Keystore and Room replay/retry/device-state tests.
 - Relay API TTL/delete tests.
+- Delivery integration tests for two reciprocal peers, relay deletion, replay
+  suppression, AAD/tag rejection, retry timing and fail-closed recipient policy;
+  an instrumented scenario also runs through the real HTTP client and local Node relay.
 - Threat model, crypto design, dependency snapshot and localization policy.
 
 ## Blocking Findings Before Any Real Use

@@ -24,7 +24,7 @@ enum class DeviceApprovalStatus {
     VERIFIED,
     PENDING_APPROVAL,
     KEY_CHANGED,
-    REJECTED,
+    REVOKED,
 }
 
 data class DevicePublicIdentity(

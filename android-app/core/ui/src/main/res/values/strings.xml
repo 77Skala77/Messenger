@@ -26,6 +26,7 @@
     <string name="contact_added">Contact added. Verify the safety number before important messages.</string>
     <string name="device_staged_notice">New device recorded as pending approval. Delivery to it is not enabled.</string>
     <string name="session_unavailable">This prototype cannot open the stored session. Re-verification is required before sending.</string>
+    <string name="delivery_blocked_notice">Delivery is blocked because the receiving device is not approved or its security state changed. Review it in Contact Security.</string>
     <string name="conversation_title">Conversation</string>
     <string name="encryption_suite">Encryption Suite</string>
     <string name="suite_value_format">%1$s: %2$s</string>
@@ -56,9 +57,11 @@
     <string name="single_device">Known contact device</string>
     <string name="device_id_format">Device: %1$s</string>
     <string name="pending_approval">Pending approval</string>
-    <string name="device_rejected">Rejected</string>
+    <string name="device_revoked">Revoked</string>
     <string name="new_device_warning">New device detected. Verify its safety number through a trusted channel before approving it. Messages are not sent to this device automatically.</string>
     <string name="approve_device">Approve verified device</string>
+    <string name="revoke_device">Revoke device</string>
+    <string name="revoked_device_warning">A contact device has been revoked. Encrypted delivery to that device is blocked until it is explicitly verified again.</string>
     <string name="link_device_title">Link another device</string>
     <string name="link_device_explanation">Paste a separate invitation received from this contact. A new device remains inactive until you verify it.</string>
     <string name="stage_device">Record new device</string>

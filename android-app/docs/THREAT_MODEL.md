@@ -17,6 +17,8 @@ it is not an assurance report.
 - Durable rejection of a replayed authenticated message number across app restarts.
 - Staging an explicitly imported additional device without automatically trusting it
   or enabling delivery to it.
+- Preventing the current delivery path from sending to a primary device locally marked
+  pending, revoked or key-changed.
 
 ## MVP Does Not Fully Protect Yet
 
@@ -24,7 +26,8 @@ it is not an assurance report.
 - Server-side queue metadata and complete social-graph resistance.
 - A device compromised while unlocked or a malicious operating system.
 - Screenshots, keyboard collection, notification leakage, or memory inspection.
-- Multi-device delivery fan-out, revocation and cross-device state synchronization.
+- Cryptographic multi-device delivery fan-out, synchronized revocation and cross-device state synchronization.
+- Delivery while the application is not active; only foreground retry coordination is implemented.
 - Forward secrecy and post-compromise recovery equivalent to Double Ratchet.
 - Authenticity of an invitation acquired over an untrusted channel before the user
   compares its safety number.
@@ -45,6 +48,8 @@ The relay stores opaque encrypted blobs with TTL and supports deletion after rec
 It does not receive plaintext or private keys. It still observes a queue identifier,
 arrival/retrieval times, approximate message sizes and network-layer source data.
 Relay denial of service, deletion, withholding and traffic analysis remain possible.
+Malformed unauthenticated blobs are retained rather than acknowledged, so an abusive
+relay or sender can also deny delivery by filling a queue.
 The runnable endpoint is limited to a localhost debug development transport; it is
 not a deployable anonymity or production relay design.
 

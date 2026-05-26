@@ -26,6 +26,7 @@
     <string name="contact_added">Контакт добавлен. Перед важными сообщениями проверьте контрольный код безопасности.</string>
     <string name="device_staged_notice">Новое устройство записано как ожидающее проверки. Доставка на него не включена.</string>
     <string name="session_unavailable">Прототип не может открыть сохранённую сессию. Перед отправкой требуется повторная проверка.</string>
+    <string name="delivery_blocked_notice">Доставка заблокирована: принимающее устройство не подтверждено или его состояние безопасности изменилось. Проверьте его в разделе безопасности контакта.</string>
     <string name="conversation_title">Переписка</string>
     <string name="encryption_suite">Режим шифрования</string>
     <string name="suite_value_format">%1$s: %2$s</string>
@@ -56,9 +57,11 @@
     <string name="single_device">Известное устройство контакта</string>
     <string name="device_id_format">Устройство: %1$s</string>
     <string name="pending_approval">Ожидает проверки</string>
-    <string name="device_rejected">Отклонено</string>
+    <string name="device_revoked">Отозвано</string>
     <string name="new_device_warning">Обнаружено новое устройство. Перед подтверждением проверьте его контрольный код по доверенному каналу. Сообщения не отправляются на это устройство автоматически.</string>
     <string name="approve_device">Подтвердить проверенное устройство</string>
+    <string name="revoke_device">Отозвать устройство</string>
+    <string name="revoked_device_warning">Устройство контакта отозвано. Доставка зашифрованных сообщений на это устройство заблокирована до явной повторной проверки.</string>
     <string name="link_device_title">Подключить другое устройство</string>
     <string name="link_device_explanation">Вставьте отдельное приглашение, полученное от этого контакта. Новое устройство останется неактивным до проверки.</string>
     <string name="stage_device">Записать новое устройство</string>

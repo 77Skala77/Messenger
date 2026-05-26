@@ -48,6 +48,8 @@ data class EncryptedMessageEntity(
     val outgoing: Boolean,
     val status: String,
     val createdAtEpochMillis: Long,
+    val deliveryAttemptCount: Int = 0,
+    val nextRetryAtEpochMillis: Long? = null,
 )
 
 @Entity(tableName = "contact_devices", primaryKeys = ["contactId", "deviceId"])
@@ -83,6 +85,9 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM contacts ORDER BY contactId")
     fun observeContacts(): Flow<List<ContactEntity>>
 
+    @Query("SELECT * FROM contacts WHERE contactId = :contactId LIMIT 1")
+    suspend fun getContact(contactId: String): ContactEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putContactDevice(device: ContactDeviceEntity)
 
@@ -91,6 +96,9 @@ interface SecureMessengerDao {
 
     @Query("SELECT * FROM contact_devices WHERE contactId = :contactId AND deviceId = :deviceId LIMIT 1")
     suspend fun getContactDevice(contactId: String, deviceId: String): ContactDeviceEntity?
+
+    @Query("SELECT * FROM contact_devices WHERE contactId = :contactId ORDER BY firstSeenEpochMillis")
+    suspend fun getContactDevices(contactId: String): List<ContactDeviceEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putSession(session: EncryptedSessionEntity)
@@ -104,8 +112,35 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM encrypted_messages WHERE contactId = :contactId ORDER BY createdAtEpochMillis")
     fun observeMessages(contactId: String): Flow<List<EncryptedMessageEntity>>
 
-    @Query("UPDATE encrypted_messages SET status = :status WHERE messageId = :messageId")
-    suspend fun updateMessageStatus(messageId: String, status: String)
+    @Query("SELECT * FROM encrypted_messages WHERE messageId = :messageId AND outgoing = 1 LIMIT 1")
+    suspend fun getOutgoingMessage(messageId: String): EncryptedMessageEntity?
+
+    @Query(
+        """
+        SELECT * FROM encrypted_messages
+        WHERE outgoing = 1
+          AND status IN ('PENDING', 'FAILED')
+          AND (nextRetryAtEpochMillis IS NULL OR nextRetryAtEpochMillis <= :nowEpochMillis)
+        ORDER BY createdAtEpochMillis
+        """,
+    )
+    suspend fun getDueOutgoingMessages(nowEpochMillis: Long): List<EncryptedMessageEntity>
+
+    @Query(
+        """
+        UPDATE encrypted_messages
+        SET status = :status,
+            deliveryAttemptCount = :attemptCount,
+            nextRetryAtEpochMillis = :nextRetryAtEpochMillis
+        WHERE messageId = :messageId
+        """,
+    )
+    suspend fun updateDeliveryState(
+        messageId: String,
+        status: String,
+        attemptCount: Int,
+        nextRetryAtEpochMillis: Long?,
+    )
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun acceptIncomingNumber(replay: AcceptedReplayEntity): Long
@@ -145,7 +180,7 @@ interface SecureMessengerDao {
         ContactDeviceEntity::class,
         AcceptedReplayEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -154,7 +189,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
     companion object {
         fun create(context: Context): SecureMessengerDatabase =
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -212,6 +247,13 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `encrypted_messages` ADD COLUMN `deliveryAttemptCount` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `encrypted_messages` ADD COLUMN `nextRetryAtEpochMillis` INTEGER DEFAULT NULL")
             }
         }
     }

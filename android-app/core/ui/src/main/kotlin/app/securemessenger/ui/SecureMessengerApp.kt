@@ -76,6 +76,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val contactAdded = stringResource(R.string.contact_added)
     val deviceStaged = stringResource(R.string.device_staged_notice)
     val sessionUnavailable = stringResource(R.string.session_unavailable)
+    val deliveryBlocked = stringResource(R.string.delivery_blocked_notice)
 
     LaunchedEffect(state.profileCreated) {
         if (state.profileCreated && screen == Screen.ONBOARDING) screen = Screen.HOME
@@ -86,6 +87,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
             UiNotice.CONTACT_ADDED -> contactAdded
             UiNotice.DEVICE_STAGED -> deviceStaged
             UiNotice.SESSION_UNAVAILABLE -> sessionUnavailable
+            UiNotice.DELIVERY_BLOCKED -> deliveryBlocked
             null -> null
         }
         if (notice != null) {
@@ -120,6 +122,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         } else {
                             ConversationScreen(
                                 contact = contact,
+                                devices = state.devices[contact.contactId].orEmpty(),
                                 messages = state.messages[contact.contactId].orEmpty(),
                                 onBack = { screen = Screen.HOME },
                                 onSecurity = { screen = Screen.SECURITY },
@@ -139,6 +142,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                                 onVerify = viewModel::verifySelectedContact,
                                 onStageDevice = viewModel::stageDeviceInvitation,
                                 onApproveDevice = viewModel::approveDevice,
+                                onRevokeDevice = viewModel::revokeDevice,
                             )
                         }
                     }
@@ -290,12 +294,19 @@ private fun AddContactScreen(
 @Composable
 private fun ConversationScreen(
     contact: Contact,
+    devices: List<ContactDevice>,
     messages: List<DisplayMessage>,
     onBack: () -> Unit,
     onSecurity: () -> Unit,
     onSend: (String) -> Unit,
 ) {
     var message by remember { mutableStateOf("") }
+    val primaryDevice = devices.firstOrNull { it.identity.deviceId == contact.identity.deviceId }
+    val deviceBlocksDelivery = primaryDevice == null || primaryDevice.approvalStatus in setOf(
+        DeviceApprovalStatus.PENDING_APPROVAL,
+        DeviceApprovalStatus.REVOKED,
+        DeviceApprovalStatus.KEY_CHANGED,
+    )
     Scaffold(
         topBar = {
             NavigationTopBar(contact.localDisplayName, onBack) {
@@ -316,6 +327,9 @@ private fun ConversationScreen(
                 SecurityWarning(stringResource(R.string.key_changed_warning))
             } else if (contact.verificationStatus != VerificationStatus.VERIFIED) {
                 SecurityWarning(stringResource(R.string.unverified_warning))
+            }
+            if (devices.any { it.approvalStatus == DeviceApprovalStatus.REVOKED }) {
+                SecurityWarning(stringResource(R.string.revoked_device_warning))
             }
             Text(stringResource(R.string.relay_development_notice), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
@@ -338,7 +352,9 @@ private fun ConversationScreen(
                         onSend(message)
                         message = ""
                     },
-                    enabled = message.isNotBlank() && contact.verificationStatus != VerificationStatus.KEY_CHANGED,
+                    enabled = message.isNotBlank() &&
+                        contact.verificationStatus != VerificationStatus.KEY_CHANGED &&
+                        !deviceBlocksDelivery,
                 ) { Text(stringResource(R.string.send)) }
             }
         }
@@ -364,6 +380,7 @@ private fun ContactSecurityScreen(
     onVerify: () -> Unit,
     onStageDevice: (String) -> Unit,
     onApproveDevice: (ContactDevice) -> Unit,
+    onRevokeDevice: (ContactDevice) -> Unit,
 ) {
     var verificationMismatch by remember(contact.contactId) { mutableStateOf(false) }
     var linkedInvitation by remember(contact.contactId) { mutableStateOf("") }
@@ -431,6 +448,13 @@ private fun ContactSecurityScreen(
                         }
                         if (device.approvalStatus == DeviceApprovalStatus.KEY_CHANGED) {
                             SecurityWarning(stringResource(R.string.key_changed_warning))
+                        }
+                        if (device.approvalStatus == DeviceApprovalStatus.REVOKED) {
+                            SecurityWarning(stringResource(R.string.revoked_device_warning))
+                        } else {
+                            OutlinedButton(onClick = { onRevokeDevice(device) }) {
+                                Text(stringResource(R.string.revoke_device))
+                            }
                         }
                     }
                 }
@@ -538,7 +562,7 @@ private fun deviceApprovalLabel(status: DeviceApprovalStatus): String = when (st
     DeviceApprovalStatus.VERIFIED -> stringResource(R.string.verified)
     DeviceApprovalStatus.PENDING_APPROVAL -> stringResource(R.string.pending_approval)
     DeviceApprovalStatus.KEY_CHANGED -> stringResource(R.string.key_changed)
-    DeviceApprovalStatus.REJECTED -> stringResource(R.string.device_rejected)
+    DeviceApprovalStatus.REVOKED -> stringResource(R.string.device_revoked)
 }
 
 @Composable

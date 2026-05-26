@@ -29,6 +29,7 @@ kapt {
 dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:crypto"))
+    implementation(project(":core:delivery"))
     implementation(libs.androidx.core.ktx)
     api(libs.room.runtime)
     implementation(libs.room.ktx)
