@@ -29,6 +29,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.zxing.embedded)
     implementation(platform(libs.compose.bom))

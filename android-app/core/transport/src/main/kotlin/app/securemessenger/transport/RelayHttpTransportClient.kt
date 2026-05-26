@@ -18,6 +18,21 @@ class RelayHttpTransportClient(
     private val relayBaseUrl: String,
     private val pollIntervalMillis: Long = 3_000L,
 ) : TransportClient {
+    suspend fun checkHealth(): RelayHealthStatus = withContext(Dispatchers.IO) {
+        try {
+            val body = request("GET", "/health")
+            if (JSONObject(body).optString("status") == "ok") {
+                RelayHealthStatus.AVAILABLE
+            } else {
+                RelayHealthStatus.UNAVAILABLE
+            }
+        } catch (_: RelayHttpStatusException) {
+            RelayHealthStatus.UNAVAILABLE
+        } catch (_: Exception) {
+            RelayHealthStatus.CONNECTION_ERROR
+        }
+    }
+
     override suspend fun sendMessage(blob: RelayEncryptedBlob): Unit = withContext(Dispatchers.IO) {
         val request = JSONObject()
             .put("messageId", blob.messageId)
@@ -64,21 +79,22 @@ class RelayHttpTransportClient(
 
     private fun request(method: String, path: String, body: String? = null): String {
         val connection = URL(relayBaseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection
-        connection.requestMethod = method
-        connection.connectTimeout = 5_000
-        connection.readTimeout = 5_000
-        connection.setRequestProperty("Content-Type", "application/json")
-        if (body != null) {
-            connection.doOutput = true
-            connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body) }
-        }
-        val status = connection.responseCode
-        if (status !in 200..299) {
-            connection.errorStream?.close()
-            connection.disconnect()
-            error("Relay request failed with HTTP $status")
-        }
-        return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.also {
+        return try {
+            connection.requestMethod = method
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.setRequestProperty("Content-Type", "application/json")
+            if (body != null) {
+                connection.doOutput = true
+                connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(body) }
+            }
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                connection.errorStream?.close()
+                throw RelayHttpStatusException(status)
+            }
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } finally {
             connection.disconnect()
         }
     }
@@ -86,3 +102,6 @@ class RelayHttpTransportClient(
     private fun encodePathSegment(value: String): String =
         java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
 }
+
+private class RelayHttpStatusException(val status: Int) :
+    IllegalStateException("Relay returned an unsuccessful HTTP status")

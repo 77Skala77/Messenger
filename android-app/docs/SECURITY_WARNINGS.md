@@ -11,8 +11,11 @@ server or privacy audit.
 - Simplified ECDH session setup is not X3DH/PQXDH plus Double Ratchet.
 - Debug relay synchronization is wired, but it exposes queue/timing/size/IP metadata
   and is not a production transport.
-- Failed delivery is persisted and retried while the app is active only. There is no
-  reliable offline/background delivery worker yet.
+- Failed delivery is persisted and can be retried by a WorkManager worker, but
+  background execution is best effort, may be delayed by Android, and is not a
+  guarantee of timely offline delivery.
+- Debug builds permit a user-selected cleartext LAN relay URL for two-device testing.
+  It is not a secure deployment transport and exposes network metadata.
 - New devices can be staged, approved and locally revoked; true per-device sessions,
   cryptographic multi-device fan-out, synchronized revocation, metadata protection,
   app lock, secure backup and attachment handling are incomplete.

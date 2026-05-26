@@ -9,8 +9,10 @@ import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.RelayEncryptedBlob
+import app.securemessenger.domain.PairingStatus
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.domain.VerificationStatus
+import app.securemessenger.domain.pairingStatus
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -107,6 +109,28 @@ class DeliveryPipelineTest {
     }
 
     @Test
+    fun `sync executor retries due outgoing ciphertext through transport boundary`() = runBlocking {
+        var now = 1_000L
+        val fixture = PairedPeers(now = { now })
+        fixture.relay.failNextSends = 1
+        val encrypted = fixture.aliceManager.encryptMessage(fixture.aliceSession, "scheduled".toByteArray(), 12)
+        fixture.aliceStore.enqueue("scheduled-1", fixture.bobContact, encrypted)
+        assertEquals(OutgoingAttemptResult.RETRY_SCHEDULED, fixture.outgoing.attemptMessage("scheduled-1"))
+
+        now = 6_000L
+        val result = DeliverySyncExecutor(
+            outgoing = fixture.outgoing,
+            incoming = fixture.incoming,
+            queueIdProvider = { null },
+            receiveBindingsProvider = { emptyList() },
+        ).synchronizeNow()
+
+        assertEquals(listOf(OutgoingAttemptResult.SENT), result.outgoingResults)
+        assertTrue(result.incomingResults.isEmpty())
+        assertEquals(1, fixture.relay.fetchMessages(BOB_QUEUE).size)
+    }
+
+    @Test
     fun `fan out policy never selects pending revoked changed or secondary devices`() {
         val fixture = PairedPeers()
         val planner = PrimarySessionOnlyFanOutPlanner()
@@ -127,7 +151,25 @@ class DeliveryPipelineTest {
             approvalStatus = DeviceApprovalStatus.VERIFIED,
         )
         assertEquals(1, planner.targetsForSingleDeviceCiphertext(fixture.bobContact, listOf(primary, secondary)).size)
-        assertFalse(ForegroundOnlyDeliveryRegistration().backgroundExecutionEnabled)
+    }
+
+    @Test
+    fun `pairing status remains blocked until a usable reciprocal contact device exists`() {
+        val fixture = PairedPeers()
+
+        assertEquals(PairingStatus.WAITING_FOR_RETURN_INVITATION, pairingStatus(null, emptyList()))
+        assertEquals(PairingStatus.DEVICE_BLOCKED, pairingStatus(fixture.bobContact, emptyList()))
+        assertEquals(
+            PairingStatus.DEVICE_BLOCKED,
+            pairingStatus(
+                fixture.bobContact,
+                listOf(fixture.bobDevice.copy(approvalStatus = DeviceApprovalStatus.REVOKED)),
+            ),
+        )
+        assertEquals(
+            PairingStatus.READY_FOR_CONVERSATION,
+            pairingStatus(fixture.bobContact, listOf(fixture.bobDevice)),
+        )
     }
 
     private class PairedPeers(now: () -> Long = { 1_000L }) {

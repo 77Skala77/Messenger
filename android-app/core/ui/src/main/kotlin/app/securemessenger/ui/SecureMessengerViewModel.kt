@@ -9,8 +9,8 @@ import app.securemessenger.crypto.InvitationCodec
 import app.securemessenger.crypto.PersistentCounterNonceManager
 import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
-import app.securemessenger.delivery.ForegroundOnlyDeliveryRegistration
 import app.securemessenger.delivery.IncomingDeliveryProcessor
+import app.securemessenger.delivery.OutgoingAttemptResult
 import app.securemessenger.delivery.OutgoingDeliveryProcessor
 import app.securemessenger.delivery.PrimarySessionOnlyFanOutPlanner
 import app.securemessenger.delivery.ReceiveBinding
@@ -26,7 +26,9 @@ import app.securemessenger.storage.AndroidKeystoreVaultCipher
 import app.securemessenger.storage.SecureLocalRepository
 import app.securemessenger.storage.SecureMessengerDatabase
 import app.securemessenger.storage.SharedPreferencesNonceStateStore
+import app.securemessenger.transport.RelayHealthStatus
 import app.securemessenger.transport.RelayHttpTransportClient
+import app.securemessenger.transport.RelayServerSettings
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -46,6 +48,7 @@ enum class UiNotice {
     DEVICE_STAGED,
     SESSION_UNAVAILABLE,
     DELIVERY_BLOCKED,
+    SYNC_REQUESTED,
 }
 
 data class SecureMessengerUiState(
@@ -57,6 +60,8 @@ data class SecureMessengerUiState(
     val devices: Map<String, List<ContactDevice>> = emptyMap(),
     val encryptionMode: EncryptionMode = EncryptionMode.STANDARD_AEAD,
     val paranoiaAvailable: Boolean = CryptoFeatureFlags.PARANOIA_C4_AEAD_AVAILABLE,
+    val relayServerUrl: String = RelayServerSettings.DEFAULT_EMULATOR_URL,
+    val relayHealthStatus: RelayHealthStatus? = null,
     val notice: UiNotice? = null,
 )
 
@@ -70,11 +75,13 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         PersistentCounterNonceManager(SharedPreferencesNonceStateStore(application)),
     )
     private val sessionManager = SimplifiedSessionManager(standardAead)
-    private val transport = RelayHttpTransportClient(RELAY_BASE_URL)
+    private val relayServerSettings = RelayServerSettings(application)
+    private val queueIdStore = LocalQueueIdStore(application)
+    private val syncScheduler: DeliverySyncScheduler = WorkManagerDeliverySyncScheduler(application)
+    private var transport = RelayHttpTransportClient(relayServerSettings.currentUrl())
     private val fanOutPlanner = PrimarySessionOnlyFanOutPlanner()
-    private val outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
-    private val incomingDelivery = IncomingDeliveryProcessor(localRepository, transport, sessionManager)
-    private val backgroundDeliveryRegistration = ForegroundOnlyDeliveryRegistration()
+    private var outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
+    private var incomingDelivery = IncomingDeliveryProcessor(localRepository, transport, sessionManager)
     private val sessions = mutableMapOf<String, EstablishedSession>()
     private val sendingMutexes = mutableMapOf<String, Mutex>()
     private val mutationJobs = mutableSetOf<Job>()
@@ -83,7 +90,9 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     private var devicesJob: Job? = null
     private var selectionJob: Job? = null
     private var retryJob: Job? = null
-    private val mutableState = MutableStateFlow(SecureMessengerUiState())
+    private val mutableState = MutableStateFlow(
+        SecureMessengerUiState(relayServerUrl = relayServerSettings.currentUrl()),
+    )
     val state: StateFlow<SecureMessengerUiState> = mutableState.asStateFlow()
 
     init {
@@ -96,6 +105,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 )
                 startIncomingPolling()
                 startForegroundRetryLoop()
+                syncScheduler.ensurePeriodicSync()
             }
             dao.observeContacts().collectLatest { entities ->
                 val contacts = entities.map(localRepository::readContact)
@@ -115,6 +125,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             )
             startIncomingPolling()
             startForegroundRetryLoop()
+            syncScheduler.ensurePeriodicSync()
         }
     }
 
@@ -205,9 +216,44 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 )
                 messageId
             }
-            outgoingDelivery.attemptMessage(id)
-            backgroundDeliveryRegistration.requestRetry()
+            if (outgoingDelivery.attemptMessage(id) == OutgoingAttemptResult.RETRY_SCHEDULED) {
+                syncScheduler.requestRetry()
+            }
         }
+    }
+
+    fun saveRelayServerUrl(url: String) {
+        viewModelScope.launch {
+            val savedUrl = relayServerSettings.saveUrl(url)
+            if (savedUrl == null) {
+                mutableState.value = mutableState.value.copy(relayHealthStatus = RelayHealthStatus.CONNECTION_ERROR)
+                return@launch
+            }
+            receiverJob?.cancelAndJoin()
+            receiverJob = null
+            transport = RelayHttpTransportClient(savedUrl)
+            outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
+            incomingDelivery = IncomingDeliveryProcessor(localRepository, transport, sessionManager)
+            mutableState.value = mutableState.value.copy(relayServerUrl = savedUrl, relayHealthStatus = null)
+            if (mutableState.value.profileCreated) startIncomingPolling()
+        }
+    }
+
+    fun checkRelayServer(url: String) {
+        viewModelScope.launch {
+            val normalized = RelayServerSettings.normalize(url)
+            val status = if (normalized == null) {
+                RelayHealthStatus.CONNECTION_ERROR
+            } else {
+                RelayHttpTransportClient(normalized).checkHealth()
+            }
+            mutableState.value = mutableState.value.copy(relayHealthStatus = status)
+        }
+    }
+
+    fun synchronizeNow() {
+        syncScheduler.synchronizeNow()
+        mutableState.value = mutableState.value.copy(notice = UiNotice.SYNC_REQUESTED)
     }
 
     fun verifySelectedContact() {
@@ -271,12 +317,10 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             mutationJobs.toList().forEach { it.cancelAndJoin() }
             mutationJobs.clear()
             localRepository.wipeLocalData()
+            syncScheduler.cancel()
             identityProvider.deleteIdentity()
             vault.deleteKey()
-            getApplication<Application>().getSharedPreferences("secure_messenger_queue", Application.MODE_PRIVATE)
-                .edit()
-                .clear()
-                .apply()
+            queueIdStore.clear()
             getApplication<Application>().getSharedPreferences("secure_messenger_nonce_state", Application.MODE_PRIVATE)
                 .edit()
                 .clear()
@@ -284,7 +328,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             sessions.values.forEach { it.rootKey.fill(0) }
             sessions.clear()
             sendingMutexes.clear()
-            mutableState.value = SecureMessengerUiState()
+            mutableState.value = SecureMessengerUiState(relayServerUrl = relayServerSettings.currentUrl())
         }
     }
 
@@ -300,13 +344,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         super.onCleared()
     }
 
-    private fun localQueueId(): String {
-        val preferences = getApplication<Application>()
-            .getSharedPreferences("secure_messenger_queue", Application.MODE_PRIVATE)
-        return preferences.getString("local_queue_id", null) ?: UUID.randomUUID().toString().also {
-            preferences.edit().putString("local_queue_id", it).apply()
-        }
-    }
+    private fun localQueueId(): String = queueIdStore.getOrCreateQueueId()
 
     private fun startIncomingPolling() {
         if (receiverJob != null) return
@@ -380,7 +418,9 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         retryJob = viewModelScope.launch {
             while (true) {
                 try {
-                    outgoingDelivery.retryDueMessages()
+                    if (outgoingDelivery.retryDueMessages().any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
+                        syncScheduler.requestRetry()
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -398,6 +438,5 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     private companion object {
         const val TIMESTAMP_BUCKET_MILLIS = 60_000L
         const val RETRY_POLL_INTERVAL_MILLIS = 15_000L
-        const val RELAY_BASE_URL = "http://127.0.0.1:8787"
     }
 }

@@ -165,15 +165,24 @@ class IncomingDeliveryProcessor(
 }
 
 /**
- * Explicit hook for replacing foreground retries with WorkManager later.
- * It reports that background execution is absent; it must not imply reliable offline delivery.
+ * Platform schedulers invoke this boundary without learning plaintext or cryptographic material.
+ * Existing processors preserve authenticate-before-store and durable retry semantics.
  */
-interface BackgroundDeliveryRegistration {
-    val backgroundExecutionEnabled: Boolean
-    fun requestRetry()
+class DeliverySyncExecutor(
+    private val outgoing: OutgoingDeliveryProcessor,
+    private val incoming: IncomingDeliveryProcessor,
+    private val queueIdProvider: suspend () -> String?,
+    private val receiveBindingsProvider: suspend () -> List<ReceiveBinding>,
+) {
+    suspend fun synchronizeNow(): DeliverySyncResult {
+        val outgoingResults = outgoing.retryDueMessages()
+        val queueId = queueIdProvider() ?: return DeliverySyncResult(outgoingResults, emptyList())
+        val incomingResults = incoming.fetchAndProcess(queueId, receiveBindingsProvider())
+        return DeliverySyncResult(outgoingResults, incomingResults)
+    }
 }
 
-class ForegroundOnlyDeliveryRegistration : BackgroundDeliveryRegistration {
-    override val backgroundExecutionEnabled: Boolean = false
-    override fun requestRetry() = Unit
-}
+data class DeliverySyncResult(
+    val outgoingResults: List<OutgoingAttemptResult>,
+    val incomingResults: List<IncomingResult>,
+)

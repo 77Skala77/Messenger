@@ -39,6 +39,7 @@ may occur without notice. Pinning and migration tests are mandatory.
 | Lifecycle | 2.8.2 | 2.10.0 | Defer controlled lifecycle/background-sync review. |
 | Room | 2.6.1 | 2.8.4 | Defer until migration/instrumentation matrix is expanded. |
 | Coroutines | 1.8.1 | 1.11.0 | Defer together with Kotlin migration. |
+| WorkManager | 2.9.1 | 2.11.1 | Pin compatible stable baseline for best-effort delivery worker; review during toolchain upgrade. |
 | ZXing Embedded | 4.3.0 | 4.3.0 | No newer release observed. |
 | Official libsignal | gated only: 0.94.1 | 0.94.1 | Compiles in disabled boundary; not shipped in app path. |
 
@@ -47,8 +48,10 @@ only stable versions were considered for the snapshot.
 
 ## Hardening Actions Implemented
 
-- Release network security policy rejects cleartext traffic; localhost HTTP relay is
-  overridden only for debug development.
+- Release network security policy rejects cleartext traffic; a user-selected HTTP
+  LAN relay is permitted only for debug two-device development verification.
+- WorkManager schedules best-effort encrypted delivery synchronization with network
+  constraints and exponential retry; it provides no timely-delivery assurance.
 - Release build enables R8 minification and resource shrinking.
 - GitHub Actions performs app build/lint/unit tests, relay tests and Android emulator
   language/Room/Keystore tests.
@@ -66,4 +69,5 @@ only stable versions were considered for the snapshot.
 - Signal official Maven repository: <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/maven-metadata.xml>
 - Spike-specific toolchain findings: [LIBSIGNAL_TOOLCHAIN_REVIEW.md](LIBSIGNAL_TOOLCHAIN_REVIEW.md)
 - Android/AndroidX official Maven metadata: <https://dl.google.com/dl/android/maven2/master-index.xml>
+- WorkManager release notes and scheduling constraints: <https://developer.android.com/jetpack/androidx/releases/work>
 - Maven Central metadata for Kotlin, Coroutines and ZXing: <https://repo1.maven.org/maven2/>

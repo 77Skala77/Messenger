@@ -27,6 +27,12 @@ enum class DeviceApprovalStatus {
     REVOKED,
 }
 
+enum class PairingStatus {
+    WAITING_FOR_RETURN_INVITATION,
+    READY_FOR_CONVERSATION,
+    DEVICE_BLOCKED,
+}
+
 data class DevicePublicIdentity(
     val deviceId: String,
     val encodedPublicKey: ByteArray,
@@ -54,6 +60,21 @@ data class ContactDevice(
     val approvalStatus: DeviceApprovalStatus,
     val firstSeenEpochMillis: Long,
 )
+
+fun pairingStatus(contact: Contact?, devices: List<ContactDevice>): PairingStatus {
+    if (contact == null) return PairingStatus.WAITING_FOR_RETURN_INVITATION
+    val primary = devices.firstOrNull { it.identity.deviceId == contact.identity.deviceId }
+        ?: return PairingStatus.DEVICE_BLOCKED
+    return when (primary.approvalStatus) {
+        DeviceApprovalStatus.PENDING_APPROVAL,
+        DeviceApprovalStatus.KEY_CHANGED,
+        DeviceApprovalStatus.REVOKED,
+        -> PairingStatus.DEVICE_BLOCKED
+        DeviceApprovalStatus.PRIMARY_UNVERIFIED,
+        DeviceApprovalStatus.VERIFIED,
+        -> PairingStatus.READY_FOR_CONVERSATION
+    }
+}
 
 data class ConversationSummary(
     val contact: Contact,

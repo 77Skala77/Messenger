@@ -117,6 +117,9 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM contacts ORDER BY contactId")
     fun observeContacts(): Flow<List<ContactEntity>>
 
+    @Query("SELECT * FROM contacts ORDER BY contactId")
+    suspend fun getContactsSnapshot(): List<ContactEntity>
+
     @Query("SELECT * FROM contacts WHERE contactId = :contactId LIMIT 1")
     suspend fun getContact(contactId: String): ContactEntity?
 
@@ -287,6 +290,8 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
         fun create(context: Context): SecureMessengerDatabase =
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                // Worker and foreground UI may hold separate Room instances in one process.
+                .enableMultiInstanceInvalidation()
                 .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {

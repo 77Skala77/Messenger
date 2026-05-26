@@ -31,7 +31,8 @@ it is not an assurance report.
 - A device compromised while unlocked or a malicious operating system.
 - Screenshots, keyboard collection, notification leakage, or memory inspection.
 - Cryptographic multi-device delivery fan-out, synchronized revocation and cross-device state synchronization.
-- Delivery while the application is not active; only foreground retry coordination is implemented.
+- Prompt delivery while the application is not active; WorkManager synchronization
+  is best effort and Android may postpone it.
 - Forward secrecy and post-compromise recovery equivalent to Double Ratchet.
 - Authenticity of an invitation acquired over an untrusted channel before the user
   compares its safety number.
@@ -54,8 +55,9 @@ arrival/retrieval times, approximate message sizes and network-layer source data
 Relay denial of service, deletion, withholding and traffic analysis remain possible.
 Malformed unauthenticated blobs are retained rather than acknowledged, so an abusive
 relay or sender can also deny delivery by filling a queue.
-The runnable endpoint is limited to a localhost debug development transport; it is
-not a deployable anonymity or production relay design.
+The runnable endpoint is a debug development transport that may be exposed on a
+local Wi-Fi network for physical-device testing. Cleartext LAN transport and a
+user-configured endpoint are not a deployable anonymity or production relay design.
 
 ## Device Compromise
 

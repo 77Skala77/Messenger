@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-    <!-- Development-only relay reached over adb reverse; release does not permit it. -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <!-- Development-only LAN relay with a user-supplied IP; release still denies cleartext. -->
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

@@ -8,6 +8,10 @@ export function createRelayServer({ store = new RelayStore() } = {}) {
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     try {
       const url = new URL(request.url, "http://relay.invalid");
+      if (request.method === "GET" && url.pathname === "/health") {
+        respond(response, 200, { status: "ok" });
+        return;
+      }
       if (request.method === "POST" && url.pathname === "/v1/messages") {
         const input = JSON.parse(await readJsonBody(request));
         const record = store.put(input);
@@ -54,9 +58,10 @@ function respond(response, status, value) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT || 8787);
+  const host = process.env.HOST || "0.0.0.0";
   const server = createRelayServer();
-  server.listen(port, "127.0.0.1", () => {
+  server.listen(port, host, () => {
     // Do not log message bodies, queue IDs, keys, or ciphertext envelopes.
-    console.info(`Relay listening on http://127.0.0.1:${port}`);
+    console.info(`Relay listening on ${host}:${port}`);
   });
 }

@@ -22,6 +22,12 @@
 | Safety Number | Контрольный код безопасности |
 | Verified / Unverified | Проверено / Не проверено |
 | Key Changed | Ключ изменён |
+| Relay Server | Сервер доставки |
+| Relay server available / unavailable | Сервер доступен / Сервер недоступен |
+| Synchronize now | Синхронизировать сейчас |
+| Waiting for return invitation | Ожидает обратное приглашение |
+| Ready for conversation | Готово к переписке |
+| Device blocked | Устройство заблокировано |
 | Delete Local Data | Удалить локальные данные |
 
 ## Localization Checklist
@@ -31,6 +37,7 @@
 - Review Russian warnings with a native speaker for clarity and seriousness.
 - Verify onboarding, empty states, errors, buttons, content descriptions and dialogs.
 - Verify security-status and message-status wording in both languages.
+- Verify relay URL, health status, synchronization and two-way pairing wording.
 - Test first launch defaults to Russian on an English-configured emulator.
 - Test manual switch to English, process restart, and return to Russian.
 - Check text wrapping on narrow screens and larger accessibility font sizes.

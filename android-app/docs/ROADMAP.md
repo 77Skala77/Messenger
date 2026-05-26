@@ -6,10 +6,11 @@
 - Working standard payload AEAD, encrypted-at-rest records and opaque relay prototype.
 - Security tests, threat model and explicit placeholder boundaries.
 - Completed in prototype: debug relay send/fetch/delete pipeline, durable session
-  counters/replay state, durable outgoing retry metadata with foreground retries,
-  fail-closed local device delivery policy, and emulator CI coverage.
-- Explicitly deferred: WorkManager/offline synchronization and cryptographic
-  multi-device fan-out require reviewed session semantics first.
+  counters/replay state, durable outgoing retry metadata, WorkManager best-effort
+  sync, configurable LAN relay health checking, fail-closed local device delivery
+  policy, and emulator CI coverage.
+- Explicitly deferred: guaranteed delivery semantics and cryptographic multi-device
+  fan-out require reviewed session semantics first.
 
 ## Phase 2: Reviewed Session Protocol
 

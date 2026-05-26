@@ -20,9 +20,12 @@ class LocalizationResourcesTest {
     @Test
     fun `compose source does not embed visible text literals or logging`() {
         val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val workerSource = File("src/main/kotlin/app/securemessenger/ui/RelayBackgroundSync.kt").readText()
         assertFalse(source.contains("Text(\""))
         assertFalse(source.contains("android.util.Log"))
         assertFalse(source.contains("println("))
+        assertFalse(workerSource.contains("android.util.Log"))
+        assertFalse(workerSource.contains("println("))
     }
 
     @Test
@@ -32,6 +35,25 @@ class LocalizationResourcesTest {
         assertTrue(source.contains("SimplifiedSessionManager"))
         assertFalse(source.contains("SignalSessionManagerAdapter"))
         assertFalse(source.contains("SignalStoreFeatureFlags"))
+    }
+
+    @Test
+    fun `relay and pairing labels exist in localized resources`() {
+        val expected = setOf(
+            "relay_server",
+            "relay_server_url",
+            "check_relay_server",
+            "relay_available",
+            "relay_unavailable",
+            "relay_connection_error",
+            "synchronize_now",
+            "pairing_waiting",
+            "pairing_ready",
+            "pairing_blocked",
+        )
+
+        assertTrue(resourceNames(File("src/main/res/values/strings.xml")).containsAll(expected))
+        assertTrue(resourceNames(File("src/main/res/values-ru/strings.xml")).containsAll(expected))
     }
 
     private fun resourceNames(file: File): Set<String> {

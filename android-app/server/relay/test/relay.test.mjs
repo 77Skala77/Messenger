@@ -3,6 +3,17 @@ import { test } from "node:test";
 import { RelayStore } from "../src/relay-store.mjs";
 import { createRelayServer } from "../src/server.mjs";
 
+test("reports health without requiring message content", async () => {
+  const server = createRelayServer();
+  await listen(server);
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const response = await fetch(`${base}/health`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok" });
+  server.close();
+});
+
 test("stores only an opaque envelope and deletes delivered messages", async () => {
   const server = createRelayServer();
   await listen(server);

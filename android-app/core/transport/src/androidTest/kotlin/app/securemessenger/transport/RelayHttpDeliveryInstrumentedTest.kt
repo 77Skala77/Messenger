@@ -1,5 +1,7 @@
 package app.securemessenger.transport
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.securemessenger.crypto.EncryptedSessionMessage
 import app.securemessenger.crypto.EstablishedSession
@@ -30,13 +32,27 @@ import org.junit.runner.RunWith
 class RelayHttpDeliveryInstrumentedTest {
     @Test
     fun twoPeersDeliverAuthenticatedMessageViaNodeRelay() = runBlocking {
-        val transport = RelayHttpTransportClient("http://127.0.0.1:8787")
+        val preferences = ApplicationProvider.getApplicationContext<Context>()
+            .getSharedPreferences("delivery_relay_endpoint_test", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val settings = RelayServerSettings(preferences)
+        settings.saveUrl("http://127.0.0.1:8787")
+        val transport = RelayHttpTransportClient(settings.currentUrl())
         val bobQueue = "instrumented-bob-${UUID.randomUUID()}"
         try {
             transport.fetchMessages(bobQueue)
         } catch (unavailable: Exception) {
             assumeNoException("Start the local Node relay and run adb reverse tcp:8787 tcp:8787", unavailable)
         }
+        assertEquals(RelayHealthStatus.AVAILABLE, transport.checkHealth())
+        assertEquals(
+            RelayHealthStatus.UNAVAILABLE,
+            RelayHttpTransportClient("http://127.0.0.1:8787/not-an-endpoint").checkHealth(),
+        )
+        assertEquals(
+            RelayHealthStatus.CONNECTION_ERROR,
+            RelayHttpTransportClient("http://127.0.0.1:1").checkHealth(),
+        )
         val aliceManager = SimplifiedSessionManager(StandardAead())
         val bobManager = SimplifiedSessionManager(StandardAead())
         val alice = aliceManager.createIdentity()

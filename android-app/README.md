@@ -22,12 +22,17 @@ default in-app language; English is available from Settings.
   recorded with their replay marker before they are deleted from the relay while the
   app process is active.
 - Durable pending/failed outgoing state with attempt count and exponential retry metadata.
-  A foreground-only retry coordinator resends due ciphertext without logging its contents.
+  Foreground polling and WorkManager best-effort synchronization resend due ciphertext
+  without logging its contents.
 - A two-peer integration test exercises reciprocal invitations, encrypted relay delivery,
   authenticated receive/storage/delete, duplicate replay suppression and tamper rejection.
 - Room persistence with no plaintext message column; profile name and session state
   are encrypted with a Keystore-backed local vault key. Session send counters survive restart.
-- Abstract transport client and a minimal Node relay with opaque blobs, delivery deletion, and TTL.
+- Saved per-device development relay URL, `/health` availability check and manual
+  synchronization action. The emulator default is `http://10.0.2.2:8787`; a
+  physical device can use a laptop LAN address supplied in Settings.
+- Abstract transport client and a minimal Node relay with opaque blobs, delivery
+  deletion, TTL, `/health`, and LAN development binding.
 - Explicit device states (`pending`, `verified`, `revoked`, `key_changed`). The current
   single-device delivery policy fails closed for pending, revoked, changed or missing
   primary device state and never silently fans out to a secondary device.
@@ -48,10 +53,12 @@ default in-app language; English is available from Settings.
 - Proper per-device session fan-out, app lock, biometric unlock, encrypted backup,
   attachments, and secure wipe are not implemented. Revocation is local delivery blocking,
   not synchronized protocol revocation.
-- Retry metadata and foreground retries are implemented, but `WorkManager`/offline
-  background delivery is still a deliberately explicit placeholder.
-- The active relay URL is a debug-only localhost development endpoint. Release builds
-  disallow cleartext networking and do not yet have a production transport configuration.
+- WorkManager sync is implemented for due outgoing retry and incoming fetch, but it
+  is best effort and may be delayed by Android power management. It is not an
+  assurance of timely delivery.
+- The user-selected HTTP relay URL is allowed only by the debug development policy.
+  Release builds disallow cleartext networking and do not yet have a production
+  transport configuration.
 - Room stores ciphertext rather than using SQLCipher; routing AAD and database shape still
   expose local metadata.
 - Android secure deletion cannot guarantee erasure of historical flash-storage blocks.
@@ -105,19 +112,23 @@ node --test
 node src/server.mjs
 ```
 
-For an attached Android device, expose only the local development relay through ADB:
+The development server listens on `0.0.0.0:8787` so physical devices on the same
+test Wi-Fi network can enter the laptop LAN URL in `Настройки` -> `Сервер доставки`,
+for example `http://192.168.1.45:8787`. The emulator default is
+`http://10.0.2.2:8787`. For a single attached Android device, an optional USB route is:
 
 ```bash
 adb reverse tcp:8787 tcp:8787
 ```
 
-The debug app then reaches `http://127.0.0.1:8787`; the release network policy
-does not allow this cleartext endpoint. The relay implements:
+With that USB route, set the debug app URL to `http://127.0.0.1:8787`. The release
+network policy does not allow cleartext endpoints. The relay implements:
 
 ```text
 POST   /v1/messages
 GET    /v1/messages/{queueId}
 DELETE /v1/messages/{messageId}
+GET    /health
 ```
 
 The service stores opaque ciphertext envelopes and expiration timestamps only. In
@@ -127,6 +138,8 @@ An invitation advertises its creator's receive queue. Consequently, bidirectiona
 testing requires reciprocal invitation import: B imports A's invitation to send to A,
 and A imports B's invitation to send to B. The delivery integration test uses this
 two-way setup rather than treating one invitation as a global contact address.
+See [docs/TWO_DEVICE_TEST.md](docs/TWO_DEVICE_TEST.md) for the physical two-device
+LAN verification procedure and its security limitations.
 
 ## Localization
 
@@ -150,4 +163,5 @@ See [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for the checklist.
 - [Signal Migration Spike](docs/SIGNAL_MIGRATION_SPIKE.md)
 - [libsignal Toolchain Review](docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md)
 - [MVP Delivery Baseline](docs/MVP_DELIVERY_BASELINE.md)
+- [Two Device Test](docs/TWO_DEVICE_TEST.md)
 - [Audit Readiness](docs/AUDIT_READINESS.md)

@@ -48,9 +48,10 @@ envelope is deleted only after that transaction succeeds, or after a later deliv
 recognized as an already durably accepted authenticated replay.
 
 Outgoing ciphertext is stored as `PENDING` before a relay attempt. Network failures
-retain it as `FAILED` with durable attempt count and next-retry timestamp. The current
-coordinator retries while the app process is active; reliable offline/background
-scheduling remains outside this prototype boundary.
+retain it as `FAILED` with durable attempt count and next-retry timestamp. Foreground
+polling and WorkManager best-effort sync call the same delivery boundary. This is a
+transport reliability mechanism, not a cryptographic ratchet property or a timely
+delivery guarantee.
 
 ## Signal Protocol Migration Gate
 

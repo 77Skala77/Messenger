@@ -52,7 +52,10 @@ import app.securemessenger.domain.ContactDevice
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.DisplayMessage
 import app.securemessenger.domain.MessageStatus
+import app.securemessenger.domain.PairingStatus
 import app.securemessenger.domain.VerificationStatus
+import app.securemessenger.domain.pairingStatus
+import app.securemessenger.transport.RelayHealthStatus
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.journeyapps.barcodescanner.ScanContract
@@ -77,6 +80,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val deviceStaged = stringResource(R.string.device_staged_notice)
     val sessionUnavailable = stringResource(R.string.session_unavailable)
     val deliveryBlocked = stringResource(R.string.delivery_blocked_notice)
+    val syncRequested = stringResource(R.string.sync_requested_notice)
 
     LaunchedEffect(state.profileCreated) {
         if (state.profileCreated && screen == Screen.ONBOARDING) screen = Screen.HOME
@@ -88,6 +92,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
             UiNotice.DEVICE_STAGED -> deviceStaged
             UiNotice.SESSION_UNAVAILABLE -> sessionUnavailable
             UiNotice.DELIVERY_BLOCKED -> deliveryBlocked
+            UiNotice.SYNC_REQUESTED -> syncRequested
             null -> null
         }
         if (notice != null) {
@@ -147,7 +152,12 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         }
                     }
                     Screen.SETTINGS -> SettingsScreen(
+                        relayServerUrl = state.relayServerUrl,
+                        relayHealthStatus = state.relayHealthStatus,
                         onBack = { screen = Screen.HOME },
+                        onSaveRelayUrl = viewModel::saveRelayServerUrl,
+                        onCheckRelay = viewModel::checkRelayServer,
+                        onSynchronizeNow = viewModel::synchronizeNow,
                         onDeleteLocalData = {
                             viewModel.deleteLocalData()
                             screen = Screen.ONBOARDING
@@ -247,6 +257,14 @@ private fun AddContactScreen(
                 Text(stringResource(R.string.invitation_explanation))
             }
             item {
+                Text(stringResource(R.string.two_way_pairing_title), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.two_way_pairing_explanation))
+                Text(
+                    pairingStatusLabel(PairingStatus.WAITING_FOR_RETURN_INVITATION),
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            item {
                 QrCode(invitationCode, stringResource(R.string.invitation_qr_content_description))
             }
             item {
@@ -323,6 +341,14 @@ private fun ConversationScreen(
                 ),
                 fontWeight = FontWeight.Bold,
             )
+            Text(
+                stringResource(
+                    R.string.pairing_status_format,
+                    pairingStatusLabel(pairingStatus(contact, devices)),
+                ),
+                fontWeight = FontWeight.Bold,
+            )
+            Text(stringResource(R.string.pairing_ready_scope_notice), style = MaterialTheme.typography.bodySmall)
             if (contact.verificationStatus == VerificationStatus.KEY_CHANGED) {
                 SecurityWarning(stringResource(R.string.key_changed_warning))
             } else if (contact.verificationStatus != VerificationStatus.VERIFIED) {
@@ -479,10 +505,19 @@ private fun ContactSecurityScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsScreen(onBack: () -> Unit, onDeleteLocalData: () -> Unit) {
+private fun SettingsScreen(
+    relayServerUrl: String,
+    relayHealthStatus: RelayHealthStatus?,
+    onBack: () -> Unit,
+    onSaveRelayUrl: (String) -> Unit,
+    onCheckRelay: (String) -> Unit,
+    onSynchronizeNow: () -> Unit,
+    onDeleteLocalData: () -> Unit,
+) {
     val context = LocalContext.current
     var selectedLanguage by remember { mutableStateOf(LanguageController.selected(context)) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var relayUrlInput by remember(relayServerUrl) { mutableStateOf(relayServerUrl) }
     Scaffold(topBar = { NavigationTopBar(stringResource(R.string.settings), onBack) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -513,6 +548,32 @@ private fun SettingsScreen(onBack: () -> Unit, onDeleteLocalData: () -> Unit) {
                 ) {}
                 SecurityWarning(stringResource(R.string.c4_warning))
                 Text(stringResource(R.string.c4_disabled), style = MaterialTheme.typography.bodySmall)
+            }
+            item { Text(stringResource(R.string.relay_server), style = MaterialTheme.typography.titleLarge) }
+            item {
+                Text(stringResource(R.string.relay_server_explanation))
+                OutlinedTextField(
+                    value = relayUrlInput,
+                    onValueChange = { relayUrlInput = it },
+                    label = { Text(stringResource(R.string.relay_server_url)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(stringResource(R.string.relay_server_example), style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onSaveRelayUrl(relayUrlInput) }) {
+                        Text(stringResource(R.string.save_relay_server))
+                    }
+                    OutlinedButton(onClick = { onCheckRelay(relayUrlInput) }) {
+                        Text(stringResource(R.string.check_relay_server))
+                    }
+                }
+                if (relayHealthStatus != null) {
+                    Text(relayHealthLabel(relayHealthStatus), fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(onClick = onSynchronizeNow) {
+                    Text(stringResource(R.string.synchronize_now))
+                }
+                Text(stringResource(R.string.background_sync_notice), style = MaterialTheme.typography.bodySmall)
             }
             item { Text(stringResource(R.string.storage_title), style = MaterialTheme.typography.titleLarge) }
             item {
@@ -620,4 +681,18 @@ private fun messageStatusLabel(status: MessageStatus): String = when (status) {
     MessageStatus.SENT -> stringResource(R.string.status_sent)
     MessageStatus.RECEIVED -> stringResource(R.string.status_received)
     MessageStatus.FAILED -> stringResource(R.string.status_failed)
+}
+
+@Composable
+private fun pairingStatusLabel(status: PairingStatus): String = when (status) {
+    PairingStatus.WAITING_FOR_RETURN_INVITATION -> stringResource(R.string.pairing_waiting)
+    PairingStatus.READY_FOR_CONVERSATION -> stringResource(R.string.pairing_ready)
+    PairingStatus.DEVICE_BLOCKED -> stringResource(R.string.pairing_blocked)
+}
+
+@Composable
+private fun relayHealthLabel(status: RelayHealthStatus): String = when (status) {
+    RelayHealthStatus.AVAILABLE -> stringResource(R.string.relay_available)
+    RelayHealthStatus.UNAVAILABLE -> stringResource(R.string.relay_unavailable)
+    RelayHealthStatus.CONNECTION_ERROR -> stringResource(R.string.relay_connection_error)
 }
