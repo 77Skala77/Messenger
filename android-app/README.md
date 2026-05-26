@@ -65,6 +65,13 @@ Install on an API 31+ emulator or device:
 
 The generated debug APK is under `app/build/outputs/apk/debug/`.
 
+With a USB-debugging device connected, run the instrumented checks for saved
+language selection and Android Keystore behavior:
+
+```bash
+./gradlew :core:ui:connectedDebugAndroidTest :core:storage:connectedDebugAndroidTest
+```
+
 ## Run Relay Server
 
 The relay has no dependencies beyond Node.js 20+:

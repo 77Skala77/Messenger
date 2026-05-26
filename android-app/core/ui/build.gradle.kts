@@ -6,7 +6,10 @@ plugins {
 android {
     namespace = "app.securemessenger.ui"
     compileSdk = 34
-    defaultConfig { minSdk = 31 }
+    defaultConfig {
+        minSdk = 31
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
     compileOptions {
@@ -35,4 +38,5 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }
