@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.SecureMessenger" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.SecureMessenger" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#335C67</item>
     </style>

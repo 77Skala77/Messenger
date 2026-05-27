@@ -4,7 +4,8 @@
 
 - Russian (`values-ru/strings.xml`) is the default first-launch language.
 - English (`values/strings.xml`) is the secondary supported language.
-- Settings allows an explicit user selection; it is saved locally and applied after restart.
+- Settings allows an explicit user selection; it is saved locally, applied immediately
+  through the AppCompat per-app locale host, and restored after restart.
 - The system locale is not allowed to override the Russian default before the user chooses.
 - All visible Compose text and security notices must resolve from Android string resources.
 
@@ -40,5 +41,6 @@
 - Verify relay URL, health status, synchronization and two-way pairing wording.
 - Test first launch defaults to Russian on an English-configured emulator.
 - Test manual switch to English, process restart, and return to Russian.
+- Test that the whole language-option row is clickable, including its text and radio-circle area.
 - Check text wrapping on narrow screens and larger accessibility font sizes.
 - Keep diagnostics and experimental-mode warnings translated together with feature work.

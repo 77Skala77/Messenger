@@ -158,12 +158,17 @@ Clearing diagnostics removes technical history but does not silently change pair
 
 The UI defaults to Russian on first start, even on a non-Russian system locale.
 Open `Настройки` and select `English` to switch; the choice is stored locally and
-applied after restart. UI text is kept in Android resource files:
+applied immediately and after restart. Each language option row is clickable across
+its full width, including its label and radio indicator. UI text is kept in Android
+resource files:
 
 - `core/ui/src/main/res/values-ru/strings.xml` - Russian.
 - `core/ui/src/main/res/values/strings.xml` - English.
 
 See [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for the checklist.
+
+QR invitation import and QR safety verification launch a dedicated portrait-only
+scanner activity. The rest of the messenger is not orientation-locked.
 
 ## Documentation
 

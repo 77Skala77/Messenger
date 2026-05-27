@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +47,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,7 +66,6 @@ import app.securemessenger.transport.RelayHealthStatus
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 
 private enum class Screen {
     ONBOARDING,
@@ -287,10 +290,7 @@ private fun AddContactScreen(
                 OutlinedButton(
                     onClick = {
                         scanner.launch(
-                            ScanOptions()
-                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                .setPrompt(scanPrompt)
-                                .setBeepEnabled(false),
+                            portraitQrScanOptions(scanPrompt),
                         )
                     },
                 ) { Text(stringResource(R.string.scan_invitation)) }
@@ -470,10 +470,7 @@ private fun ContactSecurityScreen(
                 OutlinedButton(
                     onClick = {
                         scanner.launch(
-                            ScanOptions()
-                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                .setPrompt(scanPrompt)
-                                .setBeepEnabled(false),
+                            portraitQrScanOptions(scanPrompt),
                         )
                     },
                 ) { Text(stringResource(R.string.scan_verification)) }
@@ -553,27 +550,44 @@ private fun SettingsScreen(
         ) {
             item { Text(stringResource(R.string.language), style = MaterialTheme.typography.titleLarge) }
             item {
-                LanguageChoice(stringResource(R.string.russian), selectedLanguage == AppLanguage.RUSSIAN) {
-                    selectedLanguage = AppLanguage.RUSSIAN
-                    LanguageController.select(context, selectedLanguage)
-                }
-                LanguageChoice(stringResource(R.string.english), selectedLanguage == AppLanguage.ENGLISH) {
-                    selectedLanguage = AppLanguage.ENGLISH
-                    LanguageController.select(context, selectedLanguage)
+                Column(Modifier.selectableGroup()) {
+                    SelectableOptionRow(
+                        label = stringResource(R.string.russian),
+                        selected = selectedLanguage == AppLanguage.RUSSIAN,
+                        modifier = Modifier.testTag("language_option_ru"),
+                    ) {
+                        selectedLanguage = AppLanguage.RUSSIAN
+                        LanguageController.select(context, selectedLanguage)
+                    }
+                    SelectableOptionRow(
+                        label = stringResource(R.string.english),
+                        selected = selectedLanguage == AppLanguage.ENGLISH,
+                        modifier = Modifier.testTag("language_option_en"),
+                    ) {
+                        selectedLanguage = AppLanguage.ENGLISH
+                        LanguageController.select(context, selectedLanguage)
+                    }
                 }
             }
             item { Text(stringResource(R.string.encryption_suite), style = MaterialTheme.typography.titleLarge) }
             item {
-                LanguageChoice(stringResource(R.string.standard_aead), selected = true) {}
-                LanguageChoice(
-                    stringResource(
-                        R.string.experimental_suite_format,
-                        stringResource(R.string.paranoia_c4_aead),
-                        stringResource(R.string.experimental_mode),
-                    ),
-                    selected = false,
-                    enabled = false,
-                ) {}
+                Column(Modifier.selectableGroup()) {
+                    SelectableOptionRow(
+                        label = stringResource(R.string.standard_aead),
+                        selected = true,
+                        modifier = Modifier.testTag("encryption_option_standard"),
+                    ) {}
+                    SelectableOptionRow(
+                        label = stringResource(
+                            R.string.experimental_suite_format,
+                            stringResource(R.string.paranoia_c4_aead),
+                            stringResource(R.string.experimental_mode),
+                        ),
+                        selected = false,
+                        enabled = false,
+                        modifier = Modifier.testTag("encryption_option_paranoia_c4"),
+                    ) {}
+                }
                 SecurityWarning(stringResource(R.string.c4_warning))
                 Text(stringResource(R.string.c4_disabled), style = MaterialTheme.typography.bodySmall)
             }
@@ -772,10 +786,30 @@ private fun diagnosticReport(diagnostics: SafeDiagnosticsSnapshot): String = Saf
 )
 
 @Composable
-private fun LanguageChoice(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
-        Text(label, color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant)
+internal fun SelectableOptionRow(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onSelected: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onClick = onSelected,
+            )
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Text(
+            label,
+            color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

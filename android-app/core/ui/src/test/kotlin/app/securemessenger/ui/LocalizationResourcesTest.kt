@@ -82,6 +82,32 @@ class LocalizationResourcesTest {
         assertTrue(debugPolicy.contains("<bool name=\"allow_insecure_relay_http\">true</bool>"))
     }
 
+    @Test
+    fun `settings use fully selectable option rows and portrait scanner options`() {
+        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val scanner = File("src/main/kotlin/app/securemessenger/ui/PortraitQrCaptureActivity.kt").readText()
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+
+        assertTrue(source.contains("SelectableOptionRow("))
+        assertTrue(source.contains(".selectable("))
+        assertTrue(source.contains("role = Role.RadioButton"))
+        assertTrue(source.contains("RadioButton(selected = selected, onClick = null"))
+        assertEquals(2, Regex("portraitQrScanOptions\\(scanPrompt\\)").findAll(source).count())
+        assertTrue(scanner.contains("setOrientationLocked(true)"))
+        assertTrue(scanner.contains("setCaptureActivity(PortraitQrCaptureActivity::class.java)"))
+        assertTrue(manifest.contains("android:screenOrientation=\"portrait\""))
+    }
+
+    @Test
+    fun `app locale host is appcompat activity without locking messenger orientation`() {
+        val activity = File("../../app/src/main/kotlin/app/securemessenger/MainActivity.kt").readText()
+        val appManifest = File("../../app/src/main/AndroidManifest.xml").readText()
+
+        assertTrue(activity.contains("AppCompatActivity"))
+        assertFalse(appManifest.contains("android:name=\".MainActivity\"\n            android:screenOrientation"))
+        assertTrue(appManifest.contains("android.permission.CAMERA"))
+    }
+
     private fun resourceNames(file: File): Set<String> {
         val document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
         val strings = document.getElementsByTagName("string")
