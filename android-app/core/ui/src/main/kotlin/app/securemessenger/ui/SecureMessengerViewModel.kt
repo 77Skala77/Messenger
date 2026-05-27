@@ -10,17 +10,21 @@ import app.securemessenger.crypto.PersistentCounterNonceManager
 import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
 import app.securemessenger.delivery.IncomingDeliveryProcessor
+import app.securemessenger.delivery.IncomingResult
 import app.securemessenger.delivery.OutgoingAttemptResult
 import app.securemessenger.delivery.OutgoingDeliveryProcessor
 import app.securemessenger.delivery.PrimarySessionOnlyFanOutPlanner
 import app.securemessenger.delivery.ReceiveBinding
 import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
+import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.DisplayMessage
 import app.securemessenger.domain.EncryptionMode
 import app.securemessenger.domain.MessageStatus
+import app.securemessenger.domain.PairingStatus
 import app.securemessenger.domain.RelayEncryptedBlob
 import app.securemessenger.domain.VerificationStatus
+import app.securemessenger.domain.pairingStatus
 import app.securemessenger.storage.AndroidKeystoreIdentityProvider
 import app.securemessenger.storage.AndroidKeystoreVaultCipher
 import app.securemessenger.storage.SecureLocalRepository
@@ -62,6 +66,8 @@ data class SecureMessengerUiState(
     val paranoiaAvailable: Boolean = CryptoFeatureFlags.PARANOIA_C4_AEAD_AVAILABLE,
     val relayServerUrl: String = RelayServerSettings.DEFAULT_EMULATOR_URL,
     val relayHealthStatus: RelayHealthStatus? = null,
+    val allowInsecureRelayHttp: Boolean = false,
+    val diagnostics: SafeDiagnosticsSnapshot = SafeDiagnosticsSnapshot(),
     val notice: UiNotice? = null,
 )
 
@@ -75,9 +81,11 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         PersistentCounterNonceManager(SharedPreferencesNonceStateStore(application)),
     )
     private val sessionManager = SimplifiedSessionManager(standardAead)
-    private val relayServerSettings = RelayServerSettings(application)
+    private val allowInsecureRelayHttp = application.resources.getBoolean(R.bool.allow_insecure_relay_http)
+    private val relayServerSettings = RelayServerSettings(application, allowInsecureRelayHttp)
+    private val diagnosticsStore = SafeDeliveryDiagnosticsStore(application)
     private val queueIdStore = LocalQueueIdStore(application)
-    private val syncScheduler: DeliverySyncScheduler = WorkManagerDeliverySyncScheduler(application)
+    private val syncScheduler: DeliverySyncScheduler = WorkManagerDeliverySyncScheduler(application, diagnosticsStore)
     private var transport = RelayHttpTransportClient(relayServerSettings.currentUrl())
     private val fanOutPlanner = PrimarySessionOnlyFanOutPlanner()
     private var outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
@@ -90,8 +98,13 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     private var devicesJob: Job? = null
     private var selectionJob: Job? = null
     private var retryJob: Job? = null
+    private var diagnosticsJob: Job? = null
     private val mutableState = MutableStateFlow(
-        SecureMessengerUiState(relayServerUrl = relayServerSettings.currentUrl()),
+        SecureMessengerUiState(
+            relayServerUrl = relayServerSettings.currentUrl(),
+            relayHealthStatus = diagnosticsStore.lastRelayHealthStatus(),
+            allowInsecureRelayHttp = allowInsecureRelayHttp,
+        ),
     )
     val state: StateFlow<SecureMessengerUiState> = mutableState.asStateFlow()
 
@@ -106,12 +119,28 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 startIncomingPolling()
                 startForegroundRetryLoop()
                 syncScheduler.ensurePeriodicSync()
+                startDiagnosticsRefreshLoop()
             }
             dao.observeContacts().collectLatest { entities ->
                 val contacts = entities.map(localRepository::readContact)
                 mutableState.value = mutableState.value.copy(contacts = contacts)
+                refreshDiagnostics()
             }
         }
+        viewModelScope.launch {
+            dao.observeDeliveryQueueMetrics().collectLatest { metrics ->
+                val current = mutableState.value
+                mutableState.value = current.copy(
+                    diagnostics = current.diagnostics.copy(
+                        pendingOutgoingCount = metrics.pendingOutgoingCount,
+                        failedOutgoingCount = metrics.failedOutgoingCount,
+                        nextRetryAtEpochMillis = metrics.nextRetryAtEpochMillis,
+                    ),
+                )
+                refreshDiagnostics()
+            }
+        }
+        refreshDiagnostics()
     }
 
     fun createProfile(displayName: String) {
@@ -126,6 +155,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             startIncomingPolling()
             startForegroundRetryLoop()
             syncScheduler.ensurePeriodicSync()
+            startDiagnosticsRefreshLoop()
         }
     }
 
@@ -162,6 +192,8 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                     sessions.remove(contactId)?.rootKey?.fill(0)
                 }
                 mutableState.value = mutableState.value.copy(notice = UiNotice.CONTACT_ADDED)
+                diagnosticsStore.record(DeliveryTechnicalEvent.PAIRING_INCOMPLETE)
+                refreshDiagnostics()
             } catch (_: Exception) {
                 mutableState.value = mutableState.value.copy(notice = UiNotice.INVALID_INVITATION)
             }
@@ -170,6 +202,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
 
     fun selectContact(contactId: String) {
         mutableState.value = mutableState.value.copy(selectedContactId = contactId, notice = null)
+        refreshDiagnostics()
         val contact = mutableState.value.contacts.firstOrNull { it.contactId == contactId } ?: return
         selectionJob?.cancel()
         selectionJob = viewModelScope.launch {
@@ -190,10 +223,17 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         val contactId = mutableState.value.selectedContactId ?: return
         val session = sessions[contactId] ?: return
         val contact = mutableState.value.contacts.firstOrNull { it.contactId == contactId } ?: return
-        if (plaintext.isBlank() || contact.verificationStatus == VerificationStatus.KEY_CHANGED) return
+        if (plaintext.isBlank()) return
+        if (contact.verificationStatus == VerificationStatus.KEY_CHANGED) {
+            diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
+            refreshDiagnostics()
+            return
+        }
         launchMutation {
             if (fanOutPlanner.targetsForSingleDeviceCiphertext(contact, localRepository.deliveryDevices(contactId)).size != 1) {
+                diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
                 mutableState.value = mutableState.value.copy(notice = UiNotice.DELIVERY_BLOCKED)
+                refreshDiagnostics()
                 return@launchMutation
             }
             val id = sendingMutexes.getOrPut(contactId) { Mutex() }.withLock {
@@ -214,11 +254,15 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                     outgoing = true,
                     MessageStatus.PENDING.name,
                 )
+                diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_QUEUED)
                 messageId
             }
-            if (outgoingDelivery.attemptMessage(id) == OutgoingAttemptResult.RETRY_SCHEDULED) {
+            val attempt = outgoingDelivery.attemptMessage(id)
+            recordOutgoingAttempt(attempt)
+            if (attempt == OutgoingAttemptResult.RETRY_SCHEDULED) {
                 syncScheduler.requestRetry()
             }
+            refreshDiagnostics()
         }
     }
 
@@ -226,7 +270,10 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         viewModelScope.launch {
             val savedUrl = relayServerSettings.saveUrl(url)
             if (savedUrl == null) {
+                diagnosticsStore.record(DeliveryTechnicalEvent.RELAY_HEALTH_FAILED)
+                diagnosticsStore.recordRelayHealth(RelayHealthStatus.CONNECTION_ERROR)
                 mutableState.value = mutableState.value.copy(relayHealthStatus = RelayHealthStatus.CONNECTION_ERROR)
+                refreshDiagnostics()
                 return@launch
             }
             receiverJob?.cancelAndJoin()
@@ -234,26 +281,51 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             transport = RelayHttpTransportClient(savedUrl)
             outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
             incomingDelivery = IncomingDeliveryProcessor(localRepository, transport, sessionManager)
+            diagnosticsStore.clearRelayHealth()
             mutableState.value = mutableState.value.copy(relayServerUrl = savedUrl, relayHealthStatus = null)
+            refreshDiagnostics()
             if (mutableState.value.profileCreated) startIncomingPolling()
         }
     }
 
     fun checkRelayServer(url: String) {
         viewModelScope.launch {
-            val normalized = RelayServerSettings.normalize(url)
+            val normalized = RelayServerSettings.normalize(url, allowInsecureRelayHttp)
             val status = if (normalized == null) {
                 RelayHealthStatus.CONNECTION_ERROR
             } else {
                 RelayHttpTransportClient(normalized).checkHealth()
             }
+            diagnosticsStore.record(
+                if (status == RelayHealthStatus.AVAILABLE) {
+                    DeliveryTechnicalEvent.RELAY_HEALTH_OK
+                } else {
+                    DeliveryTechnicalEvent.RELAY_HEALTH_FAILED
+                },
+            )
+            diagnosticsStore.recordRelayHealth(status)
             mutableState.value = mutableState.value.copy(relayHealthStatus = status)
+            refreshDiagnostics()
         }
     }
 
     fun synchronizeNow() {
         syncScheduler.synchronizeNow()
         mutableState.value = mutableState.value.copy(notice = UiNotice.SYNC_REQUESTED)
+        refreshDiagnostics()
+    }
+
+    fun confirmTwoWayPairing() {
+        val contactId = mutableState.value.selectedContactId ?: return
+        diagnosticsStore.confirmReciprocalPairing(contactId)
+        diagnosticsStore.record(DeliveryTechnicalEvent.PAIRING_READY)
+        refreshDiagnostics()
+    }
+
+    fun clearDiagnostics() {
+        diagnosticsStore.clearDiagnostics()
+        mutableState.value = mutableState.value.copy(relayHealthStatus = null)
+        refreshDiagnostics()
     }
 
     fun verifySelectedContact() {
@@ -314,6 +386,8 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             selectionJob = null
             retryJob?.cancelAndJoin()
             retryJob = null
+            diagnosticsJob?.cancelAndJoin()
+            diagnosticsJob = null
             mutationJobs.toList().forEach { it.cancelAndJoin() }
             mutationJobs.clear()
             localRepository.wipeLocalData()
@@ -321,6 +395,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             identityProvider.deleteIdentity()
             vault.deleteKey()
             queueIdStore.clear()
+            diagnosticsStore.clearForLocalWipe()
             getApplication<Application>().getSharedPreferences("secure_messenger_nonce_state", Application.MODE_PRIVATE)
                 .edit()
                 .clear()
@@ -328,7 +403,10 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             sessions.values.forEach { it.rootKey.fill(0) }
             sessions.clear()
             sendingMutexes.clear()
-            mutableState.value = SecureMessengerUiState(relayServerUrl = relayServerSettings.currentUrl())
+            mutableState.value = SecureMessengerUiState(
+                relayServerUrl = relayServerSettings.currentUrl(),
+                allowInsecureRelayHttp = allowInsecureRelayHttp,
+            )
         }
     }
 
@@ -339,6 +417,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         devicesJob?.cancel()
         selectionJob?.cancel()
         retryJob?.cancel()
+        diagnosticsJob?.cancel()
         mutationJobs.forEach(Job::cancel)
         database.close()
         super.onCleared()
@@ -362,6 +441,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     private suspend fun processIncoming(blob: RelayEncryptedBlob) {
+        diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_FETCH_STARTED)
         val bindings = mutableState.value.contacts.mapNotNull { contact ->
             val session = sessions[contact.contactId] ?: try {
                 localRepository.loadSession(contact.contactId)?.also { sessions[contact.contactId] = it }
@@ -370,7 +450,18 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             }
             session?.let { ReceiveBinding(contact.contactId, it) }
         }
-        incomingDelivery.processFetched(blob, bindings)
+        when (incomingDelivery.processFetched(blob, bindings)) {
+            IncomingResult.ACCEPTED -> {
+                diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_ACCEPTED)
+                diagnosticsStore.markSuccessfulSync()
+            }
+            IncomingResult.AUTHENTICATED_DUPLICATE -> {
+                diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED)
+                diagnosticsStore.markSuccessfulSync()
+            }
+            IncomingResult.UNAUTHENTICATED -> Unit
+        }
+        refreshDiagnostics()
     }
 
     private fun observeMessages(contact: Contact, session: EstablishedSession) {
@@ -409,6 +500,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 mutableState.value = mutableState.value.copy(
                     devices = mutableState.value.devices + (contactId to devices),
                 )
+                refreshDiagnostics()
             }
         }
     }
@@ -418,9 +510,12 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         retryJob = viewModelScope.launch {
             while (true) {
                 try {
-                    if (outgoingDelivery.retryDueMessages().any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
+                    val results = outgoingDelivery.retryDueMessages()
+                    results.forEach(::recordOutgoingAttempt)
+                    if (results.any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
                         syncScheduler.requestRetry()
                     }
+                    refreshDiagnostics()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -431,6 +526,57 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
+    private fun startDiagnosticsRefreshLoop() {
+        if (diagnosticsJob != null) return
+        diagnosticsJob = viewModelScope.launch {
+            while (true) {
+                refreshDiagnostics()
+                delay(DIAGNOSTICS_REFRESH_INTERVAL_MILLIS)
+            }
+        }
+    }
+
+    private fun recordOutgoingAttempt(attempt: OutgoingAttemptResult) {
+        when (attempt) {
+            OutgoingAttemptResult.SENT -> diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_SENT)
+            OutgoingAttemptResult.RETRY_SCHEDULED ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED)
+            OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
+            OutgoingAttemptResult.NOT_FOUND -> Unit
+        }
+    }
+
+    private fun refreshDiagnostics() {
+        val current = mutableState.value
+        val selectedContact = current.contacts.firstOrNull { it.contactId == current.selectedContactId }
+        val devices = selectedContact?.let { current.devices[it.contactId].orEmpty() }.orEmpty()
+        val primaryDevice = selectedContact?.let { contact ->
+            devices.firstOrNull { it.identity.deviceId == contact.identity.deviceId }
+        }
+        val selectedPairingStatus: PairingStatus? = selectedContact?.let { contact ->
+            pairingStatus(contact, devices, diagnosticsStore.isReciprocalPairingConfirmed(contact.contactId))
+        }
+        val metrics = current.diagnostics
+        mutableState.value = current.copy(
+            diagnostics = SafeDiagnosticsSnapshot.create(
+                relayUrl = current.relayServerUrl,
+                relayHealthStatus = current.relayHealthStatus,
+                lastSuccessfulSyncAtEpochMillis = diagnosticsStore.lastSuccessfulSyncAtEpochMillis(),
+                pendingOutgoingCount = metrics.pendingOutgoingCount,
+                failedOutgoingCount = metrics.failedOutgoingCount,
+                nextRetryAtEpochMillis = metrics.nextRetryAtEpochMillis,
+                contactCount = current.contacts.size,
+                localQueueId = queueIdStore.existingQueueId(),
+                selectedContactQueueId = selectedContact?.queueId,
+                pairingStatus = selectedPairingStatus,
+                primaryDeviceState = primaryDevice?.approvalStatus,
+                workSyncStatus = diagnosticsStore.workSyncStatus(),
+                events = diagnosticsStore.events(),
+            ),
+        )
+    }
+
     private fun launchMutation(block: suspend () -> Unit) {
         mutationJobs += viewModelScope.launch { block() }
     }
@@ -438,5 +584,6 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     private companion object {
         const val TIMESTAMP_BUCKET_MILLIS = 60_000L
         const val RETRY_POLL_INTERVAL_MILLIS = 15_000L
+        const val DIAGNOSTICS_REFRESH_INTERVAL_MILLIS = 2_000L
     }
 }

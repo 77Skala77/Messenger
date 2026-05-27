@@ -8,11 +8,13 @@ import app.securemessenger.crypto.StandardAead
 import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
 import app.securemessenger.domain.DeviceApprovalStatus
+import app.securemessenger.domain.DeliveryBlockReason
 import app.securemessenger.domain.RelayEncryptedBlob
 import app.securemessenger.domain.PairingStatus
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.domain.VerificationStatus
 import app.securemessenger.domain.pairingStatus
+import app.securemessenger.domain.deliveryBlockReason
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -154,7 +156,7 @@ class DeliveryPipelineTest {
     }
 
     @Test
-    fun `pairing status remains blocked until a usable reciprocal contact device exists`() {
+    fun `pairing status requires explicit reciprocal confirmation and usable device`() {
         val fixture = PairedPeers()
 
         assertEquals(PairingStatus.WAITING_FOR_RETURN_INVITATION, pairingStatus(null, emptyList()))
@@ -167,8 +169,42 @@ class DeliveryPipelineTest {
             ),
         )
         assertEquals(
-            PairingStatus.READY_FOR_CONVERSATION,
+            PairingStatus.WAITING_FOR_RETURN_INVITATION,
             pairingStatus(fixture.bobContact, listOf(fixture.bobDevice)),
+        )
+        assertEquals(
+            PairingStatus.READY_FOR_CONVERSATION,
+            pairingStatus(fixture.bobContact, listOf(fixture.bobDevice), reciprocalInvitationConfirmed = true),
+        )
+    }
+
+    @Test
+    fun `delivery block reason distinguishes device policy failures`() {
+        val fixture = PairedPeers()
+        assertEquals(
+            DeliveryBlockReason.MISSING_PRIMARY_DEVICE,
+            deliveryBlockReason(fixture.bobContact, emptyList()),
+        )
+        assertEquals(
+            DeliveryBlockReason.PENDING_APPROVAL,
+            deliveryBlockReason(
+                fixture.bobContact,
+                listOf(fixture.bobDevice.copy(approvalStatus = DeviceApprovalStatus.PENDING_APPROVAL)),
+            ),
+        )
+        assertEquals(
+            DeliveryBlockReason.REVOKED,
+            deliveryBlockReason(
+                fixture.bobContact,
+                listOf(fixture.bobDevice.copy(approvalStatus = DeviceApprovalStatus.REVOKED)),
+            ),
+        )
+        assertEquals(
+            DeliveryBlockReason.KEY_CHANGED,
+            deliveryBlockReason(
+                fixture.bobContact,
+                listOf(fixture.bobDevice.copy(approvalStatus = DeviceApprovalStatus.KEY_CHANGED)),
+            ),
         )
     }
 

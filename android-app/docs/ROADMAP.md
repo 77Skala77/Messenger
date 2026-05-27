@@ -8,7 +8,8 @@
 - Completed in prototype: debug relay send/fetch/delete pipeline, durable session
   counters/replay state, durable outgoing retry metadata, WorkManager best-effort
   sync, configurable LAN relay health checking, fail-closed local device delivery
-  policy, and emulator CI coverage.
+  policy, redacted delivery diagnostics/event history, debug-only HTTP warnings,
+  release HTTP relay rejection, and emulator CI coverage.
 - Explicitly deferred: guaranteed delivery semantics and cryptographic multi-device
   fan-out require reviewed session semantics first.
 

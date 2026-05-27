@@ -43,18 +43,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
+import app.securemessenger.domain.DeliveryBlockReason
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.DisplayMessage
 import app.securemessenger.domain.MessageStatus
 import app.securemessenger.domain.PairingStatus
 import app.securemessenger.domain.VerificationStatus
-import app.securemessenger.domain.pairingStatus
+import app.securemessenger.domain.deliveryBlockReason
 import app.securemessenger.transport.RelayHealthStatus
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
@@ -68,6 +71,7 @@ private enum class Screen {
     CONVERSATION,
     SECURITY,
     SETTINGS,
+    DIAGNOSTICS,
 }
 
 @Composable
@@ -129,9 +133,11 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                                 contact = contact,
                                 devices = state.devices[contact.contactId].orEmpty(),
                                 messages = state.messages[contact.contactId].orEmpty(),
+                                pairing = state.diagnostics.pairingStatus ?: PairingStatus.WAITING_FOR_RETURN_INVITATION,
                                 onBack = { screen = Screen.HOME },
                                 onSecurity = { screen = Screen.SECURITY },
                                 onSend = viewModel::sendMessage,
+                                onConfirmTwoWayPairing = viewModel::confirmTwoWayPairing,
                             )
                         }
                     }
@@ -154,14 +160,21 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                     Screen.SETTINGS -> SettingsScreen(
                         relayServerUrl = state.relayServerUrl,
                         relayHealthStatus = state.relayHealthStatus,
+                        allowInsecureRelayHttp = state.allowInsecureRelayHttp,
                         onBack = { screen = Screen.HOME },
                         onSaveRelayUrl = viewModel::saveRelayServerUrl,
                         onCheckRelay = viewModel::checkRelayServer,
                         onSynchronizeNow = viewModel::synchronizeNow,
+                        onOpenDiagnostics = { screen = Screen.DIAGNOSTICS },
                         onDeleteLocalData = {
                             viewModel.deleteLocalData()
                             screen = Screen.ONBOARDING
                         },
+                    )
+                    Screen.DIAGNOSTICS -> DiagnosticsScreen(
+                        diagnostics = state.diagnostics,
+                        onBack = { screen = Screen.SETTINGS },
+                        onClear = viewModel::clearDiagnostics,
                     )
                 }
             }
@@ -260,7 +273,7 @@ private fun AddContactScreen(
                 Text(stringResource(R.string.two_way_pairing_title), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.two_way_pairing_explanation))
                 Text(
-                    pairingStatusLabel(PairingStatus.WAITING_FOR_RETURN_INVITATION),
+                    stringResource(R.string.pairing_incomplete_instruction),
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -314,17 +327,15 @@ private fun ConversationScreen(
     contact: Contact,
     devices: List<ContactDevice>,
     messages: List<DisplayMessage>,
+    pairing: PairingStatus,
     onBack: () -> Unit,
     onSecurity: () -> Unit,
     onSend: (String) -> Unit,
+    onConfirmTwoWayPairing: () -> Unit,
 ) {
     var message by remember { mutableStateOf("") }
-    val primaryDevice = devices.firstOrNull { it.identity.deviceId == contact.identity.deviceId }
-    val deviceBlocksDelivery = primaryDevice == null || primaryDevice.approvalStatus in setOf(
-        DeviceApprovalStatus.PENDING_APPROVAL,
-        DeviceApprovalStatus.REVOKED,
-        DeviceApprovalStatus.KEY_CHANGED,
-    )
+    val blockReason = deliveryBlockReason(contact, devices)
+    val deviceBlocksDelivery = blockReason != null
     Scaffold(
         topBar = {
             NavigationTopBar(contact.localDisplayName, onBack) {
@@ -344,11 +355,26 @@ private fun ConversationScreen(
             Text(
                 stringResource(
                     R.string.pairing_status_format,
-                    pairingStatusLabel(pairingStatus(contact, devices)),
+                    pairingStatusLabel(pairing),
                 ),
                 fontWeight = FontWeight.Bold,
             )
-            Text(stringResource(R.string.pairing_ready_scope_notice), style = MaterialTheme.typography.bodySmall)
+            when (pairing) {
+                PairingStatus.WAITING_FOR_RETURN_INVITATION -> {
+                    Text(stringResource(R.string.pairing_incomplete_instruction), style = MaterialTheme.typography.bodySmall)
+                    if (blockReason == null) {
+                        OutlinedButton(onClick = onConfirmTwoWayPairing) {
+                            Text(stringResource(R.string.confirm_two_way_pairing))
+                        }
+                    }
+                }
+                PairingStatus.READY_FOR_CONVERSATION ->
+                    Text(stringResource(R.string.pairing_ready_confirmation), fontWeight = FontWeight.Bold)
+                PairingStatus.DEVICE_BLOCKED -> Unit
+            }
+            if (blockReason != null) {
+                SecurityWarning(deliveryBlockReasonLabel(blockReason))
+            }
             if (contact.verificationStatus == VerificationStatus.KEY_CHANGED) {
                 SecurityWarning(stringResource(R.string.key_changed_warning))
             } else if (contact.verificationStatus != VerificationStatus.VERIFIED) {
@@ -508,10 +534,12 @@ private fun ContactSecurityScreen(
 private fun SettingsScreen(
     relayServerUrl: String,
     relayHealthStatus: RelayHealthStatus?,
+    allowInsecureRelayHttp: Boolean,
     onBack: () -> Unit,
     onSaveRelayUrl: (String) -> Unit,
     onCheckRelay: (String) -> Unit,
     onSynchronizeNow: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onDeleteLocalData: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -559,6 +587,14 @@ private fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(stringResource(R.string.relay_server_example), style = MaterialTheme.typography.bodySmall)
+                if (relayUrlInput.trim().startsWith("http://", ignoreCase = true)) {
+                    SecurityWarning(
+                        stringResource(
+                            if (allowInsecureRelayHttp) R.string.http_relay_debug_warning
+                            else R.string.https_relay_required,
+                        ),
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { onSaveRelayUrl(relayUrlInput) }) {
                         Text(stringResource(R.string.save_relay_server))
@@ -587,7 +623,10 @@ private fun SettingsScreen(
             }
             item {
                 Text(stringResource(R.string.export_diagnostics), fontWeight = FontWeight.Bold)
-                Text(stringResource(R.string.diagnostics_notice))
+                Text(stringResource(R.string.diagnostics_safe_notice))
+                Button(onClick = onOpenDiagnostics) {
+                    Text(stringResource(R.string.open_delivery_diagnostics))
+                }
                 Text(stringResource(R.string.no_secrets_logs), fontWeight = FontWeight.Bold)
             }
         }
@@ -608,6 +647,129 @@ private fun SettingsScreen(
         )
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiagnosticsScreen(
+    diagnostics: SafeDiagnosticsSnapshot,
+    onBack: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val report = diagnosticReport(diagnostics)
+    Scaffold(topBar = { NavigationTopBar(stringResource(R.string.diagnostics_title), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item { SecurityWarning(stringResource(R.string.diagnostics_safe_notice)) }
+            item { DiagnosticRow(stringResource(R.string.diagnostics_relay_url), diagnostics.relayUrl) }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_health),
+                    diagnostics.relayHealthStatus?.let { relayHealthLabel(it) } ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_last_sync),
+                    diagnostics.lastSuccessfulSyncAtEpochMillis?.toString() ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item { DiagnosticRow(stringResource(R.string.diagnostics_pending), diagnostics.pendingOutgoingCount.toString()) }
+            item { DiagnosticRow(stringResource(R.string.diagnostics_failed), diagnostics.failedOutgoingCount.toString()) }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_next_retry),
+                    diagnostics.nextRetryAtEpochMillis?.toString() ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item { DiagnosticRow(stringResource(R.string.diagnostics_contacts), diagnostics.contactCount.toString()) }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_local_queue),
+                    diagnostics.localQueueFingerprint ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_contact_queue),
+                    diagnostics.selectedContactQueueFingerprint ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_pairing),
+                    diagnostics.pairingStatus?.let { pairingStatusLabel(it) } ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item {
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_primary_device),
+                    diagnostics.primaryDeviceState?.let { deviceApprovalLabel(it) } ?: stringResource(R.string.diagnostics_none),
+                )
+            }
+            item { DiagnosticRow(stringResource(R.string.diagnostics_work_status), workSyncStatusLabel(diagnostics.workSyncStatus)) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { clipboardManager.setText(AnnotatedString(report)) }) {
+                        Text(stringResource(R.string.copy_diagnostic_report))
+                    }
+                    OutlinedButton(onClick = onClear) {
+                        Text(stringResource(R.string.clear_diagnostics))
+                    }
+                }
+            }
+            item { Text(stringResource(R.string.diagnostics_events), style = MaterialTheme.typography.titleMedium) }
+            if (diagnostics.events.isEmpty()) {
+                item { Text(stringResource(R.string.diagnostics_none)) }
+            } else {
+                items(diagnostics.events) { event ->
+                    DiagnosticRow(event.timestampEpochMillis.toString(), deliveryEventLabel(event.type))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(value)
+    }
+}
+
+@Composable
+private fun diagnosticReport(diagnostics: SafeDiagnosticsSnapshot): String = SafeDiagnosticReport.render(
+    snapshot = diagnostics,
+    labels = DiagnosticReportLabels(
+        title = stringResource(R.string.diagnostics_title),
+        safetyNotice = stringResource(R.string.diagnostics_safe_notice),
+        relayUrl = stringResource(R.string.diagnostics_relay_url),
+        relayHealth = stringResource(R.string.diagnostics_health),
+        lastSuccessfulSync = stringResource(R.string.diagnostics_last_sync),
+        pendingOutgoing = stringResource(R.string.diagnostics_pending),
+        failedOutgoing = stringResource(R.string.diagnostics_failed),
+        nextRetryAt = stringResource(R.string.diagnostics_next_retry),
+        contacts = stringResource(R.string.diagnostics_contacts),
+        localQueue = stringResource(R.string.diagnostics_local_queue),
+        contactQueue = stringResource(R.string.diagnostics_contact_queue),
+        pairing = stringResource(R.string.diagnostics_pairing),
+        primaryDevice = stringResource(R.string.diagnostics_primary_device),
+        workSync = stringResource(R.string.diagnostics_work_status),
+        events = stringResource(R.string.diagnostics_events),
+        unavailable = stringResource(R.string.diagnostics_none),
+    ),
+    relayHealthValue = diagnostics.relayHealthStatus?.let { relayHealthLabel(it) }
+        ?: stringResource(R.string.diagnostics_none),
+    pairingValue = diagnostics.pairingStatus?.let { pairingStatusLabel(it) }
+        ?: stringResource(R.string.diagnostics_none),
+    primaryDeviceValue = diagnostics.primaryDeviceState?.let { deviceApprovalLabel(it) }
+        ?: stringResource(R.string.diagnostics_none),
+    workSyncValue = workSyncStatusLabel(diagnostics.workSyncStatus),
+    eventValues = DeliveryTechnicalEvent.entries.associateWith { deliveryEventLabel(it) },
+)
 
 @Composable
 private fun LanguageChoice(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
@@ -695,4 +857,39 @@ private fun relayHealthLabel(status: RelayHealthStatus): String = when (status) 
     RelayHealthStatus.AVAILABLE -> stringResource(R.string.relay_available)
     RelayHealthStatus.UNAVAILABLE -> stringResource(R.string.relay_unavailable)
     RelayHealthStatus.CONNECTION_ERROR -> stringResource(R.string.relay_connection_error)
+}
+
+@Composable
+private fun deliveryBlockReasonLabel(reason: DeliveryBlockReason): String = when (reason) {
+    DeliveryBlockReason.MISSING_PRIMARY_DEVICE -> stringResource(R.string.delivery_block_missing_primary)
+    DeliveryBlockReason.PENDING_APPROVAL -> stringResource(R.string.delivery_block_pending_approval)
+    DeliveryBlockReason.REVOKED -> stringResource(R.string.delivery_block_revoked)
+    DeliveryBlockReason.KEY_CHANGED -> stringResource(R.string.delivery_block_key_changed)
+}
+
+@Composable
+private fun workSyncStatusLabel(status: WorkSyncStatus): String = when (status) {
+    WorkSyncStatus.UNKNOWN -> stringResource(R.string.work_sync_unknown)
+    WorkSyncStatus.SCHEDULED -> stringResource(R.string.work_sync_scheduled)
+    WorkSyncStatus.RUNNING -> stringResource(R.string.work_sync_running)
+    WorkSyncStatus.SUCCEEDED -> stringResource(R.string.work_sync_succeeded)
+    WorkSyncStatus.RETRY_PENDING -> stringResource(R.string.work_sync_retry_pending)
+}
+
+@Composable
+private fun deliveryEventLabel(type: DeliveryTechnicalEvent): String = when (type) {
+    DeliveryTechnicalEvent.RELAY_HEALTH_OK -> stringResource(R.string.event_relay_health_ok)
+    DeliveryTechnicalEvent.RELAY_HEALTH_FAILED -> stringResource(R.string.event_relay_health_failed)
+    DeliveryTechnicalEvent.OUTGOING_QUEUED -> stringResource(R.string.event_outgoing_queued)
+    DeliveryTechnicalEvent.OUTGOING_SENT -> stringResource(R.string.event_outgoing_sent)
+    DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED -> stringResource(R.string.event_outgoing_retry_scheduled)
+    DeliveryTechnicalEvent.INCOMING_FETCH_STARTED -> stringResource(R.string.event_incoming_fetch_started)
+    DeliveryTechnicalEvent.INCOMING_ACCEPTED -> stringResource(R.string.event_incoming_accepted)
+    DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED ->
+        stringResource(R.string.event_incoming_duplicate_suppressed)
+    DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND -> stringResource(R.string.event_device_blocked_send)
+    DeliveryTechnicalEvent.PAIRING_INCOMPLETE -> stringResource(R.string.event_pairing_incomplete)
+    DeliveryTechnicalEvent.PAIRING_READY -> stringResource(R.string.event_pairing_ready)
+    DeliveryTechnicalEvent.MANUAL_SYNC_STARTED -> stringResource(R.string.event_manual_sync_started)
+    DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED -> stringResource(R.string.event_manual_sync_finished)
 }

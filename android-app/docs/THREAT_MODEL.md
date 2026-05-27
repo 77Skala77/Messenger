@@ -21,6 +21,8 @@ it is not an assurance report.
   or enabling delivery to it.
 - Preventing the current delivery path from sending to a primary device locally marked
   pending, revoked or key-changed.
+- Redacted local delivery diagnostics that omit payloads and cryptographic material
+  and shorten queue identifiers to fingerprints.
 
 ## MVP Does Not Fully Protect Yet
 
@@ -58,6 +60,8 @@ relay or sender can also deny delivery by filling a queue.
 The runnable endpoint is a debug development transport that may be exposed on a
 local Wi-Fi network for physical-device testing. Cleartext LAN transport and a
 user-configured endpoint are not a deployable anonymity or production relay design.
+Release builds reject insecure HTTP relay configuration and cleartext traffic, but no
+production relay deployment has been reviewed.
 
 ## Device Compromise
 

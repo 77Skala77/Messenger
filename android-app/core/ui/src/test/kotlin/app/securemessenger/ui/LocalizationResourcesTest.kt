@@ -21,11 +21,14 @@ class LocalizationResourcesTest {
     fun `compose source does not embed visible text literals or logging`() {
         val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
         val workerSource = File("src/main/kotlin/app/securemessenger/ui/RelayBackgroundSync.kt").readText()
+        val diagnosticsSource = File("src/main/kotlin/app/securemessenger/ui/SafeDeliveryDiagnostics.kt").readText()
         assertFalse(source.contains("Text(\""))
         assertFalse(source.contains("android.util.Log"))
         assertFalse(source.contains("println("))
         assertFalse(workerSource.contains("android.util.Log"))
         assertFalse(workerSource.contains("println("))
+        assertFalse(diagnosticsSource.contains("android.util.Log"))
+        assertFalse(diagnosticsSource.contains("println("))
     }
 
     @Test
@@ -50,10 +53,33 @@ class LocalizationResourcesTest {
             "pairing_waiting",
             "pairing_ready",
             "pairing_blocked",
+            "pairing_incomplete_instruction",
+            "pairing_ready_confirmation",
+            "http_relay_debug_warning",
+            "https_relay_required",
+            "diagnostics_title",
+            "diagnostics_safe_notice",
+            "copy_diagnostic_report",
+            "clear_diagnostics",
+            "diagnostics_work_status",
         )
 
         assertTrue(resourceNames(File("src/main/res/values/strings.xml")).containsAll(expected))
         assertTrue(resourceNames(File("src/main/res/values-ru/strings.xml")).containsAll(expected))
+    }
+
+    @Test
+    fun `http warning is wired and insecure relay resource is debug only`() {
+        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val releasePolicy = File("src/main/res/values/transport_policy.xml").readText()
+        val debugPolicy = File("src/debug/res/values/transport_policy.xml").readText()
+
+        assertTrue(source.contains("R.string.http_relay_debug_warning"))
+        assertTrue(source.contains("R.string.https_relay_required"))
+        assertTrue(source.contains("R.string.pairing_incomplete_instruction"))
+        assertTrue(source.contains("R.string.pairing_ready_confirmation"))
+        assertTrue(releasePolicy.contains("<bool name=\"allow_insecure_relay_http\">false</bool>"))
+        assertTrue(debugPolicy.contains("<bool name=\"allow_insecure_relay_http\">true</bool>"))
     }
 
     private fun resourceNames(file: File): Set<String> {

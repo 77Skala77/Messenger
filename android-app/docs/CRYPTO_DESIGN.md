@@ -53,6 +53,11 @@ polling and WorkManager best-effort sync call the same delivery boundary. This i
 transport reliability mechanism, not a cryptographic ratchet property or a timely
 delivery guarantee.
 
+The delivery diagnostics boundary receives only counts, enum status codes, timestamps
+and short SHA-256 fingerprints of queue identifiers. It has no input for plaintext,
+key bytes, nonce values or ciphertext envelopes. It is QA support rather than
+cryptographic evidence or metadata protection.
+
 ## Signal Protocol Migration Gate
 
 The isolated `core:signal-protocol` module resolves official Signal artifacts
@@ -116,6 +121,11 @@ The working suite is `AES/GCM/NoPadding` through the platform JCA provider:
 The nonce counter is synchronously persisted before ciphertext is emitted. Database
 and preferences backup is disabled so old nonce counters are not restored alongside keys.
 Any redesign of persistence or backup must re-evaluate the nonce invariant.
+
+Debug builds permit an explicit LAN HTTP relay address for physical-device testing and
+display a warning. Release configuration rejects HTTP relay URLs and retains Android
+cleartext-network blocking. Transport hardening does not change the current prototype
+session protocol or establish a production deployment.
 
 ## Local Storage Encryption
 

@@ -11,10 +11,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
 import app.securemessenger.delivery.DeliverySyncExecutor
 import app.securemessenger.delivery.IncomingDeliveryProcessor
+import app.securemessenger.delivery.IncomingResult
 import app.securemessenger.delivery.OutgoingAttemptResult
 import app.securemessenger.delivery.OutgoingDeliveryProcessor
 import app.securemessenger.delivery.ReceiveBinding
@@ -34,7 +36,10 @@ interface DeliverySyncScheduler {
     fun cancel()
 }
 
-class WorkManagerDeliverySyncScheduler(context: Context) : DeliverySyncScheduler {
+class WorkManagerDeliverySyncScheduler(
+    context: Context,
+    private val diagnostics: SafeDeliveryDiagnosticsStore = SafeDeliveryDiagnosticsStore(context.applicationContext),
+) : DeliverySyncScheduler {
     private val workManager = WorkManager.getInstance(context.applicationContext)
     private val networkConstraint = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -46,6 +51,7 @@ class WorkManagerDeliverySyncScheduler(context: Context) : DeliverySyncScheduler
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .build()
         workManager.enqueueUniquePeriodicWork(PERIODIC_SYNC, ExistingPeriodicWorkPolicy.KEEP, work)
+        diagnostics.setWorkSyncStatus(WorkSyncStatus.SCHEDULED)
     }
 
     override fun requestRetry() {
@@ -55,14 +61,18 @@ class WorkManagerDeliverySyncScheduler(context: Context) : DeliverySyncScheduler
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .build()
         workManager.enqueueUniqueWork(RETRY_SYNC, ExistingWorkPolicy.REPLACE, work)
+        diagnostics.setWorkSyncStatus(WorkSyncStatus.RETRY_PENDING)
     }
 
     override fun synchronizeNow() {
         val work = OneTimeWorkRequestBuilder<RelaySyncWorker>()
             .setConstraints(networkConstraint)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+            .setInputData(workDataOf(RelaySyncWorker.MANUAL_SYNC_INPUT to true))
             .build()
         workManager.enqueueUniqueWork(MANUAL_SYNC, ExistingWorkPolicy.REPLACE, work)
+        diagnostics.record(DeliveryTechnicalEvent.MANUAL_SYNC_STARTED)
+        diagnostics.setWorkSyncStatus(WorkSyncStatus.SCHEDULED)
     }
 
     override fun cancel() {
@@ -106,12 +116,26 @@ class RelaySyncWorker(
     workerParameters: WorkerParameters,
 ) : CoroutineWorker(applicationContext, workerParameters) {
     override suspend fun doWork(): Result {
+        val diagnostics = SafeDeliveryDiagnosticsStore(applicationContext)
+        val manualSync = inputData.getBoolean(MANUAL_SYNC_INPUT, false)
+        diagnostics.setWorkSyncStatus(WorkSyncStatus.RUNNING)
         val database = SecureMessengerDatabase.create(applicationContext)
         val sessionsToErase = mutableListOf<app.securemessenger.crypto.EstablishedSession>()
         return try {
-            if (database.dao().getProfile() == null) return Result.success()
+            if (database.dao().getProfile() == null) {
+                diagnostics.markSuccessfulSync()
+                if (manualSync) diagnostics.record(DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED)
+                return Result.success()
+            }
             val repository = SecureLocalRepository(database.dao(), AndroidKeystoreVaultCipher())
-            val transport = RelayHttpTransportClient(RelayServerSettings(applicationContext).currentUrl())
+            val allowInsecureHttp = applicationContext.resources.getBoolean(R.bool.allow_insecure_relay_http)
+            val relayUrl = RelayServerSettings(applicationContext, allowInsecureHttp).currentUrl()
+            if (relayUrl.isBlank()) {
+                diagnostics.setWorkSyncStatus(WorkSyncStatus.RETRY_PENDING)
+                if (manualSync) diagnostics.record(DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED)
+                return Result.failure()
+            }
+            val transport = RelayHttpTransportClient(relayUrl)
             val sessionManager = SimplifiedSessionManager(StandardAead())
             val executor = DeliverySyncExecutor(
                 outgoing = OutgoingDeliveryProcessor(repository, transport),
@@ -125,19 +149,47 @@ class RelaySyncWorker(
                     }
                 },
             )
+            diagnostics.record(DeliveryTechnicalEvent.INCOMING_FETCH_STARTED)
             val result = executor.synchronizeNow()
+            result.outgoingResults.forEach { resultItem ->
+                when (resultItem) {
+                    OutgoingAttemptResult.SENT -> diagnostics.record(DeliveryTechnicalEvent.OUTGOING_SENT)
+                    OutgoingAttemptResult.RETRY_SCHEDULED ->
+                        diagnostics.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED)
+                    OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
+                        diagnostics.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
+                    OutgoingAttemptResult.NOT_FOUND -> Unit
+                }
+            }
+            result.incomingResults.forEach { resultItem ->
+                when (resultItem) {
+                    IncomingResult.ACCEPTED -> diagnostics.record(DeliveryTechnicalEvent.INCOMING_ACCEPTED)
+                    IncomingResult.AUTHENTICATED_DUPLICATE ->
+                        diagnostics.record(DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED)
+                    IncomingResult.UNAUTHENTICATED -> Unit
+                }
+            }
+            if (manualSync) diagnostics.record(DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED)
             if (result.outgoingResults.any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
+                diagnostics.setWorkSyncStatus(WorkSyncStatus.RETRY_PENDING)
                 Result.retry()
             } else {
+                diagnostics.markSuccessfulSync()
                 Result.success()
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            diagnostics.setWorkSyncStatus(WorkSyncStatus.RETRY_PENDING)
+            if (manualSync) diagnostics.record(DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED)
             Result.retry()
         } finally {
             sessionsToErase.forEach { it.rootKey.fill(0) }
             database.close()
         }
+    }
+
+    companion object {
+        const val MANUAL_SYNC_INPUT = "manual_sync"
     }
 }

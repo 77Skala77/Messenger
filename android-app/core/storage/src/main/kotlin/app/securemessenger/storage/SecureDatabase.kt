@@ -71,6 +71,12 @@ data class AcceptedReplayEntity(
     val acceptedAtEpochMillis: Long,
 )
 
+data class DeliveryQueueMetrics(
+    val pendingOutgoingCount: Int,
+    val failedOutgoingCount: Int,
+    val nextRetryAtEpochMillis: Long?,
+)
+
 @Entity(tableName = "signal_identity_records", primaryKeys = ["recipientId", "deviceId"])
 data class EncryptedSignalIdentityRecordEntity(
     val recipientId: String,
@@ -160,6 +166,20 @@ interface SecureMessengerDao {
         """,
     )
     suspend fun getDueOutgoingMessages(nowEpochMillis: Long): List<EncryptedMessageEntity>
+
+    @Query(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN outgoing = 1 AND status = 'PENDING' THEN 1 ELSE 0 END), 0)
+                AS pendingOutgoingCount,
+            COALESCE(SUM(CASE WHEN outgoing = 1 AND status = 'FAILED' THEN 1 ELSE 0 END), 0)
+                AS failedOutgoingCount,
+            MIN(CASE WHEN outgoing = 1 AND status = 'FAILED' THEN nextRetryAtEpochMillis ELSE NULL END)
+                AS nextRetryAtEpochMillis
+        FROM encrypted_messages
+        """,
+    )
+    fun observeDeliveryQueueMetrics(): Flow<DeliveryQueueMetrics>
 
     @Query(
         """

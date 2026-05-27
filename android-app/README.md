@@ -31,6 +31,9 @@ default in-app language; English is available from Settings.
 - Saved per-device development relay URL, `/health` availability check and manual
   synchronization action. The emulator default is `http://10.0.2.2:8787`; a
   physical device can use a laptop LAN address supplied in Settings.
+- A delivery diagnostics screen with persisted health/sync observations, pending and
+  retry counters, pairing/device/worker status and a capped technical event list.
+  Copied reports show short queue fingerprints rather than full queue identifiers.
 - Abstract transport client and a minimal Node relay with opaque blobs, delivery
   deletion, TTL, `/health`, and LAN development binding.
 - Explicit device states (`pending`, `verified`, `revoked`, `key_changed`). The current
@@ -57,8 +60,8 @@ default in-app language; English is available from Settings.
   is best effort and may be delayed by Android power management. It is not an
   assurance of timely delivery.
 - The user-selected HTTP relay URL is allowed only by the debug development policy.
-  Release builds disallow cleartext networking and do not yet have a production
-  transport configuration.
+  The Settings screen warns about HTTP in debug builds. Release builds reject HTTP
+  relay URLs and disallow cleartext networking; they do not yet have a production transport.
 - Room stores ciphertext rather than using SQLCipher; routing AAD and database shape still
   expose local metadata.
 - Android secure deletion cannot guarantee erasure of historical flash-storage blocks.
@@ -139,7 +142,17 @@ testing requires reciprocal invitation import: B imports A's invitation to send 
 and A imports B's invitation to send to B. The delivery integration test uses this
 two-way setup rather than treating one invitation as a global contact address.
 See [docs/TWO_DEVICE_TEST.md](docs/TWO_DEVICE_TEST.md) for the physical two-device
-LAN verification procedure and its security limitations.
+LAN verification procedure and its security limitations. For a test-day checklist
+including safe diagnostic capture, use
+[docs/MANUAL_TWO_DEVICE_QA.md](docs/MANUAL_TWO_DEVICE_QA.md).
+
+## Delivery Diagnostics
+
+Open `Настройки` -> `Диагностика доставки` in the debug app. The copied report
+contains relay configuration, last health/sync status, delivery counts, retry time,
+pairing/device/worker status and the latest 100 technical events. It deliberately
+excludes message text, keys, nonce values, ciphertext and full queue identifiers.
+Clearing diagnostics removes technical history but does not silently change pairing state.
 
 ## Localization
 
@@ -165,3 +178,8 @@ See [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for the checklist.
 - [MVP Delivery Baseline](docs/MVP_DELIVERY_BASELINE.md)
 - [Two Device Test](docs/TWO_DEVICE_TEST.md)
 - [Audit Readiness](docs/AUDIT_READINESS.md)
+- [Manual Two Device QA](docs/MANUAL_TWO_DEVICE_QA.md)
+- [Audit Scope](docs/AUDIT_SCOPE.md)
+- [Known Limitations](docs/KNOWN_LIMITATIONS.md)
+- [Security-Critical Files](docs/SECURITY_CRITICAL_FILES.md)
+- [Audit Checklist](docs/AUDIT_CHECKLIST.md)

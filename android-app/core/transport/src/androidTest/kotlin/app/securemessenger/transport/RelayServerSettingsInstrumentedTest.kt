@@ -37,4 +37,14 @@ class RelayServerSettingsInstrumentedTest {
         assertNull(settings.saveUrl("http://192.168.1.45:8787/private"))
         assertEquals(RelayServerSettings.DEFAULT_EMULATOR_URL, settings.currentUrl())
     }
+
+    @Test
+    fun releasePolicyBlocksHttpRelayAndAcceptsHttps() {
+        val releaseSettings = RelayServerSettings(preferences, allowInsecureHttp = false)
+
+        assertEquals("", releaseSettings.currentUrl())
+        assertNull(releaseSettings.saveUrl("http://192.168.1.45:8787"))
+        assertEquals("https://relay.example", releaseSettings.saveUrl("https://relay.example"))
+        assertEquals("https://relay.example", releaseSettings.currentUrl())
+    }
 }

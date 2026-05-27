@@ -33,6 +33,13 @@ enum class PairingStatus {
     DEVICE_BLOCKED,
 }
 
+enum class DeliveryBlockReason {
+    MISSING_PRIMARY_DEVICE,
+    PENDING_APPROVAL,
+    REVOKED,
+    KEY_CHANGED,
+}
+
 data class DevicePublicIdentity(
     val deviceId: String,
     val encodedPublicKey: ByteArray,
@@ -61,7 +68,11 @@ data class ContactDevice(
     val firstSeenEpochMillis: Long,
 )
 
-fun pairingStatus(contact: Contact?, devices: List<ContactDevice>): PairingStatus {
+fun pairingStatus(
+    contact: Contact?,
+    devices: List<ContactDevice>,
+    reciprocalInvitationConfirmed: Boolean = false,
+): PairingStatus {
     if (contact == null) return PairingStatus.WAITING_FOR_RETURN_INVITATION
     val primary = devices.firstOrNull { it.identity.deviceId == contact.identity.deviceId }
         ?: return PairingStatus.DEVICE_BLOCKED
@@ -72,7 +83,24 @@ fun pairingStatus(contact: Contact?, devices: List<ContactDevice>): PairingStatu
         -> PairingStatus.DEVICE_BLOCKED
         DeviceApprovalStatus.PRIMARY_UNVERIFIED,
         DeviceApprovalStatus.VERIFIED,
-        -> PairingStatus.READY_FOR_CONVERSATION
+        -> if (reciprocalInvitationConfirmed) {
+            PairingStatus.READY_FOR_CONVERSATION
+        } else {
+            PairingStatus.WAITING_FOR_RETURN_INVITATION
+        }
+    }
+}
+
+fun deliveryBlockReason(contact: Contact, devices: List<ContactDevice>): DeliveryBlockReason? {
+    val primary = devices.firstOrNull { it.identity.deviceId == contact.identity.deviceId }
+        ?: return DeliveryBlockReason.MISSING_PRIMARY_DEVICE
+    return when (primary.approvalStatus) {
+        DeviceApprovalStatus.PENDING_APPROVAL -> DeliveryBlockReason.PENDING_APPROVAL
+        DeviceApprovalStatus.REVOKED -> DeliveryBlockReason.REVOKED
+        DeviceApprovalStatus.KEY_CHANGED -> DeliveryBlockReason.KEY_CHANGED
+        DeviceApprovalStatus.PRIMARY_UNVERIFIED,
+        DeviceApprovalStatus.VERIFIED,
+        -> null
     }
 }
 

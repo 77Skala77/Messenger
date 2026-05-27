@@ -16,6 +16,8 @@ server or privacy audit.
   guarantee of timely offline delivery.
 - Debug builds permit a user-selected cleartext LAN relay URL for two-device testing.
   It is not a secure deployment transport and exposes network metadata.
+- Release builds reject `http://` relay configuration and Android cleartext traffic;
+  this hardening does not make an unreviewed HTTPS relay production-safe.
 - New devices can be staged, approved and locally revoked; true per-device sessions,
   cryptographic multi-device fan-out, synchronized revocation, metadata protection,
   app lock, secure backup and attachment handling are incomplete.
@@ -39,7 +41,9 @@ It must not be enabled, advertised, or treated as secure based on its cascade na
 
 Never log or export plaintext, decrypted attachments, passwords, private keys, session
 keys, message keys, nonce values, or raw encrypted envelopes tied to identifiable users.
-Diagnostics are a placeholder until a dedicated redaction review exists.
+The delivery diagnostics screen exports only technical statuses, counters, timestamps
+and short SHA-256 queue fingerprints, with a 100-event cap. This redaction boundary
+still requires audit review and is not a metadata-anonymity guarantee.
 
 ## Forbidden Claims
 
