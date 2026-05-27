@@ -131,4 +131,32 @@ class SecureRoomStateInstrumentedTest {
         assertNull(signalStore.loadSignedPreKeyRecord(12))
         assertNull(signalStore.loadKyberPreKeyRecord(13))
     }
+
+    @Test
+    fun localWipeClearsTestDeliveryReplayAndDisabledSignalState() = runBlocking {
+        val localManager = SimplifiedSessionManager(StandardAead())
+        val remoteManager = SimplifiedSessionManager(StandardAead())
+        val local = localManager.createIdentity()
+        val remote = remoteManager.createIdentity()
+        val contact = Contact("reset-contact", "Reset", "reset-queue", remote.publicIdentity, VerificationStatus.UNVERIFIED)
+        val session = localManager.createSession(local, remote.publicIdentity)
+        val message = localManager.encryptMessage(session, "disposable-test".toByteArray(), 9)
+        val signalAddress = SignalProtocolAddress("disabled-reset", 1)
+
+        repository.storeProfile("Test", local.publicIdentity.deviceId)
+        repository.storeContact(contact)
+        repository.storeSession(contact.contactId, session)
+        repository.storeEncryptedMessage("pending-reset", contact.contactId, message, true, MessageStatus.PENDING.name)
+        assertTrue(repository.acceptIncoming("incoming-reset", contact.contactId, session, message))
+        signalStore.saveIdentityRecord(signalAddress, "disabled-record".toByteArray())
+
+        repository.wipeLocalData()
+
+        assertNull(database.dao().getProfile())
+        assertTrue(database.dao().observeContacts().first().isEmpty())
+        assertNull(repository.loadSession(contact.contactId))
+        assertTrue(database.dao().getDueOutgoingMessages(Long.MAX_VALUE).isEmpty())
+        assertNull(signalStore.loadIdentityRecord(signalAddress))
+        assertTrue(repository.acceptIncoming("incoming-after-reset", contact.contactId, session, message))
+    }
 }

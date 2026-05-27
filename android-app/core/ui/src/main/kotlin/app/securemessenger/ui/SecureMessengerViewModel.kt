@@ -1,6 +1,7 @@
 package app.securemessenger.ui
 
 import android.app.Application
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.securemessenger.crypto.CryptoFeatureFlags
@@ -67,6 +68,9 @@ data class SecureMessengerUiState(
     val relayServerUrl: String = RelayServerSettings.DEFAULT_EMULATOR_URL,
     val relayHealthStatus: RelayHealthStatus? = null,
     val allowInsecureRelayHttp: Boolean = false,
+    val debugQaToolsEnabled: Boolean = false,
+    val isPhysicalDeviceForQa: Boolean = true,
+    val preflightResult: TwoDevicePreflightResult? = null,
     val diagnostics: SafeDiagnosticsSnapshot = SafeDiagnosticsSnapshot(),
     val notice: UiNotice? = null,
 )
@@ -82,6 +86,8 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     )
     private val sessionManager = SimplifiedSessionManager(standardAead)
     private val allowInsecureRelayHttp = application.resources.getBoolean(R.bool.allow_insecure_relay_http)
+    private val debugQaToolsEnabled = application.resources.getBoolean(R.bool.enable_debug_qa_tools)
+    private val isPhysicalDeviceForQa = isProbablyPhysicalDevice()
     private val relayServerSettings = RelayServerSettings(application, allowInsecureRelayHttp)
     private val diagnosticsStore = SafeDeliveryDiagnosticsStore(application)
     private val queueIdStore = LocalQueueIdStore(application)
@@ -104,6 +110,8 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             relayServerUrl = relayServerSettings.currentUrl(),
             relayHealthStatus = diagnosticsStore.lastRelayHealthStatus(),
             allowInsecureRelayHttp = allowInsecureRelayHttp,
+            debugQaToolsEnabled = debugQaToolsEnabled,
+            isPhysicalDeviceForQa = isPhysicalDeviceForQa,
         ),
     )
     val state: StateFlow<SecureMessengerUiState> = mutableState.asStateFlow()
@@ -282,7 +290,11 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             outgoingDelivery = OutgoingDeliveryProcessor(localRepository, transport, fanOutPlanner)
             incomingDelivery = IncomingDeliveryProcessor(localRepository, transport, sessionManager)
             diagnosticsStore.clearRelayHealth()
-            mutableState.value = mutableState.value.copy(relayServerUrl = savedUrl, relayHealthStatus = null)
+            mutableState.value = mutableState.value.copy(
+                relayServerUrl = savedUrl,
+                relayHealthStatus = null,
+                preflightResult = null,
+            )
             refreshDiagnostics()
             if (mutableState.value.profileCreated) startIncomingPolling()
         }
@@ -306,6 +318,40 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             diagnosticsStore.recordRelayHealth(status)
             mutableState.value = mutableState.value.copy(relayHealthStatus = status)
             refreshDiagnostics()
+        }
+    }
+
+    fun runTwoDevicePreflight() {
+        viewModelScope.launch {
+            var snapshot = preflightSnapshot()
+            val addressResult = evaluateTwoDevicePreflight(snapshot)
+            if (addressResult in setOf(
+                    TwoDevicePreflightResult.RELAY_URL_MISSING,
+                    TwoDevicePreflightResult.PHONE_LOOPBACK_URL,
+                    TwoDevicePreflightResult.UNSPECIFIED_RELAY_URL,
+                )
+            ) {
+                mutableState.value = mutableState.value.copy(preflightResult = addressResult)
+                return@launch
+            }
+            val normalized = RelayServerSettings.normalize(snapshot.relayUrl, allowInsecureRelayHttp)
+            val status = if (normalized == null) {
+                RelayHealthStatus.CONNECTION_ERROR
+            } else {
+                RelayHttpTransportClient(normalized).checkHealth()
+            }
+            diagnosticsStore.record(
+                if (status == RelayHealthStatus.AVAILABLE) {
+                    DeliveryTechnicalEvent.RELAY_HEALTH_OK
+                } else {
+                    DeliveryTechnicalEvent.RELAY_HEALTH_FAILED
+                },
+            )
+            diagnosticsStore.recordRelayHealth(status)
+            mutableState.value = mutableState.value.copy(relayHealthStatus = status)
+            refreshDiagnostics()
+            snapshot = preflightSnapshot()
+            mutableState.value = mutableState.value.copy(preflightResult = evaluateTwoDevicePreflight(snapshot))
         }
     }
 
@@ -406,8 +452,15 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             mutableState.value = SecureMessengerUiState(
                 relayServerUrl = relayServerSettings.currentUrl(),
                 allowInsecureRelayHttp = allowInsecureRelayHttp,
+                debugQaToolsEnabled = debugQaToolsEnabled,
+                isPhysicalDeviceForQa = isPhysicalDeviceForQa,
             )
         }
+    }
+
+    fun resetTestDataForQa() {
+        if (!debugQaToolsEnabled) return
+        deleteLocalData()
     }
 
     override fun onCleared() {
@@ -577,6 +630,22 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         )
     }
 
+    private fun preflightSnapshot(): TwoDevicePreflightSnapshot {
+        val current = mutableState.value
+        return TwoDevicePreflightSnapshot(
+            relayUrl = current.relayServerUrl,
+            isPhysicalDevice = current.isPhysicalDeviceForQa,
+            relayHealthStatus = current.relayHealthStatus,
+            contactCount = current.diagnostics.contactCount,
+            pairingStatus = current.diagnostics.pairingStatus,
+            primaryDeviceState = current.diagnostics.primaryDeviceState,
+            pendingOutgoingCount = current.diagnostics.pendingOutgoingCount,
+            failedOutgoingCount = current.diagnostics.failedOutgoingCount,
+            nextRetryAtEpochMillis = current.diagnostics.nextRetryAtEpochMillis,
+            workSyncStatus = current.diagnostics.workSyncStatus,
+        )
+    }
+
     private fun launchMutation(block: suspend () -> Unit) {
         mutationJobs += viewModelScope.launch { block() }
     }
@@ -585,5 +654,13 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         const val TIMESTAMP_BUCKET_MILLIS = 60_000L
         const val RETRY_POLL_INTERVAL_MILLIS = 15_000L
         const val DIAGNOSTICS_REFRESH_INTERVAL_MILLIS = 2_000L
+    }
+
+    private fun isProbablyPhysicalDevice(): Boolean {
+        val buildDescription = listOf(Build.FINGERPRINT, Build.MODEL, Build.PRODUCT, Build.HARDWARE)
+            .joinToString(" ")
+            .lowercase()
+        return listOf("generic", "emulator", "sdk_gphone", "goldfish", "ranchu")
+            .none(buildDescription::contains)
     }
 }

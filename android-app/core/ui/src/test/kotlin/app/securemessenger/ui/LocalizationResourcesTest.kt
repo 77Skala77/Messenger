@@ -57,6 +57,15 @@ class LocalizationResourcesTest {
             "pairing_ready_confirmation",
             "http_relay_debug_warning",
             "https_relay_required",
+            "relay_phone_loopback_warning",
+            "relay_unspecified_address_warning",
+            "qa_preflight_title",
+            "run_qa_preflight",
+            "qa_preflight_ready",
+            "qa_preflight_phone_loopback",
+            "qa_preflight_unspecified_relay",
+            "reset_test_data",
+            "reset_test_data_warning",
             "diagnostics_title",
             "diagnostics_safe_notice",
             "copy_diagnostic_report",
@@ -80,6 +89,8 @@ class LocalizationResourcesTest {
         assertTrue(source.contains("R.string.pairing_ready_confirmation"))
         assertTrue(releasePolicy.contains("<bool name=\"allow_insecure_relay_http\">false</bool>"))
         assertTrue(debugPolicy.contains("<bool name=\"allow_insecure_relay_http\">true</bool>"))
+        assertTrue(releasePolicy.contains("<bool name=\"enable_debug_qa_tools\">false</bool>"))
+        assertTrue(debugPolicy.contains("<bool name=\"enable_debug_qa_tools\">true</bool>"))
     }
 
     @Test
@@ -106,6 +117,37 @@ class LocalizationResourcesTest {
         assertTrue(activity.contains("AppCompatActivity"))
         assertFalse(appManifest.contains("android:name=\".MainActivity\"\n            android:screenOrientation"))
         assertTrue(appManifest.contains("android.permission.CAMERA"))
+    }
+
+    @Test
+    fun `debug reset is confirmed and preflight is wired without enabling gated crypto`() {
+        val app = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val viewModel = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerViewModel.kt").readText()
+
+        assertTrue(app.contains("showTestResetDialog"))
+        assertTrue(app.contains("R.string.reset_test_data_warning"))
+        assertTrue(app.contains("onResetTestData()"))
+        assertTrue(app.contains("onRunPreflight"))
+        assertTrue(app.contains("relayClientAddressWarning"))
+        assertTrue(viewModel.contains("fun resetTestDataForQa()"))
+        assertTrue(viewModel.contains("if (!debugQaToolsEnabled) return"))
+        assertTrue(viewModel.contains("fun runTwoDevicePreflight()"))
+        assertFalse(viewModel.contains("SignalSessionManagerAdapter"))
+    }
+
+    @Test
+    fun `logcat qa scripts are executable redacting helpers and log output is ignored`() {
+        val start = File("../../scripts/start_qa_logcat.sh")
+        val analyze = File("../../scripts/analyze_qa_logcat.sh")
+        val ignore = File("../../../.gitignore").readText()
+
+        assertTrue(start.isFile)
+        assertTrue(analyze.isFile)
+        assertTrue(start.canExecute())
+        assertTrue(analyze.canExecute())
+        assertTrue(start.readText().contains("analyze_qa_logcat.sh\" --redact-stream"))
+        assertTrue(analyze.readText().contains("[REDACTED]"))
+        assertTrue(ignore.contains("qa-logcat*.txt"))
     }
 
     private fun resourceNames(file: File): Set<String> {

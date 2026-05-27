@@ -16,6 +16,9 @@ server or privacy audit.
   guarantee of timely offline delivery.
 - Debug builds permit a user-selected cleartext LAN relay URL for two-device testing.
   It is not a secure deployment transport and exposes network metadata.
+- The debug-only test-data reset intentionally preserves the configured relay URL for
+  repeated LAN QA while removing local profiles, cryptographic/delivery state and
+  diagnostics. It is not a forensic secure-erasure claim.
 - Release builds reject `http://` relay configuration and Android cleartext traffic;
   this hardening does not make an unreviewed HTTPS relay production-safe.
 - New devices can be staged, approved and locally revoked; true per-device sessions,
@@ -44,6 +47,9 @@ keys, message keys, nonce values, or raw encrypted envelopes tied to identifiabl
 The delivery diagnostics screen exports only technical statuses, counters, timestamps
 and short SHA-256 queue fingerprints, with a 100-event cap. This redaction boundary
 still requires audit review and is not a metadata-anonymity guarantee.
+The optional QA logcat scripts sanitize labelled sensitive fields before saving or
+displaying output, but QA must use disposable messages: scripts cannot recognize
+arbitrary sensitive text introduced by future accidental logging.
 
 ## Forbidden Claims
 

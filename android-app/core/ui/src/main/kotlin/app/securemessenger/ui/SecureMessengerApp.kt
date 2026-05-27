@@ -164,13 +164,22 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         relayServerUrl = state.relayServerUrl,
                         relayHealthStatus = state.relayHealthStatus,
                         allowInsecureRelayHttp = state.allowInsecureRelayHttp,
+                        diagnostics = state.diagnostics,
+                        debugQaToolsEnabled = state.debugQaToolsEnabled,
+                        isPhysicalDeviceForQa = state.isPhysicalDeviceForQa,
+                        preflightResult = state.preflightResult,
                         onBack = { screen = Screen.HOME },
                         onSaveRelayUrl = viewModel::saveRelayServerUrl,
                         onCheckRelay = viewModel::checkRelayServer,
+                        onRunPreflight = viewModel::runTwoDevicePreflight,
                         onSynchronizeNow = viewModel::synchronizeNow,
                         onOpenDiagnostics = { screen = Screen.DIAGNOSTICS },
                         onDeleteLocalData = {
                             viewModel.deleteLocalData()
+                            screen = Screen.ONBOARDING
+                        },
+                        onResetTestData = {
+                            viewModel.resetTestDataForQa()
                             screen = Screen.ONBOARDING
                         },
                     )
@@ -532,17 +541,25 @@ private fun SettingsScreen(
     relayServerUrl: String,
     relayHealthStatus: RelayHealthStatus?,
     allowInsecureRelayHttp: Boolean,
+    diagnostics: SafeDiagnosticsSnapshot,
+    debugQaToolsEnabled: Boolean,
+    isPhysicalDeviceForQa: Boolean,
+    preflightResult: TwoDevicePreflightResult?,
     onBack: () -> Unit,
     onSaveRelayUrl: (String) -> Unit,
     onCheckRelay: (String) -> Unit,
+    onRunPreflight: () -> Unit,
     onSynchronizeNow: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onDeleteLocalData: () -> Unit,
+    onResetTestData: () -> Unit,
 ) {
     val context = LocalContext.current
     var selectedLanguage by remember { mutableStateOf(LanguageController.selected(context)) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showTestResetDialog by remember { mutableStateOf(false) }
     var relayUrlInput by remember(relayServerUrl) { mutableStateOf(relayServerUrl) }
+    val addressWarning = relayClientAddressWarning(relayUrlInput, isPhysicalDeviceForQa)
     Scaffold(topBar = { NavigationTopBar(stringResource(R.string.settings), onBack) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -609,6 +626,13 @@ private fun SettingsScreen(
                         ),
                     )
                 }
+                when (addressWarning) {
+                    RelayClientAddressWarning.PHONE_LOOPBACK ->
+                        SecurityWarning(stringResource(R.string.relay_phone_loopback_warning))
+                    RelayClientAddressWarning.UNSPECIFIED_BIND_ADDRESS ->
+                        SecurityWarning(stringResource(R.string.relay_unspecified_address_warning))
+                    null -> Unit
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { onSaveRelayUrl(relayUrlInput) }) {
                         Text(stringResource(R.string.save_relay_server))
@@ -625,6 +649,46 @@ private fun SettingsScreen(
                 }
                 Text(stringResource(R.string.background_sync_notice), style = MaterialTheme.typography.bodySmall)
             }
+            item { Text(stringResource(R.string.qa_preflight_title), style = MaterialTheme.typography.titleLarge) }
+            item {
+                Text(stringResource(R.string.qa_preflight_explanation))
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_relay_url),
+                    diagnostics.relayUrl.ifBlank { stringResource(R.string.diagnostics_none) },
+                )
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_health),
+                    diagnostics.relayHealthStatus?.let { relayHealthLabel(it) }
+                        ?: stringResource(R.string.diagnostics_none),
+                )
+                DiagnosticRow(stringResource(R.string.diagnostics_contacts), diagnostics.contactCount.toString())
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_pairing),
+                    diagnostics.pairingStatus?.let { pairingStatusLabel(it) }
+                        ?: stringResource(R.string.diagnostics_none),
+                )
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_primary_device),
+                    diagnostics.primaryDeviceState?.let { deviceApprovalLabel(it) }
+                        ?: stringResource(R.string.diagnostics_none),
+                )
+                DiagnosticRow(stringResource(R.string.diagnostics_pending), diagnostics.pendingOutgoingCount.toString())
+                DiagnosticRow(stringResource(R.string.diagnostics_failed), diagnostics.failedOutgoingCount.toString())
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_next_retry),
+                    diagnostics.nextRetryAtEpochMillis?.toString() ?: stringResource(R.string.diagnostics_none),
+                )
+                DiagnosticRow(
+                    stringResource(R.string.diagnostics_work_status),
+                    workSyncStatusLabel(diagnostics.workSyncStatus),
+                )
+                Button(onClick = onRunPreflight, modifier = Modifier.testTag("run_two_device_preflight")) {
+                    Text(stringResource(R.string.run_qa_preflight))
+                }
+                if (preflightResult != null) {
+                    SecurityWarning(twoDevicePreflightLabel(preflightResult))
+                }
+            }
             item { Text(stringResource(R.string.storage_title), style = MaterialTheme.typography.titleLarge) }
             item {
                 Text(stringResource(R.string.app_lock), fontWeight = FontWeight.Bold)
@@ -633,6 +697,18 @@ private fun SettingsScreen(
             item {
                 OutlinedButton(onClick = { showDeleteDialog = true }) {
                     Text(stringResource(R.string.delete_local_data))
+                }
+            }
+            if (debugQaToolsEnabled) {
+                item {
+                    Text(stringResource(R.string.debug_qa_tools_title), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(R.string.debug_reset_test_data_explanation))
+                    OutlinedButton(
+                        onClick = { showTestResetDialog = true },
+                        modifier = Modifier.testTag("debug_reset_test_data"),
+                    ) {
+                        Text(stringResource(R.string.reset_test_data))
+                    }
                 }
             }
             item {
@@ -657,6 +733,24 @@ private fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+    if (showTestResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showTestResetDialog = false },
+            title = { Text(stringResource(R.string.reset_test_data)) },
+            text = { Text(stringResource(R.string.reset_test_data_warning)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { showTestResetDialog = false; onResetTestData() },
+                    modifier = Modifier.testTag("confirm_debug_reset_test_data"),
+                ) {
+                    Text(stringResource(R.string.reset_test_data_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTestResetDialog = false }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }
@@ -891,6 +985,18 @@ private fun relayHealthLabel(status: RelayHealthStatus): String = when (status) 
     RelayHealthStatus.AVAILABLE -> stringResource(R.string.relay_available)
     RelayHealthStatus.UNAVAILABLE -> stringResource(R.string.relay_unavailable)
     RelayHealthStatus.CONNECTION_ERROR -> stringResource(R.string.relay_connection_error)
+}
+
+@Composable
+private fun twoDevicePreflightLabel(result: TwoDevicePreflightResult): String = when (result) {
+    TwoDevicePreflightResult.READY -> stringResource(R.string.qa_preflight_ready)
+    TwoDevicePreflightResult.RELAY_URL_MISSING -> stringResource(R.string.qa_preflight_missing_relay)
+    TwoDevicePreflightResult.PHONE_LOOPBACK_URL -> stringResource(R.string.qa_preflight_phone_loopback)
+    TwoDevicePreflightResult.UNSPECIFIED_RELAY_URL -> stringResource(R.string.qa_preflight_unspecified_relay)
+    TwoDevicePreflightResult.RELAY_UNAVAILABLE -> stringResource(R.string.qa_preflight_relay_unavailable)
+    TwoDevicePreflightResult.PAIRING_INCOMPLETE -> stringResource(R.string.qa_preflight_pairing_incomplete)
+    TwoDevicePreflightResult.DEVICE_BLOCKED -> stringResource(R.string.qa_preflight_device_blocked)
+    TwoDevicePreflightResult.RETRY_PENDING -> stringResource(R.string.qa_preflight_retry_pending)
 }
 
 @Composable

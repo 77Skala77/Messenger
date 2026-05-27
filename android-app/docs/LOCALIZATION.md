@@ -30,6 +30,8 @@
 | Ready for conversation | Готово к переписке |
 | Device blocked | Устройство заблокировано |
 | Delete Local Data | Удалить локальные данные |
+| Reset Test Data | Сбросить тестовые данные |
+| Conversation Test Readiness | Готовность к тесту переписки |
 
 ## Localization Checklist
 
@@ -39,6 +41,7 @@
 - Verify onboarding, empty states, errors, buttons, content descriptions and dialogs.
 - Verify security-status and message-status wording in both languages.
 - Verify relay URL, health status, synchronization and two-way pairing wording.
+- Verify physical-phone loopback/`0.0.0.0` warnings, preflight results and debug reset confirmation in both languages.
 - Test first launch defaults to Russian on an English-configured emulator.
 - Test manual switch to English, process restart, and return to Russian.
 - Test that the whole language-option row is clickable, including its text and radio-circle area.

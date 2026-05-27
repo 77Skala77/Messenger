@@ -34,6 +34,10 @@ default in-app language; English is available from Settings.
 - A delivery diagnostics screen with persisted health/sync observations, pending and
   retry counters, pairing/device/worker status and a capped technical event list.
   Copied reports show short queue fingerprints rather than full queue identifiers.
+- Debug-only two-device QA controls: a readiness preflight, physical-phone warnings
+  for loopback/bind-only relay addresses, and a confirmed test-data reset. The reset
+  wipes local test/crypto/delivery/diagnostic state while retaining the selected
+  Relay URL for repeated LAN checks.
 - Abstract transport client and a minimal Node relay with opaque blobs, delivery
   deletion, TTL, `/health`, and LAN development binding.
 - Explicit device states (`pending`, `verified`, `revoked`, `key_changed`). The current
@@ -62,6 +66,8 @@ default in-app language; English is available from Settings.
 - The user-selected HTTP relay URL is allowed only by the debug development policy.
   The Settings screen warns about HTTP in debug builds. Release builds reject HTTP
   relay URLs and disallow cleartext networking; they do not yet have a production transport.
+- The debug-only reset control is for disposable QA state; it keeps the configured
+  Relay URL by design and is not a secure-erasure guarantee.
 - Room stores ciphertext rather than using SQLCipher; routing AAD and database shape still
   expose local metadata.
 - Android secure deletion cannot guarantee erasure of historical flash-storage blocks.
@@ -154,6 +160,17 @@ pairing/device/worker status and the latest 100 technical events. It deliberatel
 excludes message text, keys, nonce values, ciphertext and full queue identifiers.
 Clearing diagnostics removes technical history but does not silently change pairing state.
 
+Before a physical two-device send, open `Настройки` -> `Готовность к тесту
+переписки` and run preflight after saving the LAN Relay URL and selecting the
+conversation. On a real phone, `127.0.0.1` and `localhost` point to that phone,
+not to the laptop; `0.0.0.0` is a server bind address, not a client URL. Use the
+laptop Wi-Fi IP. Debug-only `Сбросить тестовые данные` requires confirmation and
+returns the app to onboarding while keeping that Relay URL.
+
+For sanitized crash/worker/storage/camera/network capture during manual testing,
+use [docs/LOGCAT_QA.md](docs/LOGCAT_QA.md). Its local `qa-logcat.txt` output is
+ignored by git and must not contain real message content or secrets.
+
 ## Localization
 
 The UI defaults to Russian on first start, even on a non-Russian system locale.
@@ -184,6 +201,7 @@ scanner activity. The rest of the messenger is not orientation-locked.
 - [Two Device Test](docs/TWO_DEVICE_TEST.md)
 - [Audit Readiness](docs/AUDIT_READINESS.md)
 - [Manual Two Device QA](docs/MANUAL_TWO_DEVICE_QA.md)
+- [Logcat QA](docs/LOGCAT_QA.md)
 - [Audit Scope](docs/AUDIT_SCOPE.md)
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md)
 - [Security-Critical Files](docs/SECURITY_CRITICAL_FILES.md)

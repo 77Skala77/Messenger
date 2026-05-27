@@ -26,12 +26,15 @@
 - [ ] Confirm queue identifiers appear only as short hashes and technical event log is capped at 100 entries.
 - [ ] Confirm logs do not contain sensitive fields.
 - [ ] Record relay metadata limitations and the visible configured relay URL.
+- [ ] Inspect the preflight summary boundary and QA logcat redaction: no payload, key, nonce, ciphertext or full queue identifier.
 
 ## Debug And Release
 
 - [ ] Confirm debug build visibly warns when LAN `http://` relay is configured.
 - [ ] Confirm release build rejects insecure HTTP relay URLs and Android cleartext networking.
 - [ ] Confirm LAN HTTP testing is described as debug-only, never production transport.
+- [ ] Confirm debug-only test reset requires confirmation, clears local test/delivery/diagnostic state and intentionally preserves only Relay URL configuration.
+- [ ] Confirm physical-phone warnings reject `127.0.0.1`, `localhost` and `0.0.0.0` as LAN client test addresses while emulator `10.0.2.2` is not misclassified.
 
 ## Evidence
 
@@ -39,3 +42,4 @@
 - [ ] Run connected UI/storage/transport checks on a test Android device.
 - [ ] Run relay Node tests.
 - [ ] Record the two-device QA result using `MANUAL_TWO_DEVICE_QA.md` without exporting sensitive content.
+- [ ] When troubleshooting, capture only sanitized evidence according to `LOGCAT_QA.md`.

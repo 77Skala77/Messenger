@@ -1,3 +1,4 @@
 <resources>
     <bool name="allow_insecure_relay_http">true</bool>
+    <bool name="enable_debug_qa_tools">true</bool>
 </resources>
