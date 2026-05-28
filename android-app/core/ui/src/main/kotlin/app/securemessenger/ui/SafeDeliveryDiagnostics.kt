@@ -5,6 +5,9 @@ import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.PairingStatus
 import app.securemessenger.transport.RelayHealthStatus
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class DeliveryTechnicalEvent {
     RELAY_HEALTH_OK,
@@ -15,6 +18,11 @@ enum class DeliveryTechnicalEvent {
     OUTGOING_RETRY_STARTED,
     OUTGOING_RETRY_SUCCEEDED,
     OUTGOING_RETRY_FAILED,
+    DELIVERY_RECEIPT_QUEUED,
+    DELIVERY_RECEIPT_SENT,
+    DELIVERY_RECEIPT_RECEIVED,
+    DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED,
+    DELIVERY_STATUS_UPDATED,
     INCOMING_FETCH_STARTED,
     INCOMING_ACCEPTED,
     INCOMING_DUPLICATE_SUPPRESSED,
@@ -23,6 +31,23 @@ enum class DeliveryTechnicalEvent {
     PAIRING_READY,
     MANUAL_SYNC_STARTED,
     MANUAL_SYNC_FINISHED,
+}
+
+enum class DeliveryEventGroup {
+    RELAY,
+    PAIRING,
+    OUTGOING,
+    INCOMING,
+    RETRY,
+    RECEIPTS,
+    ERRORS,
+}
+
+enum class DeliveryLastError {
+    NONE,
+    RELAY_UNAVAILABLE,
+    PAIRING_INCOMPLETE,
+    DEVICE_BLOCKED,
 }
 
 enum class WorkSyncStatus {
@@ -67,6 +92,7 @@ data class SafeDiagnosticsSnapshot(
     val pairingStatus: PairingStatus? = null,
     val primaryDeviceState: DeviceApprovalStatus? = null,
     val workSyncStatus: WorkSyncStatus = WorkSyncStatus.UNKNOWN,
+    val lastError: DeliveryLastError = DeliveryLastError.NONE,
     val events: List<TechnicalDeliveryEvent> = emptyList(),
 ) {
     companion object {
@@ -98,6 +124,7 @@ data class SafeDiagnosticsSnapshot(
                 pairingStatus = pairingStatus,
                 primaryDeviceState = primaryDeviceState,
                 workSyncStatus = workSyncStatus,
+                lastError = DeliveryDiagnosticsClassifier.lastError(events),
                 events = events.takeLast(MAX_TECHNICAL_EVENTS),
             )
     }
@@ -108,6 +135,53 @@ object RedactedIdentifier {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return "sha256:" + digest.take(6).joinToString("") { "%02x".format(it) }
     }
+}
+
+object DeliveryDiagnosticsClassifier {
+    fun group(type: DeliveryTechnicalEvent): DeliveryEventGroup = when (type) {
+        DeliveryTechnicalEvent.RELAY_HEALTH_OK -> DeliveryEventGroup.RELAY
+        DeliveryTechnicalEvent.RELAY_HEALTH_FAILED -> DeliveryEventGroup.ERRORS
+        DeliveryTechnicalEvent.PAIRING_INCOMPLETE -> DeliveryEventGroup.ERRORS
+        DeliveryTechnicalEvent.PAIRING_READY -> DeliveryEventGroup.PAIRING
+        DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND -> DeliveryEventGroup.ERRORS
+        DeliveryTechnicalEvent.OUTGOING_QUEUED,
+        DeliveryTechnicalEvent.OUTGOING_SENT,
+        -> DeliveryEventGroup.OUTGOING
+        DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED,
+        DeliveryTechnicalEvent.OUTGOING_RETRY_STARTED,
+        DeliveryTechnicalEvent.OUTGOING_RETRY_SUCCEEDED,
+        DeliveryTechnicalEvent.OUTGOING_RETRY_FAILED,
+        DeliveryTechnicalEvent.MANUAL_SYNC_STARTED,
+        DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED,
+        -> DeliveryEventGroup.RETRY
+        DeliveryTechnicalEvent.INCOMING_FETCH_STARTED,
+        DeliveryTechnicalEvent.INCOMING_ACCEPTED,
+        DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED,
+        -> DeliveryEventGroup.INCOMING
+        DeliveryTechnicalEvent.DELIVERY_RECEIPT_QUEUED,
+        DeliveryTechnicalEvent.DELIVERY_RECEIPT_SENT,
+        DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED,
+        DeliveryTechnicalEvent.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED,
+        DeliveryTechnicalEvent.DELIVERY_STATUS_UPDATED,
+        -> DeliveryEventGroup.RECEIPTS
+    }
+
+    fun lastError(events: List<TechnicalDeliveryEvent>): DeliveryLastError =
+        events.asReversed().firstNotNullOfOrNull { event ->
+            when (event.type) {
+                DeliveryTechnicalEvent.RELAY_HEALTH_FAILED,
+                DeliveryTechnicalEvent.OUTGOING_RETRY_FAILED,
+                -> DeliveryLastError.RELAY_UNAVAILABLE
+                DeliveryTechnicalEvent.PAIRING_INCOMPLETE -> DeliveryLastError.PAIRING_INCOMPLETE
+                DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND -> DeliveryLastError.DEVICE_BLOCKED
+                else -> null
+            }
+        } ?: DeliveryLastError.NONE
+}
+
+object DiagnosticsTimeFormatter {
+    fun format(epochMillis: Long): String =
+        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochMillis))
 }
 
 /**
@@ -220,6 +294,7 @@ data class DiagnosticReportLabels(
     val pairing: String,
     val primaryDevice: String,
     val workSync: String,
+    val lastError: String,
     val events: String,
     val unavailable: String,
 )
@@ -232,6 +307,7 @@ object SafeDiagnosticReport {
         pairingValue: String,
         primaryDeviceValue: String,
         workSyncValue: String,
+        lastErrorValue: String,
         eventValues: Map<DeliveryTechnicalEvent, String>,
     ): String = buildString {
         appendLine(labels.title)
@@ -248,9 +324,10 @@ object SafeDiagnosticReport {
         appendLine("${labels.pairing}: $pairingValue")
         appendLine("${labels.primaryDevice}: $primaryDeviceValue")
         appendLine("${labels.workSync}: $workSyncValue")
+        appendLine("${labels.lastError}: $lastErrorValue")
         appendLine(labels.events)
         snapshot.events.forEach { event ->
-            appendLine("${event.timestampEpochMillis}: ${eventValues[event.type] ?: event.type.name}")
+            appendLine("${DiagnosticsTimeFormatter.format(event.timestampEpochMillis)} (${event.timestampEpochMillis}): ${eventValues[event.type] ?: event.type.name}")
         }
     }
 }

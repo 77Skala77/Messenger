@@ -53,6 +53,18 @@ polling and WorkManager best-effort sync call the same delivery boundary. This i
 transport reliability mechanism, not a cryptographic ratchet property or a timely
 delivery guarantee.
 
+After a normal incoming message is authenticated, decrypted and durably accepted,
+the receiver queues an encrypted delivery receipt control payload back to the sender.
+The receipt contains the original message ID, conversation ID, original sender device
+ID, original recipient device ID, timestamp and receipt type `DELIVERED`. It does
+not contain message plaintext, keys, nonces, ciphertext or queue IDs. The sender only
+marks an outgoing message as `DELIVERED` after authenticating this receipt and
+durably recording the receipt replay marker. Duplicate receipts are suppressed by the
+same replay table and are not displayed as chat messages.
+
+`DELIVERED` means the receiving device accepted, decrypted and saved the message. It
+does not mean the human user opened or read it; read receipts are not implemented.
+
 The delivery diagnostics boundary receives only counts, enum status codes, timestamps
 and short SHA-256 fingerprints of queue identifiers. It has no input for plaintext,
 key bytes, nonce values or ciphertext envelopes. It is QA support rather than

@@ -9,6 +9,8 @@ import app.securemessenger.crypto.SessionMessageCodec
 import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
 import app.securemessenger.delivery.DeliveryPersistence
+import app.securemessenger.delivery.DeliveryReceipt
+import app.securemessenger.delivery.DeliveryReceiptAcceptance
 import app.securemessenger.delivery.IncomingDeliveryProcessor
 import app.securemessenger.delivery.IncomingResult
 import app.securemessenger.delivery.OutgoingAttemptResult
@@ -161,6 +163,30 @@ class RelayHttpDeliveryInstrumentedTest {
             }
             accepted += message
             return true
+        }
+
+        override suspend fun acceptDeliveryReceipt(
+            contactId: String,
+            session: EstablishedSession,
+            message: EncryptedSessionMessage,
+            receipt: DeliveryReceipt,
+        ): DeliveryReceiptAcceptance {
+            if (!replay.add(Triple(session.conversationId, session.remoteDeviceId, message.messageNumber))) {
+                return DeliveryReceiptAcceptance.DUPLICATE_SUPPRESSED
+            }
+            val existing = outgoing[receipt.originalMessageId] ?: return DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
+            outgoing[receipt.originalMessageId] = existing.copy(attemptCount = existing.attemptCount)
+            return DeliveryReceiptAcceptance.STATUS_UPDATED
+        }
+
+        override suspend fun queueOutgoingControlMessage(
+            messageId: String,
+            contactId: String,
+            session: EstablishedSession,
+            message: EncryptedSessionMessage,
+        ) {
+            val original = outgoing.values.firstOrNull() ?: return
+            outgoing[messageId] = original.copy(messageId = messageId, encryptedMessage = message, attemptCount = 0)
         }
     }
 }

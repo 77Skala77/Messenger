@@ -14,6 +14,9 @@ server or privacy audit.
 - Failed delivery is persisted and can be retried by a WorkManager worker, but
   background execution is best effort, may be delayed by Android, and is not a
   guarantee of timely offline delivery.
+- Delivery receipts are encrypted control messages and contain no plaintext, but they
+  still reveal minimal delivery metadata to the peers. `Delivered` means the receiving
+  device accepted, decrypted and stored the message; it is not a read receipt.
 - Debug builds permit a user-selected cleartext LAN relay URL for two-device testing.
   It is not a secure deployment transport and exposes network metadata.
 - Public HTTPS tunnel/VPS relay testing is QA-only. It helps a phone and emulator
@@ -47,9 +50,10 @@ It must not be enabled, advertised, or treated as secure based on its cascade na
 
 Never log or export plaintext, decrypted attachments, passwords, private keys, session
 keys, message keys, nonce values, or raw encrypted envelopes tied to identifiable users.
-The delivery diagnostics screen exports only technical statuses, counters, timestamps
-and short SHA-256 queue fingerprints, with a 100-event cap. This redaction boundary
-still requires audit review and is not a metadata-anonymity guarantee.
+The delivery diagnostics screen exports only technical statuses, counters, formatted
+timestamps, grouped event names, last-error labels and short SHA-256 queue fingerprints,
+with a 100-event cap. This redaction boundary still requires audit review and is not
+a metadata-anonymity guarantee.
 The optional QA logcat scripts sanitize labelled sensitive fields before saving or
 displaying output, but QA must use disposable messages: scripts cannot recognize
 arbitrary sensitive text introduced by future accidental logging.

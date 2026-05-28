@@ -15,8 +15,10 @@ enum class VerificationStatus {
 enum class MessageStatus {
     PENDING,
     SENT,
+    DELIVERED,
     RECEIVED,
     FAILED,
+    WAITING_FOR_PAIRING,
 }
 
 enum class DeviceApprovalStatus {

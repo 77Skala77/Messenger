@@ -169,16 +169,37 @@ class RelaySyncWorker(
                     OutgoingAttemptResult.NOT_FOUND -> Unit
                 }
             }
+            repeat(result.queuedDeliveryReceiptCount) {
+                diagnostics.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_QUEUED)
+            }
+            result.receiptOutgoingResults.forEach { resultItem ->
+                when (resultItem) {
+                    OutgoingAttemptResult.SENT -> diagnostics.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_SENT)
+                    OutgoingAttemptResult.RETRY_SCHEDULED ->
+                        diagnostics.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED)
+                    OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
+                        diagnostics.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
+                    OutgoingAttemptResult.NOT_FOUND -> Unit
+                }
+            }
             result.incomingResults.forEach { resultItem ->
                 when (resultItem) {
                     IncomingResult.ACCEPTED -> diagnostics.record(DeliveryTechnicalEvent.INCOMING_ACCEPTED)
                     IncomingResult.AUTHENTICATED_DUPLICATE ->
                         diagnostics.record(DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED)
+                    IncomingResult.DELIVERY_RECEIPT_ACCEPTED -> {
+                        diagnostics.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED)
+                        diagnostics.record(DeliveryTechnicalEvent.DELIVERY_STATUS_UPDATED)
+                    }
+                    IncomingResult.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED ->
+                        diagnostics.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED)
+                    IncomingResult.DELIVERY_RECEIPT_UNKNOWN_MESSAGE ->
+                        diagnostics.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED)
                     IncomingResult.UNAUTHENTICATED -> Unit
                 }
             }
             if (manualSync) diagnostics.record(DeliveryTechnicalEvent.MANUAL_SYNC_FINISHED)
-            if (result.outgoingResults.any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
+            if ((result.outgoingResults + result.receiptOutgoingResults).any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
                 diagnostics.setWorkSyncStatus(WorkSyncStatus.RETRY_PENDING)
                 Result.retry()
             } else {

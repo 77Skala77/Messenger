@@ -81,6 +81,8 @@ class SecureRoomStateInstrumentedTest {
         repository.recordSent("pending-1", attemptCount = 2)
         assertTrue(repository.retryableOutgoingMessages().isEmpty())
         assertTrue(repository.dueOutgoingMessages(Long.MAX_VALUE).isEmpty())
+        assertTrue(repository.recordDelivered("pending-1"))
+        assertEquals(MessageStatus.DELIVERED.name, database.dao().observeMessages("remote").first().single().status)
 
         repository.revokeDevice("remote", remote.publicIdentity)
         repository.storeContact(contact)

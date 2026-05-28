@@ -36,6 +36,7 @@ class SafeDeliveryDiagnosticsTest {
             pairingValue = "ready",
             primaryDeviceValue = "verified",
             workSyncValue = "done",
+            lastErrorValue = "none",
             eventValues = mapOf(DeliveryTechnicalEvent.OUTGOING_SENT to "OUTGOING_SENT"),
         )
 
@@ -46,6 +47,48 @@ class SafeDeliveryDiagnosticsTest {
         listOf("plaintext-probe", "private-key-probe", "nonce-probe", "ciphertext-probe").forEach { forbidden ->
             assertFalse(report.contains(forbidden))
         }
+    }
+
+    @Test
+    fun `diagnostics use human time grouping and last error classification`() {
+        val events = listOf(
+            TechnicalDeliveryEvent(DeliveryTechnicalEvent.RELAY_HEALTH_OK, 3_723_000L),
+            TechnicalDeliveryEvent(DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED, 3_724_000L),
+            TechnicalDeliveryEvent(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND, 3_725_000L),
+        )
+        val snapshot = SafeDiagnosticsSnapshot.create(
+            relayUrl = "http://192.168.1.45:8787",
+            relayHealthStatus = RelayHealthStatus.AVAILABLE,
+            lastSuccessfulSyncAtEpochMillis = null,
+            pendingOutgoingCount = 0,
+            failedOutgoingCount = 0,
+            nextRetryAtEpochMillis = null,
+            contactCount = 1,
+            localQueueId = null,
+            selectedContactQueueId = null,
+            pairingStatus = PairingStatus.READY_FOR_CONVERSATION,
+            primaryDeviceState = DeviceApprovalStatus.VERIFIED,
+            workSyncStatus = WorkSyncStatus.SUCCEEDED,
+            events = events,
+        )
+        val report = SafeDiagnosticReport.render(
+            snapshot = snapshot,
+            labels = labels(),
+            relayHealthValue = "available",
+            pairingValue = "ready",
+            primaryDeviceValue = "verified",
+            workSyncValue = "done",
+            lastErrorValue = "blocked",
+            eventValues = DeliveryTechnicalEvent.entries.associateWith { it.name },
+        )
+
+        assertEquals(DeliveryEventGroup.RELAY, DeliveryDiagnosticsClassifier.group(DeliveryTechnicalEvent.RELAY_HEALTH_OK))
+        assertEquals(
+            DeliveryEventGroup.RECEIPTS,
+            DeliveryDiagnosticsClassifier.group(DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED),
+        )
+        assertEquals(DeliveryLastError.DEVICE_BLOCKED, snapshot.lastError)
+        assertTrue(Regex("\\d{2}:\\d{2}:\\d{2}").containsMatchIn(report))
     }
 
     @Test
@@ -76,6 +119,7 @@ class SafeDeliveryDiagnosticsTest {
         pairing = "pairing",
         primaryDevice = "device",
         workSync = "worker",
+        lastError = "last-error",
         events = "events",
         unavailable = "none",
     )

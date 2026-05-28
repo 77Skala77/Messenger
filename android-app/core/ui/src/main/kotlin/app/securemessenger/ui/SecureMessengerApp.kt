@@ -812,7 +812,8 @@ private fun DiagnosticsScreen(
             item {
                 DiagnosticRow(
                     stringResource(R.string.diagnostics_last_sync),
-                    diagnostics.lastSuccessfulSyncAtEpochMillis?.toString() ?: stringResource(R.string.diagnostics_none),
+                    diagnostics.lastSuccessfulSyncAtEpochMillis?.let(DiagnosticsTimeFormatter::format)
+                        ?: stringResource(R.string.diagnostics_none),
                 )
             }
             item { DiagnosticRow(stringResource(R.string.diagnostics_pending), diagnostics.pendingOutgoingCount.toString()) }
@@ -820,7 +821,8 @@ private fun DiagnosticsScreen(
             item {
                 DiagnosticRow(
                     stringResource(R.string.diagnostics_next_retry),
-                    diagnostics.nextRetryAtEpochMillis?.toString() ?: stringResource(R.string.diagnostics_none),
+                    diagnostics.nextRetryAtEpochMillis?.let(DiagnosticsTimeFormatter::format)
+                        ?: stringResource(R.string.diagnostics_none),
                 )
             }
             item { DiagnosticRow(stringResource(R.string.diagnostics_contacts), diagnostics.contactCount.toString()) }
@@ -849,6 +851,7 @@ private fun DiagnosticsScreen(
                 )
             }
             item { DiagnosticRow(stringResource(R.string.diagnostics_work_status), workSyncStatusLabel(diagnostics.workSyncStatus)) }
+            item { DiagnosticRow(stringResource(R.string.diagnostics_last_error), lastErrorLabel(diagnostics.lastError)) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { clipboardManager.setText(AnnotatedString(report)) }) {
@@ -863,8 +866,14 @@ private fun DiagnosticsScreen(
             if (diagnostics.events.isEmpty()) {
                 item { Text(stringResource(R.string.diagnostics_none)) }
             } else {
-                items(diagnostics.events) { event ->
-                    DiagnosticRow(event.timestampEpochMillis.toString(), deliveryEventLabel(event.type))
+                DeliveryEventGroup.entries.forEach { group ->
+                    val groupEvents = diagnostics.events.filter { DeliveryDiagnosticsClassifier.group(it.type) == group }
+                    if (groupEvents.isNotEmpty()) {
+                        item { Text(deliveryEventGroupLabel(group), style = MaterialTheme.typography.titleSmall) }
+                        items(groupEvents) { event ->
+                            DiagnosticRow(DiagnosticsTimeFormatter.format(event.timestampEpochMillis), deliveryEventLabel(event.type))
+                        }
+                    }
                 }
             }
         }
@@ -897,6 +906,7 @@ private fun diagnosticReport(diagnostics: SafeDiagnosticsSnapshot): String = Saf
         pairing = stringResource(R.string.diagnostics_pairing),
         primaryDevice = stringResource(R.string.diagnostics_primary_device),
         workSync = stringResource(R.string.diagnostics_work_status),
+        lastError = stringResource(R.string.diagnostics_last_error),
         events = stringResource(R.string.diagnostics_events),
         unavailable = stringResource(R.string.diagnostics_none),
     ),
@@ -907,6 +917,7 @@ private fun diagnosticReport(diagnostics: SafeDiagnosticsSnapshot): String = Saf
     primaryDeviceValue = diagnostics.primaryDeviceState?.let { deviceApprovalLabel(it) }
         ?: stringResource(R.string.diagnostics_none),
     workSyncValue = workSyncStatusLabel(diagnostics.workSyncStatus),
+    lastErrorValue = lastErrorLabel(diagnostics.lastError),
     eventValues = DeliveryTechnicalEvent.entries.associateWith { deliveryEventLabel(it) },
 )
 
@@ -1000,8 +1011,10 @@ private fun verificationLabel(status: VerificationStatus): String = when (status
 private fun messageStatusLabel(status: MessageStatus): String = when (status) {
     MessageStatus.PENDING -> stringResource(R.string.status_pending)
     MessageStatus.SENT -> stringResource(R.string.status_sent)
+    MessageStatus.DELIVERED -> stringResource(R.string.status_delivered)
     MessageStatus.RECEIVED -> stringResource(R.string.status_received)
     MessageStatus.FAILED -> stringResource(R.string.status_failed)
+    MessageStatus.WAITING_FOR_PAIRING -> stringResource(R.string.status_waiting_pairing)
 }
 
 @Composable
@@ -1057,6 +1070,25 @@ private fun workSyncStatusLabel(status: WorkSyncStatus): String = when (status) 
 }
 
 @Composable
+private fun lastErrorLabel(error: DeliveryLastError): String = when (error) {
+    DeliveryLastError.NONE -> stringResource(R.string.last_error_none)
+    DeliveryLastError.RELAY_UNAVAILABLE -> stringResource(R.string.last_error_relay_unavailable)
+    DeliveryLastError.PAIRING_INCOMPLETE -> stringResource(R.string.last_error_pairing_incomplete)
+    DeliveryLastError.DEVICE_BLOCKED -> stringResource(R.string.last_error_device_blocked)
+}
+
+@Composable
+private fun deliveryEventGroupLabel(group: DeliveryEventGroup): String = when (group) {
+    DeliveryEventGroup.RELAY -> stringResource(R.string.event_group_relay)
+    DeliveryEventGroup.PAIRING -> stringResource(R.string.event_group_pairing)
+    DeliveryEventGroup.OUTGOING -> stringResource(R.string.event_group_outgoing)
+    DeliveryEventGroup.INCOMING -> stringResource(R.string.event_group_incoming)
+    DeliveryEventGroup.RETRY -> stringResource(R.string.event_group_retry)
+    DeliveryEventGroup.RECEIPTS -> stringResource(R.string.event_group_receipts)
+    DeliveryEventGroup.ERRORS -> stringResource(R.string.event_group_errors)
+}
+
+@Composable
 private fun deliveryEventLabel(type: DeliveryTechnicalEvent): String = when (type) {
     DeliveryTechnicalEvent.RELAY_HEALTH_OK -> stringResource(R.string.event_relay_health_ok)
     DeliveryTechnicalEvent.RELAY_HEALTH_FAILED -> stringResource(R.string.event_relay_health_failed)
@@ -1066,6 +1098,12 @@ private fun deliveryEventLabel(type: DeliveryTechnicalEvent): String = when (typ
     DeliveryTechnicalEvent.OUTGOING_RETRY_STARTED -> stringResource(R.string.event_outgoing_retry_started)
     DeliveryTechnicalEvent.OUTGOING_RETRY_SUCCEEDED -> stringResource(R.string.event_outgoing_retry_succeeded)
     DeliveryTechnicalEvent.OUTGOING_RETRY_FAILED -> stringResource(R.string.event_outgoing_retry_failed)
+    DeliveryTechnicalEvent.DELIVERY_RECEIPT_QUEUED -> stringResource(R.string.event_delivery_receipt_queued)
+    DeliveryTechnicalEvent.DELIVERY_RECEIPT_SENT -> stringResource(R.string.event_delivery_receipt_sent)
+    DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED -> stringResource(R.string.event_delivery_receipt_received)
+    DeliveryTechnicalEvent.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED ->
+        stringResource(R.string.event_delivery_receipt_duplicate_suppressed)
+    DeliveryTechnicalEvent.DELIVERY_STATUS_UPDATED -> stringResource(R.string.event_delivery_status_updated)
     DeliveryTechnicalEvent.INCOMING_FETCH_STARTED -> stringResource(R.string.event_incoming_fetch_started)
     DeliveryTechnicalEvent.INCOMING_ACCEPTED -> stringResource(R.string.event_incoming_accepted)
     DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED ->

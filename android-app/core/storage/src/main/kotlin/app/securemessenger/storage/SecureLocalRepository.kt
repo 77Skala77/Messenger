@@ -5,6 +5,9 @@ import app.securemessenger.crypto.EstablishedSession
 import app.securemessenger.crypto.SessionMessageCodec
 import app.securemessenger.crypto.SessionStateCodec
 import app.securemessenger.delivery.DeliveryPersistence
+import app.securemessenger.delivery.DeliveryReceipt
+import app.securemessenger.delivery.DeliveryReceiptAcceptance
+import app.securemessenger.delivery.DeliveryReceiptType
 import app.securemessenger.delivery.StoredOutgoingMessage
 import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
@@ -133,6 +136,9 @@ class SecureLocalRepository(
     override suspend fun recordFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long) =
         dao.updateDeliveryState(messageId, MessageStatus.FAILED.name, attemptCount, nextAttemptAtEpochMillis)
 
+    suspend fun recordDelivered(messageId: String): Boolean =
+        dao.updateOutgoingStatus(messageId, MessageStatus.DELIVERED.name) > 0
+
     override suspend fun acceptIncoming(
         messageId: String,
         contactId: String,
@@ -156,6 +162,45 @@ class SecureLocalRepository(
                 createdAtEpochMillis = System.currentTimeMillis(),
             ),
         )
+
+    override suspend fun acceptDeliveryReceipt(
+        contactId: String,
+        session: EstablishedSession,
+        message: EncryptedSessionMessage,
+        receipt: DeliveryReceipt,
+    ): DeliveryReceiptAcceptance {
+        val receiptMatchesSession = receipt.type == DeliveryReceiptType.DELIVERED &&
+            receipt.conversationId == session.conversationId &&
+            receipt.originalSenderDeviceId == session.localDeviceId &&
+            receipt.originalRecipientDeviceId == session.remoteDeviceId
+        return dao.acceptDeliveryReceiptAndMarkDelivered(
+            AcceptedReplayEntity(
+                conversationId = session.conversationId,
+                senderDeviceId = session.remoteDeviceId,
+                messageNumber = message.messageNumber,
+                acceptedAtEpochMillis = System.currentTimeMillis(),
+            ),
+            originalMessageId = if (receiptMatchesSession) receipt.originalMessageId else "",
+            deliveredStatus = MessageStatus.DELIVERED.name,
+        )
+    }
+
+    override suspend fun queueOutgoingControlMessage(
+        messageId: String,
+        contactId: String,
+        session: EstablishedSession,
+        message: EncryptedSessionMessage,
+    ) {
+        // Persist the incremented session counter before queueing the encrypted control payload.
+        storeSession(contactId, session)
+        storeEncryptedMessage(
+            messageId = messageId,
+            contactId = contactId,
+            message = message,
+            outgoing = true,
+            status = MessageStatus.PENDING.name,
+        )
+    }
 
     fun observeDevices(contactId: String): Flow<List<ContactDevice>> =
         dao.observeContactDevices(contactId).map { devices ->

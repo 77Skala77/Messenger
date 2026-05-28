@@ -9,6 +9,7 @@ import app.securemessenger.domain.ContactDevice
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.RelayEncryptedBlob
 import app.securemessenger.domain.TransportClient
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
 data class StoredOutgoingMessage(
@@ -31,6 +32,24 @@ interface DeliveryPersistence {
         session: EstablishedSession,
         message: EncryptedSessionMessage,
     ): Boolean
+    suspend fun acceptDeliveryReceipt(
+        contactId: String,
+        session: EstablishedSession,
+        message: EncryptedSessionMessage,
+        receipt: DeliveryReceipt,
+    ): DeliveryReceiptAcceptance
+    suspend fun queueOutgoingControlMessage(
+        messageId: String,
+        contactId: String,
+        session: EstablishedSession,
+        message: EncryptedSessionMessage,
+    )
+}
+
+enum class DeliveryReceiptAcceptance {
+    STATUS_UPDATED,
+    DUPLICATE_SUPPRESSED,
+    UNKNOWN_MESSAGE,
 }
 
 data class DeliveryTarget(val queueId: String, val deviceId: String)
@@ -131,21 +150,41 @@ enum class IncomingResult {
     ACCEPTED,
     AUTHENTICATED_DUPLICATE,
     UNAUTHENTICATED,
+    DELIVERY_RECEIPT_ACCEPTED,
+    DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED,
+    DELIVERY_RECEIPT_UNKNOWN_MESSAGE,
 }
+
+data class IncomingProcessResult(
+    val result: IncomingResult,
+    val queuedReceiptMessageId: String? = null,
+)
 
 class IncomingDeliveryProcessor(
     private val persistence: DeliveryPersistence,
     private val transport: TransportClient,
     private val sessionManager: SessionManager,
+    private val now: () -> Long = System::currentTimeMillis,
+    private val messageIdGenerator: () -> String = { UUID.randomUUID().toString() },
 ) {
     suspend fun fetchAndProcess(queueId: String, sessions: List<ReceiveBinding>): List<IncomingResult> =
-        transport.fetchMessages(queueId).map { processFetched(it, sessions) }
+        fetchAndProcessDetailed(queueId, sessions).map { it.result }
+
+    suspend fun fetchAndProcessDetailed(queueId: String, sessions: List<ReceiveBinding>): List<IncomingProcessResult> =
+        transport.fetchMessages(queueId).map { processFetchedDetailed(it, sessions) }
 
     suspend fun processFetched(blob: RelayEncryptedBlob, sessions: List<ReceiveBinding>): IncomingResult {
+        return processFetchedDetailed(blob, sessions).result
+    }
+
+    suspend fun processFetchedDetailed(
+        blob: RelayEncryptedBlob,
+        sessions: List<ReceiveBinding>,
+    ): IncomingProcessResult {
         val wireMessage = try {
             SessionMessageCodec.decode(blob.opaqueCiphertext)
         } catch (_: Exception) {
-            return IncomingResult.UNAUTHENTICATED
+            return IncomingProcessResult(IncomingResult.UNAUTHENTICATED)
         }
         sessions.forEach { binding ->
             val authenticatedPlaintext = try {
@@ -153,18 +192,83 @@ class IncomingDeliveryProcessor(
             } catch (_: Exception) {
                 return@forEach
             }
-            authenticatedPlaintext.fill(0)
-            val accepted = persistence.acceptIncoming(
-                messageId = blob.messageId,
-                contactId = binding.contactId,
-                session = binding.session,
-                message = wireMessage,
-            )
-            // Local durable save or a durable replay marker exists before relay deletion.
-            transport.deleteMessage(blob.messageId)
-            return if (accepted) IncomingResult.ACCEPTED else IncomingResult.AUTHENTICATED_DUPLICATE
+            val payload = try {
+                MessagePayloadCodec.decode(authenticatedPlaintext)
+            } catch (_: Exception) {
+                authenticatedPlaintext.fill(0)
+                return IncomingProcessResult(IncomingResult.UNAUTHENTICATED)
+            } finally {
+                authenticatedPlaintext.fill(0)
+            }
+            return when (payload) {
+                is MessagePayload.Text -> processTextPayload(blob, binding, wireMessage)
+                is MessagePayload.Receipt -> processReceiptPayload(blob, binding, wireMessage, payload.value)
+            }
         }
-        return IncomingResult.UNAUTHENTICATED
+        return IncomingProcessResult(IncomingResult.UNAUTHENTICATED)
+    }
+
+    private suspend fun processTextPayload(
+        blob: RelayEncryptedBlob,
+        binding: ReceiveBinding,
+        wireMessage: EncryptedSessionMessage,
+    ): IncomingProcessResult {
+        val accepted = persistence.acceptIncoming(
+            messageId = blob.messageId,
+            contactId = binding.contactId,
+            session = binding.session,
+            message = wireMessage,
+        )
+        val receiptMessageId = if (accepted) {
+            runCatching { queueDeliveryReceipt(blob.messageId, binding) }.getOrNull()
+        } else {
+            null
+        }
+        // Local durable save or a durable replay marker exists before relay deletion.
+        transport.deleteMessage(blob.messageId)
+        return IncomingProcessResult(
+            result = if (accepted) IncomingResult.ACCEPTED else IncomingResult.AUTHENTICATED_DUPLICATE,
+            queuedReceiptMessageId = receiptMessageId,
+        )
+    }
+
+    private suspend fun processReceiptPayload(
+        blob: RelayEncryptedBlob,
+        binding: ReceiveBinding,
+        wireMessage: EncryptedSessionMessage,
+        receipt: DeliveryReceipt,
+    ): IncomingProcessResult {
+        val result = when (persistence.acceptDeliveryReceipt(binding.contactId, binding.session, wireMessage, receipt)) {
+            DeliveryReceiptAcceptance.STATUS_UPDATED -> IncomingResult.DELIVERY_RECEIPT_ACCEPTED
+            DeliveryReceiptAcceptance.DUPLICATE_SUPPRESSED -> IncomingResult.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED
+            DeliveryReceiptAcceptance.UNKNOWN_MESSAGE -> IncomingResult.DELIVERY_RECEIPT_UNKNOWN_MESSAGE
+        }
+        // Receipt replay marker is durable before relay deletion; receipts are never stored as chat text.
+        transport.deleteMessage(blob.messageId)
+        return IncomingProcessResult(result)
+    }
+
+    private suspend fun queueDeliveryReceipt(originalMessageId: String, binding: ReceiveBinding): String {
+        val receipt = DeliveryReceipt(
+            originalMessageId = originalMessageId,
+            conversationId = binding.session.conversationId,
+            originalSenderDeviceId = binding.session.remoteDeviceId,
+            originalRecipientDeviceId = binding.session.localDeviceId,
+            timestampEpochMillis = now(),
+        )
+        val payload = MessagePayloadCodec.encodeDeliveryReceipt(receipt)
+        val encrypted = try {
+            sessionManager.encryptMessage(binding.session, payload, now() / TIMESTAMP_BUCKET_MILLIS)
+        } finally {
+            payload.fill(0)
+        }
+        val receiptMessageId = messageIdGenerator()
+        persistence.queueOutgoingControlMessage(receiptMessageId, binding.contactId, binding.session, encrypted)
+        return receiptMessageId
+    }
+
+    private companion object {
+        const val TIMESTAMP_BUCKET_MILLIS = 60_000L
     }
 }
 
@@ -185,12 +289,21 @@ class DeliverySyncExecutor(
             outgoing.retryDueMessages()
         }
         val queueId = queueIdProvider() ?: return DeliverySyncResult(outgoingResults, emptyList())
-        val incomingResults = incoming.fetchAndProcess(queueId, receiveBindingsProvider())
-        return DeliverySyncResult(outgoingResults, incomingResults)
+        val incomingDetails = incoming.fetchAndProcessDetailed(queueId, receiveBindingsProvider())
+        val receiptOutgoingResults = incomingDetails.mapNotNull { it.queuedReceiptMessageId }
+            .map { outgoing.attemptMessage(it) }
+        return DeliverySyncResult(
+            outgoingResults = outgoingResults,
+            incomingResults = incomingDetails.map { it.result },
+            receiptOutgoingResults = receiptOutgoingResults,
+            queuedDeliveryReceiptCount = incomingDetails.count { it.queuedReceiptMessageId != null },
+        )
     }
 }
 
 data class DeliverySyncResult(
     val outgoingResults: List<OutgoingAttemptResult>,
     val incomingResults: List<IncomingResult>,
+    val receiptOutgoingResults: List<OutgoingAttemptResult> = emptyList(),
+    val queuedDeliveryReceiptCount: Int = 0,
 )

@@ -12,6 +12,7 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import app.securemessenger.delivery.DeliveryReceiptAcceptance
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "local_profile", primaryKeys = ["profileId"])
@@ -207,6 +208,17 @@ interface SecureMessengerDao {
         nextRetryAtEpochMillis: Long?,
     )
 
+    @Query(
+        """
+        UPDATE encrypted_messages
+        SET status = :status,
+            nextRetryAtEpochMillis = NULL
+        WHERE messageId = :messageId
+          AND outgoing = 1
+        """,
+    )
+    suspend fun updateOutgoingStatus(messageId: String, status: String): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun acceptIncomingNumber(replay: AcceptedReplayEntity): Long
 
@@ -215,6 +227,21 @@ interface SecureMessengerDao {
         if (acceptIncomingNumber(replay) == -1L) return false
         putMessage(message)
         return true
+    }
+
+    @Transaction
+    suspend fun acceptDeliveryReceiptAndMarkDelivered(
+        replay: AcceptedReplayEntity,
+        originalMessageId: String,
+        deliveredStatus: String,
+    ): DeliveryReceiptAcceptance {
+        if (acceptIncomingNumber(replay) == -1L) return DeliveryReceiptAcceptance.DUPLICATE_SUPPRESSED
+        val updated = updateOutgoingStatus(originalMessageId, deliveredStatus)
+        return if (updated > 0) {
+            DeliveryReceiptAcceptance.STATUS_UPDATED
+        } else {
+            DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
+        }
     }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

@@ -12,6 +12,8 @@ import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
 import app.securemessenger.delivery.IncomingDeliveryProcessor
 import app.securemessenger.delivery.IncomingResult
+import app.securemessenger.delivery.MessagePayload
+import app.securemessenger.delivery.MessagePayloadCodec
 import app.securemessenger.delivery.OutgoingAttemptResult
 import app.securemessenger.delivery.OutgoingDeliveryProcessor
 import app.securemessenger.delivery.PrimarySessionOnlyFanOutPlanner
@@ -251,7 +253,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             }
             val id = sendingMutexes.getOrPut(contactId) { Mutex() }.withLock {
                 val timestampBucket = System.currentTimeMillis() / TIMESTAMP_BUCKET_MILLIS
-                val plaintextBytes = plaintext.toByteArray()
+                val plaintextBytes = MessagePayloadCodec.encodeText(plaintext)
                 val encryptedMessage = try {
                     sessionManager.encryptMessage(session, plaintextBytes, timestampBucket)
                 } finally {
@@ -508,15 +510,23 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             }
             session?.let { ReceiveBinding(contact.contactId, it) }
         }
-        when (incomingDelivery.processFetched(blob, bindings)) {
-            IncomingResult.ACCEPTED -> {
-                diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_ACCEPTED)
-                diagnosticsStore.markSuccessfulSync()
+        val result = incomingDelivery.processFetchedDetailed(blob, bindings)
+        recordIncomingResult(result.result)
+        result.queuedReceiptMessageId?.let { receiptMessageId ->
+            diagnosticsStore.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_QUEUED)
+            val receiptAttempt = outgoingDelivery.attemptMessage(receiptMessageId)
+            recordReceiptAttempt(receiptAttempt)
+            if (receiptAttempt == OutgoingAttemptResult.RETRY_SCHEDULED) {
+                syncScheduler.requestRetry()
             }
-            IncomingResult.AUTHENTICATED_DUPLICATE -> {
-                diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED)
-                diagnosticsStore.markSuccessfulSync()
-            }
+        }
+        when (result.result) {
+            IncomingResult.ACCEPTED,
+            IncomingResult.AUTHENTICATED_DUPLICATE,
+            IncomingResult.DELIVERY_RECEIPT_ACCEPTED,
+            IncomingResult.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED,
+            IncomingResult.DELIVERY_RECEIPT_UNKNOWN_MESSAGE,
+            -> diagnosticsStore.markSuccessfulSync()
             IncomingResult.UNAUTHENTICATED -> Unit
         }
         refreshDiagnostics()
@@ -530,8 +540,15 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                     try {
                         val encrypted = localRepository.readEncryptedMessage(entity)
                         val plaintext = sessionManager.decryptStoredMessage(session, encrypted, entity.outgoing)
-                        val displayText = plaintext.toString(Charsets.UTF_8)
-                        plaintext.fill(0)
+                        val payload = try {
+                            MessagePayloadCodec.decode(plaintext)
+                        } finally {
+                            plaintext.fill(0)
+                        }
+                        val displayText = when (payload) {
+                            is MessagePayload.Text -> payload.value
+                            is MessagePayload.Receipt -> return@mapNotNull null
+                        }
                         DisplayMessage(
                             id = entity.messageId,
                             contactId = entity.contactId,
@@ -602,6 +619,34 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
                 diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
             OutgoingAttemptResult.NOT_FOUND -> Unit
+        }
+    }
+
+    private fun recordReceiptAttempt(attempt: OutgoingAttemptResult) {
+        when (attempt) {
+            OutgoingAttemptResult.SENT -> diagnosticsStore.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_SENT)
+            OutgoingAttemptResult.RETRY_SCHEDULED ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED)
+            OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
+            OutgoingAttemptResult.NOT_FOUND -> Unit
+        }
+    }
+
+    private fun recordIncomingResult(result: IncomingResult) {
+        when (result) {
+            IncomingResult.ACCEPTED -> diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_ACCEPTED)
+            IncomingResult.AUTHENTICATED_DUPLICATE ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED)
+            IncomingResult.DELIVERY_RECEIPT_ACCEPTED -> {
+                diagnosticsStore.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED)
+                diagnosticsStore.record(DeliveryTechnicalEvent.DELIVERY_STATUS_UPDATED)
+            }
+            IncomingResult.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED)
+            IncomingResult.DELIVERY_RECEIPT_UNKNOWN_MESSAGE ->
+                diagnosticsStore.record(DeliveryTechnicalEvent.DELIVERY_RECEIPT_RECEIVED)
+            IncomingResult.UNAUTHENTICATED -> Unit
         }
     }
 

@@ -63,6 +63,96 @@ class DeliveryPipelineTest {
     }
 
     @Test
+    fun `receiver accepts message queues encrypted receipt and sender marks original delivered`() = runBlocking {
+        val fixture = PairedPeers()
+        val encrypted = fixture.aliceManager.encryptMessage(
+            fixture.aliceSession,
+            MessagePayloadCodec.encodeText("receipt-check"),
+            41,
+        )
+        fixture.aliceStore.enqueue("message-with-receipt", fixture.bobContact, encrypted)
+
+        assertEquals(OutgoingAttemptResult.SENT, fixture.outgoing.attemptMessage("message-with-receipt"))
+        assertEquals(MessageStatus.SENT, fixture.aliceStore.outgoing.getValue("message-with-receipt").status)
+        val deliveredBlob = fixture.relay.fetchMessages(BOB_QUEUE).single()
+        val incoming = fixture.incoming.processFetchedDetailed(
+            deliveredBlob,
+            listOf(ReceiveBinding("alice", fixture.bobSession)),
+        )
+
+        assertEquals(IncomingResult.ACCEPTED, incoming.result)
+        val receiptId = incoming.queuedReceiptMessageId!!
+        assertTrue(fixture.bobStore.outgoing.containsKey(receiptId))
+        assertEquals(OutgoingAttemptResult.SENT, fixture.bobOutgoing.attemptMessage(receiptId))
+
+        val receiptBlob = fixture.relay.fetchMessages(ALICE_QUEUE).single()
+        assertEquals(
+            IncomingResult.DELIVERY_RECEIPT_ACCEPTED,
+            fixture.aliceIncoming.processFetched(receiptBlob, listOf(ReceiveBinding("bob", fixture.aliceSession))),
+        )
+        assertEquals(MessageStatus.DELIVERED, fixture.aliceStore.outgoing.getValue("message-with-receipt").status)
+        assertTrue(fixture.aliceStore.acceptedMessages.isEmpty())
+        assertTrue(fixture.relay.fetchMessages(ALICE_QUEUE).isEmpty())
+    }
+
+    @Test
+    fun `duplicate delivery receipt is suppressed and unknown receipt is ignored safely`() = runBlocking {
+        val fixture = PairedPeers()
+        val encrypted = fixture.aliceManager.encryptMessage(
+            fixture.aliceSession,
+            MessagePayloadCodec.encodeText("duplicate-receipt-check"),
+            42,
+        )
+        fixture.aliceStore.enqueue("message-for-duplicate-receipt", fixture.bobContact, encrypted)
+        assertEquals(OutgoingAttemptResult.SENT, fixture.outgoing.attemptMessage("message-for-duplicate-receipt"))
+
+        val accepted = fixture.incoming.processFetchedDetailed(
+            fixture.relay.fetchMessages(BOB_QUEUE).single(),
+            listOf(ReceiveBinding("alice", fixture.bobSession)),
+        )
+        val receiptId = accepted.queuedReceiptMessageId!!
+        assertEquals(OutgoingAttemptResult.SENT, fixture.bobOutgoing.attemptMessage(receiptId))
+        val receiptBlob = fixture.relay.fetchMessages(ALICE_QUEUE).single()
+
+        assertEquals(
+            IncomingResult.DELIVERY_RECEIPT_ACCEPTED,
+            fixture.aliceIncoming.processFetched(receiptBlob, listOf(ReceiveBinding("bob", fixture.aliceSession))),
+        )
+        fixture.relay.sendMessage(receiptBlob)
+        assertEquals(
+            IncomingResult.DELIVERY_RECEIPT_DUPLICATE_SUPPRESSED,
+            fixture.aliceIncoming.processFetched(receiptBlob, listOf(ReceiveBinding("bob", fixture.aliceSession))),
+        )
+        assertEquals(MessageStatus.DELIVERED, fixture.aliceStore.outgoing.getValue("message-for-duplicate-receipt").status)
+        assertTrue(fixture.aliceStore.acceptedMessages.isEmpty())
+
+        val unknownPayload = MessagePayloadCodec.encodeDeliveryReceipt(
+            DeliveryReceipt(
+                originalMessageId = "unknown-message",
+                conversationId = fixture.bobSession.conversationId,
+                originalSenderDeviceId = fixture.aliceSession.localDeviceId,
+                originalRecipientDeviceId = fixture.aliceSession.remoteDeviceId,
+                timestampEpochMillis = 123_000L,
+            ),
+        )
+        val unknownReceipt = fixture.bobManager.encryptMessage(fixture.bobSession, unknownPayload, 43)
+        unknownPayload.fill(0)
+        val unknownBlob = RelayEncryptedBlob(
+            messageId = "unknown-receipt",
+            queueId = ALICE_QUEUE,
+            opaqueCiphertext = SessionMessageCodec.encode(unknownReceipt),
+            expiresAtEpochMillis = Long.MAX_VALUE,
+        )
+        fixture.relay.sendMessage(unknownBlob)
+
+        assertEquals(
+            IncomingResult.DELIVERY_RECEIPT_UNKNOWN_MESSAGE,
+            fixture.aliceIncoming.processFetched(unknownBlob, listOf(ReceiveBinding("bob", fixture.aliceSession))),
+        )
+        assertTrue(fixture.aliceStore.acceptedMessages.isEmpty())
+    }
+
+    @Test
     fun `wrong aad and tag remain unauthenticated and are never stored`() = runBlocking {
         val fixture = PairedPeers()
         val valid = fixture.aliceManager.encryptMessage(fixture.aliceSession, "do-not-store".toByteArray(), 9)
@@ -267,7 +357,15 @@ class DeliveryPipelineTest {
         private val bobInvite = bobManager.createInvitation(bobIdentity.publicIdentity, BOB_QUEUE)
         val bobSession = bobManager.acceptInvitation(bobIdentity, aliceInvite)
         val aliceSession = aliceManager.acceptInvitation(aliceIdentity, bobInvite)
+        val aliceContact = Contact("alice", "Alice", ALICE_QUEUE, aliceIdentity.publicIdentity, VerificationStatus.UNVERIFIED)
         val bobContact = Contact("bob", "Bob", BOB_QUEUE, bobIdentity.publicIdentity, VerificationStatus.UNVERIFIED)
+        val aliceDevice = ContactDevice(
+            "alice",
+            ALICE_QUEUE,
+            aliceIdentity.publicIdentity,
+            DeviceApprovalStatus.PRIMARY_UNVERIFIED,
+            1,
+        )
         val bobDevice = ContactDevice(
             "bob",
             BOB_QUEUE,
@@ -279,10 +377,15 @@ class DeliveryPipelineTest {
         val aliceStore = MemoryDeliveryStore()
         val bobStore = MemoryDeliveryStore()
         val outgoing = OutgoingDeliveryProcessor(aliceStore, relay, now = now)
+        val bobOutgoing = OutgoingDeliveryProcessor(bobStore, relay, now = now)
         val incoming = IncomingDeliveryProcessor(bobStore, relay, bobManager)
+        val aliceIncoming = IncomingDeliveryProcessor(aliceStore, relay, aliceManager)
 
         init {
+            aliceStore.contacts["bob"] = bobContact
             aliceStore.devices["bob"] = listOf(bobDevice)
+            bobStore.contacts["alice"] = aliceContact
+            bobStore.devices["alice"] = listOf(aliceDevice)
         }
     }
 
@@ -296,11 +399,13 @@ class DeliveryPipelineTest {
 
     private class MemoryDeliveryStore : DeliveryPersistence {
         val outgoing = mutableMapOf<String, MutableOutbound>()
+        val contacts = mutableMapOf<String, Contact>()
         val devices = mutableMapOf<String, List<ContactDevice>>()
         val acceptedMessages = mutableListOf<EncryptedSessionMessage>()
         private val replayNumbers = mutableSetOf<Triple<String, String, Long>>()
 
         fun enqueue(id: String, contact: Contact, message: EncryptedSessionMessage) {
+            contacts[contact.contactId] = contact
             outgoing[id] = MutableOutbound(
                 StoredOutgoingMessage(id, contact, devices[contact.contactId].orEmpty(), message, 0),
             )
@@ -346,6 +451,37 @@ class DeliveryPipelineTest {
             if (!replayNumbers.add(key)) return false
             acceptedMessages += message
             return true
+        }
+
+        override suspend fun acceptDeliveryReceipt(
+            contactId: String,
+            session: EstablishedSession,
+            message: EncryptedSessionMessage,
+            receipt: DeliveryReceipt,
+        ): DeliveryReceiptAcceptance {
+            val key = Triple(session.conversationId, session.remoteDeviceId, message.messageNumber)
+            if (!replayNumbers.add(key)) return DeliveryReceiptAcceptance.DUPLICATE_SUPPRESSED
+            if (receipt.conversationId != session.conversationId ||
+                receipt.originalSenderDeviceId != session.localDeviceId ||
+                receipt.originalRecipientDeviceId != session.remoteDeviceId
+            ) {
+                return DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
+            }
+            val existing = outgoing[receipt.originalMessageId] ?: return DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
+            outgoing[receipt.originalMessageId] = existing.copy(status = MessageStatus.DELIVERED)
+            return DeliveryReceiptAcceptance.STATUS_UPDATED
+        }
+
+        override suspend fun queueOutgoingControlMessage(
+            messageId: String,
+            contactId: String,
+            session: EstablishedSession,
+            message: EncryptedSessionMessage,
+        ) {
+            val contact = contacts.getValue(contactId)
+            outgoing[messageId] = MutableOutbound(
+                StoredOutgoingMessage(messageId, contact, devices[contactId].orEmpty(), message, 0),
+            )
         }
     }
 

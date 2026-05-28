@@ -21,6 +21,10 @@ default in-app language; English is available from Settings.
 - Real debug relay send/fetch/delete pipeline. Received authenticated envelopes are durably
   recorded with their replay marker before they are deleted from the relay while the
   app process is active.
+- Encrypted delivery receipts for accepted incoming messages. `Sent to delivery
+  server` means relay acceptance only; `Delivered` appears only after the receiver
+  accepted, decrypted, stored the message and sent an authenticated receipt. Read
+  receipts are not implemented.
 - Durable pending/failed outgoing state with attempt count and exponential retry metadata.
   Foreground polling and WorkManager best-effort synchronization resend due ciphertext
   without logging its contents.
@@ -33,8 +37,9 @@ default in-app language; English is available from Settings.
   physical device can use a laptop LAN address supplied in Settings. Phone +
   emulator QA can instead use a shared public HTTPS relay/tunnel URL.
 - A delivery diagnostics screen with persisted health/sync observations, pending and
-  retry counters, pairing/device/worker status and a capped technical event list.
-  Copied reports show short queue fingerprints rather than full queue identifiers.
+  retry counters, pairing/device/worker status, grouped technical events, human-readable
+  event times and a last-error label. Copied reports show short queue fingerprints
+  rather than full queue identifiers.
 - Debug-only two-device QA controls: a readiness preflight, physical-phone warnings
   for loopback/bind-only relay addresses, and a confirmed test-data reset. The reset
   wipes local test/crypto/delivery/diagnostic state while retaining the selected
@@ -162,8 +167,9 @@ and [docs/RELAY_PUBLIC_TESTING.md](docs/RELAY_PUBLIC_TESTING.md).
 
 Open `Настройки` -> `Диагностика доставки` in the debug app. The copied report
 contains relay configuration, last health/sync status, delivery counts, retry time,
-pairing/device/worker status and the latest 100 technical events. It deliberately
-excludes message text, keys, nonce values, ciphertext and full queue identifiers.
+pairing/device/worker status, last-error text and the latest 100 grouped technical
+events with local `HH:mm:ss` timestamps. It deliberately excludes message text, keys,
+nonce values, ciphertext and full queue identifiers.
 Clearing diagnostics removes technical history but does not silently change pairing state.
 
 Before a physical two-device send, open `Настройки` -> `Готовность к тесту

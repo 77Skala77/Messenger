@@ -85,9 +85,26 @@ class LocalizationResourcesTest {
             "copy_diagnostic_report",
             "clear_diagnostics",
             "diagnostics_work_status",
+            "diagnostics_last_error",
+            "last_error_none",
+            "last_error_relay_unavailable",
+            "last_error_pairing_incomplete",
+            "last_error_device_blocked",
+            "event_group_relay",
+            "event_group_pairing",
+            "event_group_outgoing",
+            "event_group_incoming",
+            "event_group_retry",
+            "event_group_receipts",
+            "event_group_errors",
             "event_outgoing_retry_started",
             "event_outgoing_retry_succeeded",
             "event_outgoing_retry_failed",
+            "event_delivery_receipt_queued",
+            "event_delivery_receipt_sent",
+            "event_delivery_receipt_received",
+            "event_delivery_receipt_duplicate_suppressed",
+            "event_delivery_status_updated",
         )
 
         assertTrue(resourceNames(File("src/main/res/values/strings.xml")).containsAll(expected))
@@ -99,10 +116,18 @@ class LocalizationResourcesTest {
         val english = stringValues(File("src/main/res/values/strings.xml"))
         val russian = stringValues(File("src/main/res/values-ru/strings.xml"))
 
-        assertEquals("Sent to relay server", english.getValue("status_sent"))
+        assertEquals("Waiting for sync", english.getValue("status_pending"))
+        assertEquals("Ожидает синхронизации", russian.getValue("status_pending"))
+        assertEquals("Sent to delivery server", english.getValue("status_sent"))
         assertEquals("Отправлено на сервер доставки", russian.getValue("status_sent"))
-        assertTrue(english.getValue("status_failed").contains("retry", ignoreCase = true))
-        assertTrue(russian.getValue("status_failed").contains("Будет повторено"))
+        assertEquals("Delivered", english.getValue("status_delivered"))
+        assertEquals("Доставлено", russian.getValue("status_delivered"))
+        assertEquals("Waiting for sync", english.getValue("status_failed"))
+        assertEquals("Ожидает синхронизации", russian.getValue("status_failed"))
+        assertEquals("Waiting for two-way pairing", english.getValue("status_waiting_pairing"))
+        assertEquals("Ожидает двустороннее подключение", russian.getValue("status_waiting_pairing"))
+        assertEquals("Send failed", english.getValue("status_send_failed"))
+        assertEquals("Ошибка отправки", russian.getValue("status_send_failed"))
         assertTrue(english.getValue("pairing_return_invitation_required").contains("import your invitation"))
         assertTrue(russian.getValue("pairing_return_invitation_required").contains("импортировать ваше приглашение"))
     }
