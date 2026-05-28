@@ -31,6 +31,13 @@ class RelayServerSettingsInstrumentedTest {
     }
 
     @Test
+    fun debugPolicyAcceptsHttpLanAndHttpsPublicTunnelUrls() {
+        assertEquals("http://10.0.2.2:8787", settings.saveUrl("http://10.0.2.2:8787"))
+        assertEquals("https://temporary-relay.example", settings.saveUrl(" https://temporary-relay.example/ "))
+        assertEquals("https://temporary-relay.example", RelayServerSettings(preferences).currentUrl())
+    }
+
+    @Test
     fun relayUrlRejectsCredentialsPathsAndUnsupportedSchemes() {
         assertNull(settings.saveUrl("ftp://192.168.1.45:8787"))
         assertNull(settings.saveUrl("http://user:password@192.168.1.45:8787"))
@@ -44,6 +51,7 @@ class RelayServerSettingsInstrumentedTest {
 
         assertEquals("", releaseSettings.currentUrl())
         assertNull(releaseSettings.saveUrl("http://192.168.1.45:8787"))
+        assertNull(releaseSettings.saveUrl("http://10.0.2.2:8787"))
         assertEquals("https://relay.example", releaseSettings.saveUrl("https://relay.example"))
         assertEquals("https://relay.example", releaseSettings.currentUrl())
     }

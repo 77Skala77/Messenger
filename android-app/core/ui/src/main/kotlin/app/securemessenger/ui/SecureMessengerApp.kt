@@ -269,6 +269,7 @@ private fun AddContactScreen(
     var importedCode by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     val scanPrompt = stringResource(R.string.scan_prompt)
+    val clipboardManager = LocalClipboardManager.current
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) importedCode = result.contents
     }
@@ -290,10 +291,17 @@ private fun AddContactScreen(
                 )
             }
             item {
+                Text(stringResource(R.string.show_invitation_qr), style = MaterialTheme.typography.titleMedium)
                 QrCode(invitationCode, stringResource(R.string.invitation_qr_content_description))
             }
             item {
                 SelectionContainer { Text(invitationCode, style = MaterialTheme.typography.bodySmall) }
+                OutlinedButton(
+                    onClick = { clipboardManager.setText(AnnotatedString(invitationCode)) },
+                    modifier = Modifier.testTag("copy_invitation_code"),
+                ) {
+                    Text(stringResource(R.string.copy_invitation_code))
+                }
             }
             item {
                 OutlinedButton(
@@ -560,6 +568,8 @@ private fun SettingsScreen(
     var showTestResetDialog by remember { mutableStateOf(false) }
     var relayUrlInput by remember(relayServerUrl) { mutableStateOf(relayServerUrl) }
     val addressWarning = relayClientAddressWarning(relayUrlInput, isPhysicalDeviceForQa)
+    val typedRelayMode = relayTestMode(relayUrlInput)
+    val savedRelayMode = relayTestMode(diagnostics.relayUrl)
     Scaffold(topBar = { NavigationTopBar(stringResource(R.string.settings), onBack) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -625,6 +635,12 @@ private fun SettingsScreen(
                             else R.string.https_relay_required,
                         ),
                     )
+                    if (allowInsecureRelayHttp) {
+                        Text(stringResource(R.string.http_debug_lan_only), style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.use_https_for_different_networks), style = MaterialTheme.typography.bodySmall)
+                    }
+                } else if (relayUrlInput.trim().startsWith("https://", ignoreCase = true)) {
+                    Text(stringResource(R.string.public_relay_tunnel_notice), style = MaterialTheme.typography.bodySmall)
                 }
                 when (addressWarning) {
                     RelayClientAddressWarning.PHONE_LOOPBACK ->
@@ -657,10 +673,19 @@ private fun SettingsScreen(
                     diagnostics.relayUrl.ifBlank { stringResource(R.string.diagnostics_none) },
                 )
                 DiagnosticRow(
+                    stringResource(R.string.qa_preflight_relay_mode),
+                    relayModeLabel(savedRelayMode ?: typedRelayMode),
+                )
+                DiagnosticRow(
                     stringResource(R.string.diagnostics_health),
                     diagnostics.relayHealthStatus?.let { relayHealthLabel(it) }
                         ?: stringResource(R.string.diagnostics_none),
                 )
+                if (savedRelayMode == RelayTestMode.PUBLIC_RELAY &&
+                    diagnostics.relayHealthStatus == RelayHealthStatus.AVAILABLE
+                ) {
+                    Text(stringResource(R.string.public_relay_available), fontWeight = FontWeight.Bold)
+                }
                 DiagnosticRow(stringResource(R.string.diagnostics_contacts), diagnostics.contactCount.toString())
                 DiagnosticRow(
                     stringResource(R.string.diagnostics_pairing),
@@ -686,7 +711,7 @@ private fun SettingsScreen(
                     Text(stringResource(R.string.run_qa_preflight))
                 }
                 if (preflightResult != null) {
-                    SecurityWarning(twoDevicePreflightLabel(preflightResult))
+                    SecurityWarning(twoDevicePreflightLabel(preflightResult, savedRelayMode))
                 }
             }
             item { Text(stringResource(R.string.storage_title), style = MaterialTheme.typography.titleLarge) }
@@ -988,8 +1013,17 @@ private fun relayHealthLabel(status: RelayHealthStatus): String = when (status) 
 }
 
 @Composable
-private fun twoDevicePreflightLabel(result: TwoDevicePreflightResult): String = when (result) {
-    TwoDevicePreflightResult.READY -> stringResource(R.string.qa_preflight_ready)
+private fun relayModeLabel(mode: RelayTestMode?): String = when (mode) {
+    RelayTestMode.LAN_RELAY -> stringResource(R.string.relay_mode_lan)
+    RelayTestMode.PUBLIC_RELAY -> stringResource(R.string.relay_mode_public)
+    null -> stringResource(R.string.diagnostics_none)
+}
+
+@Composable
+private fun twoDevicePreflightLabel(result: TwoDevicePreflightResult, relayMode: RelayTestMode?): String = when (result) {
+    TwoDevicePreflightResult.READY -> stringResource(
+        if (relayMode == RelayTestMode.PUBLIC_RELAY) R.string.qa_preflight_https_ready else R.string.qa_preflight_ready,
+    )
     TwoDevicePreflightResult.RELAY_URL_MISSING -> stringResource(R.string.qa_preflight_missing_relay)
     TwoDevicePreflightResult.PHONE_LOOPBACK_URL -> stringResource(R.string.qa_preflight_phone_loopback)
     TwoDevicePreflightResult.UNSPECIFIED_RELAY_URL -> stringResource(R.string.qa_preflight_unspecified_relay)

@@ -32,6 +32,8 @@
 | Delete Local Data | Удалить локальные данные |
 | Reset Test Data | Сбросить тестовые данные |
 | Conversation Test Readiness | Готовность к тесту переписки |
+| Public relay / tunnel | Публичный сервер / tunnel |
+| Copy invitation code | Скопировать код приглашения |
 
 ## Localization Checklist
 
@@ -42,6 +44,7 @@
 - Verify security-status and message-status wording in both languages.
 - Verify relay URL, health status, synchronization and two-way pairing wording.
 - Verify physical-phone loopback/`0.0.0.0` warnings, preflight results and debug reset confirmation in both languages.
+- Verify public HTTPS relay/tunnel wording and manual invitation copy/paste wording.
 - Test first launch defaults to Russian on an English-configured emulator.
 - Test manual switch to English, process restart, and return to Russian.
 - Test that the whole language-option row is clickable, including its text and radio-circle area.

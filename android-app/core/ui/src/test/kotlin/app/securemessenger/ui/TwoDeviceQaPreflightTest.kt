@@ -32,6 +32,13 @@ class TwoDeviceQaPreflightTest {
     }
 
     @Test
+    fun `relay test mode recognizes LAN and public HTTPS relay`() {
+        assertEquals(RelayTestMode.LAN_RELAY, relayTestMode("http://192.168.0.87:8787"))
+        assertEquals(RelayTestMode.PUBLIC_RELAY, relayTestMode("https://temporary-relay.example"))
+        assertNull(relayTestMode("ftp://temporary-relay.example"))
+    }
+
+    @Test
     fun `preflight reports address health pairing device and retry failures`() {
         assertEquals(
             TwoDevicePreflightResult.RELAY_URL_MISSING,
@@ -62,6 +69,10 @@ class TwoDeviceQaPreflightTest {
             evaluateTwoDevicePreflight(readySnapshot().copy(failedOutgoingCount = 1)),
         )
         assertEquals(TwoDevicePreflightResult.READY, evaluateTwoDevicePreflight(readySnapshot()))
+        assertEquals(
+            TwoDevicePreflightResult.READY,
+            evaluateTwoDevicePreflight(readySnapshot().copy(relayUrl = "https://temporary-relay.example")),
+        )
     }
 
     @Test
@@ -70,6 +81,7 @@ class TwoDeviceQaPreflightTest {
 
         val summary = SafeTwoDevicePreflightSummary.render(snapshot, evaluateTwoDevicePreflight(snapshot))
 
+        assertEquals(true, summary.contains("relay_mode=LAN_RELAY"))
         listOf("private_key", "nonce", "ciphertext", "queue-id-probe", "http://").forEach { forbidden ->
             assertFalse(summary.contains(forbidden))
         }

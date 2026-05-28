@@ -30,7 +30,8 @@ default in-app language; English is available from Settings.
   are encrypted with a Keystore-backed local vault key. Session send counters survive restart.
 - Saved per-device development relay URL, `/health` availability check and manual
   synchronization action. The emulator default is `http://10.0.2.2:8787`; a
-  physical device can use a laptop LAN address supplied in Settings.
+  physical device can use a laptop LAN address supplied in Settings. Phone +
+  emulator QA can instead use a shared public HTTPS relay/tunnel URL.
 - A delivery diagnostics screen with persisted health/sync observations, pending and
   retry counters, pairing/device/worker status and a capped technical event list.
   Copied reports show short queue fingerprints rather than full queue identifiers.
@@ -131,7 +132,9 @@ adb reverse tcp:8787 tcp:8787
 ```
 
 With that USB route, set the debug app URL to `http://127.0.0.1:8787`. The release
-network policy does not allow cleartext endpoints. The relay implements:
+network policy does not allow cleartext endpoints. For phone + emulator tests
+through different networks, use one HTTPS relay URL on both clients, for example
+`https://temporary-relay.example`. The relay implements:
 
 ```text
 POST   /v1/messages
@@ -151,6 +154,9 @@ See [docs/TWO_DEVICE_TEST.md](docs/TWO_DEVICE_TEST.md) for the physical two-devi
 LAN verification procedure and its security limitations. For a test-day checklist
 including safe diagnostic capture, use
 [docs/MANUAL_TWO_DEVICE_QA.md](docs/MANUAL_TWO_DEVICE_QA.md).
+If a second phone is not available, use
+[docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md](docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md)
+and [docs/RELAY_PUBLIC_TESTING.md](docs/RELAY_PUBLIC_TESTING.md).
 
 ## Delivery Diagnostics
 
@@ -164,8 +170,9 @@ Before a physical two-device send, open `Настройки` -> `Готовно�
 переписки` and run preflight after saving the LAN Relay URL and selecting the
 conversation. On a real phone, `127.0.0.1` and `localhost` point to that phone,
 not to the laptop; `0.0.0.0` is a server bind address, not a client URL. Use the
-laptop Wi-Fi IP. Debug-only `Сбросить тестовые данные` requires confirmation and
-returns the app to onboarding while keeping that Relay URL.
+laptop Wi-Fi IP for LAN, or a public HTTPS relay/tunnel URL for phone + emulator
+tests across different networks. Debug-only `Сбросить тестовые данные` requires
+confirmation and returns the app to onboarding while keeping that Relay URL.
 
 For sanitized crash/worker/storage/camera/network capture during manual testing,
 use [docs/LOGCAT_QA.md](docs/LOGCAT_QA.md). Its local `qa-logcat.txt` output is
@@ -201,6 +208,8 @@ scanner activity. The rest of the messenger is not orientation-locked.
 - [Two Device Test](docs/TWO_DEVICE_TEST.md)
 - [Audit Readiness](docs/AUDIT_READINESS.md)
 - [Manual Two Device QA](docs/MANUAL_TWO_DEVICE_QA.md)
+- [Phone + Emulator Public Relay QA](docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md)
+- [Relay Public Testing Notes](docs/RELAY_PUBLIC_TESTING.md)
 - [Logcat QA](docs/LOGCAT_QA.md)
 - [Audit Scope](docs/AUDIT_SCOPE.md)
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md)

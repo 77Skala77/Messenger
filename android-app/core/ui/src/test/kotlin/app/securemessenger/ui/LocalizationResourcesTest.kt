@@ -50,6 +50,8 @@ class LocalizationResourcesTest {
             "relay_unavailable",
             "relay_connection_error",
             "synchronize_now",
+            "show_invitation_qr",
+            "copy_invitation_code",
             "pairing_waiting",
             "pairing_ready",
             "pairing_blocked",
@@ -57,11 +59,19 @@ class LocalizationResourcesTest {
             "pairing_ready_confirmation",
             "http_relay_debug_warning",
             "https_relay_required",
+            "public_relay_tunnel_notice",
+            "http_debug_lan_only",
+            "use_https_for_different_networks",
             "relay_phone_loopback_warning",
             "relay_unspecified_address_warning",
             "qa_preflight_title",
+            "qa_preflight_relay_mode",
+            "relay_mode_lan",
+            "relay_mode_public",
+            "public_relay_available",
             "run_qa_preflight",
             "qa_preflight_ready",
+            "qa_preflight_https_ready",
             "qa_preflight_phone_loopback",
             "qa_preflight_unspecified_relay",
             "reset_test_data",
@@ -125,6 +135,9 @@ class LocalizationResourcesTest {
         val viewModel = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerViewModel.kt").readText()
 
         assertTrue(app.contains("showTestResetDialog"))
+        assertTrue(app.contains("R.string.show_invitation_qr"))
+        assertTrue(app.contains("R.string.copy_invitation_code"))
+        assertTrue(app.contains("clipboardManager.setText(AnnotatedString(invitationCode))"))
         assertTrue(app.contains("R.string.reset_test_data_warning"))
         assertTrue(app.contains("onResetTestData()"))
         assertTrue(app.contains("onRunPreflight"))

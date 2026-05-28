@@ -16,6 +16,9 @@ server or privacy audit.
   guarantee of timely offline delivery.
 - Debug builds permit a user-selected cleartext LAN relay URL for two-device testing.
   It is not a secure deployment transport and exposes network metadata.
+- Public HTTPS tunnel/VPS relay testing is QA-only. It helps a phone and emulator
+  reach the same relay, but it still exposes relay metadata and is not production
+  infrastructure.
 - The debug-only test-data reset intentionally preserves the configured relay URL for
   repeated LAN QA while removing local profiles, cryptographic/delivery state and
   diagnostics. It is not a forensic secure-erasure claim.

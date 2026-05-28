@@ -10,6 +10,11 @@ enum class RelayClientAddressWarning {
     UNSPECIFIED_BIND_ADDRESS,
 }
 
+enum class RelayTestMode {
+    LAN_RELAY,
+    PUBLIC_RELAY,
+}
+
 enum class TwoDevicePreflightResult {
     READY,
     RELAY_URL_MISSING,
@@ -33,6 +38,15 @@ data class TwoDevicePreflightSnapshot(
     val nextRetryAtEpochMillis: Long?,
     val workSyncStatus: WorkSyncStatus,
 )
+
+fun relayTestMode(url: String): RelayTestMode? {
+    val scheme = runCatching { URI(url.trim()).scheme?.lowercase() }.getOrNull() ?: return null
+    return when (scheme) {
+        "http" -> RelayTestMode.LAN_RELAY
+        "https" -> RelayTestMode.PUBLIC_RELAY
+        else -> null
+    }
+}
 
 fun relayClientAddressWarning(url: String, isPhysicalDevice: Boolean): RelayClientAddressWarning? {
     if (!isPhysicalDevice) return null
@@ -73,6 +87,7 @@ object SafeTwoDevicePreflightSummary {
     fun render(snapshot: TwoDevicePreflightSnapshot, result: TwoDevicePreflightResult): String = buildString {
         appendLine("preflight=${result.name}")
         appendLine("relay_configured=${snapshot.relayUrl.isNotBlank()}")
+        appendLine("relay_mode=${relayTestMode(snapshot.relayUrl)?.name ?: "UNKNOWN"}")
         appendLine("relay_health=${snapshot.relayHealthStatus?.name ?: "UNKNOWN"}")
         appendLine("contacts=${snapshot.contactCount}")
         appendLine("pairing=${snapshot.pairingStatus?.name ?: "UNKNOWN"}")
