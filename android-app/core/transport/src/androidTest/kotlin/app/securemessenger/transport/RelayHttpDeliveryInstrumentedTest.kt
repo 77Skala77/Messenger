@@ -140,6 +140,8 @@ class RelayHttpDeliveryInstrumentedTest {
 
         override suspend fun dueOutgoingMessages(nowEpochMillis: Long): List<StoredOutgoingMessage> = emptyList()
 
+        override suspend fun retryableOutgoingMessages(): List<StoredOutgoingMessage> = emptyList()
+
         override suspend fun recordSent(messageId: String, attemptCount: Int) {
             outgoing[messageId] = outgoing.getValue(messageId).copy(attemptCount = attemptCount)
         }

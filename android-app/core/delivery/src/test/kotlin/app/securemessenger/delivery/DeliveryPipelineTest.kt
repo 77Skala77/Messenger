@@ -9,6 +9,7 @@ import app.securemessenger.domain.Contact
 import app.securemessenger.domain.ContactDevice
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.DeliveryBlockReason
+import app.securemessenger.domain.MessageStatus
 import app.securemessenger.domain.RelayEncryptedBlob
 import app.securemessenger.domain.PairingStatus
 import app.securemessenger.domain.TransportClient
@@ -133,6 +134,54 @@ class DeliveryPipelineTest {
     }
 
     @Test
+    fun `manual sync force retries failed message before next scheduled retry`() = runBlocking {
+        var now = 1_000L
+        val fixture = PairedPeers(now = { now })
+        fixture.relay.failNextSends = 1
+        val encrypted = fixture.aliceManager.encryptMessage(fixture.aliceSession, "manual-retry".toByteArray(), 12)
+        fixture.aliceStore.enqueue("manual-retry-1", fixture.bobContact, encrypted)
+        assertEquals(OutgoingAttemptResult.RETRY_SCHEDULED, fixture.outgoing.attemptMessage("manual-retry-1"))
+        assertTrue(fixture.outgoing.retryDueMessages().isEmpty())
+
+        val result = DeliverySyncExecutor(
+            outgoing = fixture.outgoing,
+            incoming = fixture.incoming,
+            queueIdProvider = { null },
+            receiveBindingsProvider = { emptyList() },
+        ).synchronizeNow(forceRetry = true)
+
+        assertEquals(listOf(OutgoingAttemptResult.SENT), result.outgoingResults)
+        assertEquals(2, fixture.aliceStore.outgoing.getValue("manual-retry-1").attemptCount)
+        assertEquals(MessageStatus.SENT, fixture.aliceStore.outgoing.getValue("manual-retry-1").status)
+        assertEquals(1, fixture.relay.fetchMessages(BOB_QUEUE).size)
+    }
+
+    @Test
+    fun `retry after relay recovery does not create duplicate plaintext`() = runBlocking {
+        var now = 1_000L
+        val fixture = PairedPeers(now = { now })
+        fixture.relay.failNextSends = 1
+        val encrypted = fixture.aliceManager.encryptMessage(fixture.aliceSession, "retry-once".toByteArray(), 14)
+        fixture.aliceStore.enqueue("retry-once-1", fixture.bobContact, encrypted)
+        assertEquals(OutgoingAttemptResult.RETRY_SCHEDULED, fixture.outgoing.attemptMessage("retry-once-1"))
+
+        val sync = DeliverySyncExecutor(
+            outgoing = fixture.outgoing,
+            incoming = fixture.incoming,
+            queueIdProvider = { BOB_QUEUE },
+            receiveBindingsProvider = { listOf(ReceiveBinding("alice", fixture.bobSession)) },
+        )
+        assertEquals(listOf(OutgoingAttemptResult.SENT), sync.synchronizeNow(forceRetry = true).outgoingResults)
+        assertEquals(1, fixture.bobStore.acceptedMessages.size)
+
+        now = 10_000L
+        val second = sync.synchronizeNow(forceRetry = true)
+        assertTrue(second.outgoingResults.isEmpty())
+        assertEquals(1, fixture.bobStore.acceptedMessages.size)
+        assertTrue(fixture.relay.fetchMessages(BOB_QUEUE).isEmpty())
+    }
+
+    @Test
     fun `fan out policy never selects pending revoked changed or secondary devices`() {
         val fixture = PairedPeers()
         val planner = PrimarySessionOnlyFanOutPlanner()
@@ -239,6 +288,7 @@ class DeliveryPipelineTest {
 
     private data class MutableOutbound(
         val record: StoredOutgoingMessage,
+        val status: MessageStatus = MessageStatus.PENDING,
         val nextRetryAtEpochMillis: Long? = null,
     ) {
         val attemptCount: Int get() = record.attemptCount
@@ -261,12 +311,19 @@ class DeliveryPipelineTest {
 
         override suspend fun dueOutgoingMessages(nowEpochMillis: Long): List<StoredOutgoingMessage> =
             outgoing.values.filter {
-                it.nextRetryAtEpochMillis == null || it.nextRetryAtEpochMillis <= nowEpochMillis
+                it.status in setOf(MessageStatus.PENDING, MessageStatus.FAILED) &&
+                    (it.nextRetryAtEpochMillis == null || it.nextRetryAtEpochMillis <= nowEpochMillis)
+            }.map { it.record }
+
+        override suspend fun retryableOutgoingMessages(): List<StoredOutgoingMessage> =
+            outgoing.values.filter {
+                it.status in setOf(MessageStatus.PENDING, MessageStatus.FAILED)
             }.map { it.record }
 
         override suspend fun recordSent(messageId: String, attemptCount: Int) {
             outgoing[messageId] = outgoing.getValue(messageId).copy(
                 record = outgoing.getValue(messageId).record.copy(attemptCount = attemptCount),
+                status = MessageStatus.SENT,
                 nextRetryAtEpochMillis = Long.MAX_VALUE,
             )
         }
@@ -274,6 +331,7 @@ class DeliveryPipelineTest {
         override suspend fun recordFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long) {
             outgoing[messageId] = outgoing.getValue(messageId).copy(
                 record = outgoing.getValue(messageId).record.copy(attemptCount = attemptCount),
+                status = MessageStatus.FAILED,
                 nextRetryAtEpochMillis = nextAttemptAtEpochMillis,
             )
         }

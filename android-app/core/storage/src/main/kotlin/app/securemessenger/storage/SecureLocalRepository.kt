@@ -122,6 +122,11 @@ class SecureLocalRepository(
             runCatching { toStoredOutgoing(entity) }.getOrNull()
         }
 
+    override suspend fun retryableOutgoingMessages(): List<StoredOutgoingMessage> =
+        dao.getRetryableOutgoingMessages().mapNotNull { entity ->
+            runCatching { toStoredOutgoing(entity) }.getOrNull()
+        }
+
     override suspend fun recordSent(messageId: String, attemptCount: Int) =
         dao.updateDeliveryState(messageId, MessageStatus.SENT.name, attemptCount, null)
 

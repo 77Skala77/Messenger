@@ -24,6 +24,7 @@
     <string name="pairing_blocked">Device blocked</string>
     <string name="pairing_ready_scope_notice">Ready means this device has a usable receiving address for the contact. Replies require the contact to import your invitation separately.</string>
     <string name="pairing_incomplete_instruction">For a two-way conversation, the second phone must also show its QR code and the first phone must scan it.</string>
+    <string name="pairing_return_invitation_required">For a two-way conversation, the other user must also import your invitation. Unknown contacts are not created automatically.</string>
     <string name="pairing_ready_confirmation">Ready for conversation.</string>
     <string name="confirm_two_way_pairing">I completed both QR imports</string>
     <string name="invitation_qr_content_description">QR invitation code</string>
@@ -34,12 +35,15 @@
     <string name="invitation_code">Invitation code</string>
     <string name="contact_local_name">Contact name on this device</string>
     <string name="import_invitation">Import Invitation</string>
-    <string name="invalid_invitation">The invitation code is invalid or unsupported.</string>
+    <string name="empty_contact_name">Enter a contact name before importing the invitation.</string>
+    <string name="empty_invitation_code">Paste or scan an invitation code before import.</string>
+    <string name="invalid_invitation">The invitation code is corrupted or invalid.</string>
+    <string name="unsupported_invitation_version">This invitation version is not supported by this build.</string>
     <string name="contact_added">Contact added. Verify the safety number before important messages.</string>
     <string name="device_staged_notice">New device recorded as pending approval. Delivery to it is not enabled.</string>
     <string name="session_unavailable">This prototype cannot open the stored session. Re-verification is required before sending.</string>
     <string name="delivery_blocked_notice">Delivery is blocked because the receiving device is not approved or its security state changed. Review it in Contact Security.</string>
-    <string name="sync_requested_notice">Relay synchronization was requested. Pending delivery will follow retry and network availability rules.</string>
+    <string name="sync_requested_notice">Relay synchronization was requested. Retryable failed messages will be attempted now when the network is available.</string>
     <string name="conversation_title">Conversation</string>
     <string name="encryption_suite">Encryption Suite</string>
     <string name="suite_value_format">%1$s: %2$s</string>
@@ -55,9 +59,9 @@
     <string name="send">Send</string>
     <string name="empty_conversation">No messages on this device.</string>
     <string name="status_pending">Message Pending</string>
-    <string name="status_sent">Message Sent</string>
+    <string name="status_sent">Sent to relay server</string>
     <string name="status_received">Message Received</string>
-    <string name="status_failed">Message Failed</string>
+    <string name="status_failed">Failed. Will retry.</string>
     <string name="contact_security">Contact Security</string>
     <string name="safety_number">Safety Number</string>
     <string name="qr_verification">QR Verification</string>
@@ -167,6 +171,9 @@
     <string name="event_outgoing_queued">OUTGOING_QUEUED</string>
     <string name="event_outgoing_sent">OUTGOING_SENT</string>
     <string name="event_outgoing_retry_scheduled">OUTGOING_RETRY_SCHEDULED</string>
+    <string name="event_outgoing_retry_started">OUTGOING_RETRY_STARTED</string>
+    <string name="event_outgoing_retry_succeeded">OUTGOING_RETRY_SUCCEEDED</string>
+    <string name="event_outgoing_retry_failed">OUTGOING_RETRY_FAILED</string>
     <string name="event_incoming_fetch_started">INCOMING_FETCH_STARTED</string>
     <string name="event_incoming_accepted">INCOMING_ACCEPTED</string>
     <string name="event_incoming_duplicate_suppressed">INCOMING_DUPLICATE_SUPPRESSED</string>

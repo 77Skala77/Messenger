@@ -56,7 +56,11 @@ class LocalizationResourcesTest {
             "pairing_ready",
             "pairing_blocked",
             "pairing_incomplete_instruction",
+            "pairing_return_invitation_required",
             "pairing_ready_confirmation",
+            "empty_contact_name",
+            "empty_invitation_code",
+            "unsupported_invitation_version",
             "http_relay_debug_warning",
             "https_relay_required",
             "public_relay_tunnel_notice",
@@ -81,10 +85,26 @@ class LocalizationResourcesTest {
             "copy_diagnostic_report",
             "clear_diagnostics",
             "diagnostics_work_status",
+            "event_outgoing_retry_started",
+            "event_outgoing_retry_succeeded",
+            "event_outgoing_retry_failed",
         )
 
         assertTrue(resourceNames(File("src/main/res/values/strings.xml")).containsAll(expected))
         assertTrue(resourceNames(File("src/main/res/values-ru/strings.xml")).containsAll(expected))
+    }
+
+    @Test
+    fun `message status labels distinguish relay acceptance from end to end delivery`() {
+        val english = stringValues(File("src/main/res/values/strings.xml"))
+        val russian = stringValues(File("src/main/res/values-ru/strings.xml"))
+
+        assertEquals("Sent to relay server", english.getValue("status_sent"))
+        assertEquals("Отправлено на сервер доставки", russian.getValue("status_sent"))
+        assertTrue(english.getValue("status_failed").contains("retry", ignoreCase = true))
+        assertTrue(russian.getValue("status_failed").contains("Будет повторено"))
+        assertTrue(english.getValue("pairing_return_invitation_required").contains("import your invitation"))
+        assertTrue(russian.getValue("pairing_return_invitation_required").contains("импортировать ваше приглашение"))
     }
 
     @Test
@@ -169,6 +189,17 @@ class LocalizationResourcesTest {
         return buildSet {
             repeat(strings.length) { index ->
                 add(strings.item(index).attributes.getNamedItem("name").nodeValue)
+            }
+        }
+    }
+
+    private fun stringValues(file: File): Map<String, String> {
+        val document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+        val strings = document.getElementsByTagName("string")
+        return buildMap {
+            repeat(strings.length) { index ->
+                val item = strings.item(index)
+                put(item.attributes.getNamedItem("name").nodeValue, item.textContent)
             }
         }
     }

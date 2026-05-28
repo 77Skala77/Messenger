@@ -150,12 +150,20 @@ class RelaySyncWorker(
                 },
             )
             diagnostics.record(DeliveryTechnicalEvent.INCOMING_FETCH_STARTED)
-            val result = executor.synchronizeNow()
+            val result = executor.synchronizeNow(forceRetry = manualSync)
+            if (result.outgoingResults.isNotEmpty()) {
+                diagnostics.record(DeliveryTechnicalEvent.OUTGOING_RETRY_STARTED)
+            }
             result.outgoingResults.forEach { resultItem ->
                 when (resultItem) {
-                    OutgoingAttemptResult.SENT -> diagnostics.record(DeliveryTechnicalEvent.OUTGOING_SENT)
-                    OutgoingAttemptResult.RETRY_SCHEDULED ->
+                    OutgoingAttemptResult.SENT -> {
+                        diagnostics.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SUCCEEDED)
+                        diagnostics.record(DeliveryTechnicalEvent.OUTGOING_SENT)
+                    }
+                    OutgoingAttemptResult.RETRY_SCHEDULED -> {
+                        diagnostics.record(DeliveryTechnicalEvent.OUTGOING_RETRY_FAILED)
                         diagnostics.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED)
+                    }
                     OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
                         diagnostics.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
                     OutgoingAttemptResult.NOT_FOUND -> Unit

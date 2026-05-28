@@ -75,9 +75,11 @@ class SecureRoomStateInstrumentedTest {
         )
 
         repository.recordFailed("pending-1", attemptCount = 1, nextAttemptAtEpochMillis = 5_000)
+        assertEquals(1, repository.retryableOutgoingMessages().single().attemptCount)
         assertTrue(repository.dueOutgoingMessages(4_999).isEmpty())
         assertEquals(1, repository.dueOutgoingMessages(5_000).single().attemptCount)
         repository.recordSent("pending-1", attemptCount = 2)
+        assertTrue(repository.retryableOutgoingMessages().isEmpty())
         assertTrue(repository.dueOutgoingMessages(Long.MAX_VALUE).isEmpty())
 
         repository.revokeDevice("remote", remote.publicIdentity)

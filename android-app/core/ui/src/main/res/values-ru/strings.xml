@@ -24,6 +24,7 @@
     <string name="pairing_blocked">Устройство заблокировано</string>
     <string name="pairing_ready_scope_notice">Готовность означает, что это устройство знает адрес доставки контакта. Для ответов контакт должен отдельно импортировать ваше приглашение.</string>
     <string name="pairing_incomplete_instruction">Для двусторонней переписки нужно, чтобы второй телефон тоже показал QR-код, а первый его отсканировал.</string>
+    <string name="pairing_return_invitation_required">Для двусторонней переписки второй пользователь тоже должен импортировать ваше приглашение. Неизвестные контакты не создаются автоматически.</string>
     <string name="pairing_ready_confirmation">Готово к переписке.</string>
     <string name="confirm_two_way_pairing">Я выполнил(а) импорт обоих QR-кодов</string>
     <string name="invitation_qr_content_description">QR-код приглашения</string>
@@ -34,12 +35,15 @@
     <string name="invitation_code">Код приглашения</string>
     <string name="contact_local_name">Имя контакта на этом устройстве</string>
     <string name="import_invitation">Импортировать приглашение</string>
-    <string name="invalid_invitation">Код приглашения повреждён или не поддерживается.</string>
+    <string name="empty_contact_name">Укажите имя контакта перед импортом приглашения.</string>
+    <string name="empty_invitation_code">Вставьте или отсканируйте код приглашения перед импортом.</string>
+    <string name="invalid_invitation">Код приглашения повреждён или недействителен.</string>
+    <string name="unsupported_invitation_version">Эта версия приглашения не поддерживается в этой сборке.</string>
     <string name="contact_added">Контакт добавлен. Перед важными сообщениями проверьте контрольный код безопасности.</string>
     <string name="device_staged_notice">Новое устройство записано как ожидающее проверки. Доставка на него не включена.</string>
     <string name="session_unavailable">Прототип не может открыть сохранённую сессию. Перед отправкой требуется повторная проверка.</string>
     <string name="delivery_blocked_notice">Доставка заблокирована: принимающее устройство не подтверждено или его состояние безопасности изменилось. Проверьте его в разделе безопасности контакта.</string>
-    <string name="sync_requested_notice">Запрошена синхронизация с сервером доставки. Ожидающие сообщения будут обработаны с учётом сети и правил повторной отправки.</string>
+    <string name="sync_requested_notice">Запрошена синхронизация с сервером доставки. Сообщения с ошибкой, которые можно повторить, будут отправлены сейчас при доступной сети.</string>
     <string name="conversation_title">Переписка</string>
     <string name="encryption_suite">Режим шифрования</string>
     <string name="suite_value_format">%1$s: %2$s</string>
@@ -55,9 +59,9 @@
     <string name="send">Отправить</string>
     <string name="empty_conversation">На этом устройстве сообщений пока нет.</string>
     <string name="status_pending">Ожидает отправки</string>
-    <string name="status_sent">Отправлено</string>
+    <string name="status_sent">Отправлено на сервер доставки</string>
     <string name="status_received">Получено</string>
-    <string name="status_failed">Ошибка отправки</string>
+    <string name="status_failed">Ошибка отправки. Будет повторено</string>
     <string name="contact_security">Безопасность контакта</string>
     <string name="safety_number">Контрольный код безопасности</string>
     <string name="qr_verification">Проверка через QR-код</string>
@@ -167,6 +171,9 @@
     <string name="event_outgoing_queued">OUTGOING_QUEUED</string>
     <string name="event_outgoing_sent">OUTGOING_SENT</string>
     <string name="event_outgoing_retry_scheduled">OUTGOING_RETRY_SCHEDULED</string>
+    <string name="event_outgoing_retry_started">OUTGOING_RETRY_STARTED</string>
+    <string name="event_outgoing_retry_succeeded">OUTGOING_RETRY_SUCCEEDED</string>
+    <string name="event_outgoing_retry_failed">OUTGOING_RETRY_FAILED</string>
     <string name="event_incoming_fetch_started">INCOMING_FETCH_STARTED</string>
     <string name="event_incoming_accepted">INCOMING_ACCEPTED</string>
     <string name="event_incoming_duplicate_suppressed">INCOMING_DUPLICATE_SUPPRESSED</string>

@@ -169,6 +169,16 @@ interface SecureMessengerDao {
 
     @Query(
         """
+        SELECT * FROM encrypted_messages
+        WHERE outgoing = 1
+          AND status IN ('PENDING', 'FAILED')
+        ORDER BY createdAtEpochMillis
+        """,
+    )
+    suspend fun getRetryableOutgoingMessages(): List<EncryptedMessageEntity>
+
+    @Query(
+        """
         SELECT
             COALESCE(SUM(CASE WHEN outgoing = 1 AND status = 'PENDING' THEN 1 ELSE 0 END), 0)
                 AS pendingOutgoingCount,

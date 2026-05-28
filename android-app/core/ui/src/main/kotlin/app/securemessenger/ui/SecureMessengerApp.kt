@@ -82,7 +82,10 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     var screen by remember { mutableStateOf(Screen.ONBOARDING) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val emptyContactName = stringResource(R.string.empty_contact_name)
+    val emptyInvitationCode = stringResource(R.string.empty_invitation_code)
     val invalidInvitation = stringResource(R.string.invalid_invitation)
+    val unsupportedInvitationVersion = stringResource(R.string.unsupported_invitation_version)
     val contactAdded = stringResource(R.string.contact_added)
     val deviceStaged = stringResource(R.string.device_staged_notice)
     val sessionUnavailable = stringResource(R.string.session_unavailable)
@@ -94,7 +97,10 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     }
     LaunchedEffect(state.notice) {
         val notice = when (state.notice) {
-            UiNotice.INVALID_INVITATION -> invalidInvitation
+            UiNotice.EMPTY_CONTACT_NAME -> emptyContactName
+            UiNotice.EMPTY_INVITATION_CODE -> emptyInvitationCode
+            UiNotice.INVALID_OR_CORRUPTED_INVITATION -> invalidInvitation
+            UiNotice.UNSUPPORTED_INVITATION_VERSION -> unsupportedInvitationVersion
             UiNotice.CONTACT_ADDED -> contactAdded
             UiNotice.DEVICE_STAGED -> deviceStaged
             UiNotice.SESSION_UNAVAILABLE -> sessionUnavailable
@@ -378,7 +384,7 @@ private fun ConversationScreen(
             )
             when (pairing) {
                 PairingStatus.WAITING_FOR_RETURN_INVITATION -> {
-                    Text(stringResource(R.string.pairing_incomplete_instruction), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.pairing_return_invitation_required), style = MaterialTheme.typography.bodySmall)
                     if (blockReason == null) {
                         OutlinedButton(onClick = onConfirmTwoWayPairing) {
                             Text(stringResource(R.string.confirm_two_way_pairing))
@@ -1057,6 +1063,9 @@ private fun deliveryEventLabel(type: DeliveryTechnicalEvent): String = when (typ
     DeliveryTechnicalEvent.OUTGOING_QUEUED -> stringResource(R.string.event_outgoing_queued)
     DeliveryTechnicalEvent.OUTGOING_SENT -> stringResource(R.string.event_outgoing_sent)
     DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED -> stringResource(R.string.event_outgoing_retry_scheduled)
+    DeliveryTechnicalEvent.OUTGOING_RETRY_STARTED -> stringResource(R.string.event_outgoing_retry_started)
+    DeliveryTechnicalEvent.OUTGOING_RETRY_SUCCEEDED -> stringResource(R.string.event_outgoing_retry_succeeded)
+    DeliveryTechnicalEvent.OUTGOING_RETRY_FAILED -> stringResource(R.string.event_outgoing_retry_failed)
     DeliveryTechnicalEvent.INCOMING_FETCH_STARTED -> stringResource(R.string.event_incoming_fetch_started)
     DeliveryTechnicalEvent.INCOMING_ACCEPTED -> stringResource(R.string.event_incoming_accepted)
     DeliveryTechnicalEvent.INCOMING_DUPLICATE_SUPPRESSED ->

@@ -22,6 +22,7 @@ data class StoredOutgoingMessage(
 interface DeliveryPersistence {
     suspend fun outgoingMessage(messageId: String): StoredOutgoingMessage?
     suspend fun dueOutgoingMessages(nowEpochMillis: Long): List<StoredOutgoingMessage>
+    suspend fun retryableOutgoingMessages(): List<StoredOutgoingMessage>
     suspend fun recordSent(messageId: String, attemptCount: Int)
     suspend fun recordFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long)
     suspend fun acceptIncoming(
@@ -116,6 +117,9 @@ class OutgoingDeliveryProcessor(
     suspend fun retryDueMessages(): List<OutgoingAttemptResult> =
         persistence.dueOutgoingMessages(now()).map { attemptMessage(it.messageId) }
 
+    suspend fun retryAllRetryableMessages(): List<OutgoingAttemptResult> =
+        persistence.retryableOutgoingMessages().map { attemptMessage(it.messageId) }
+
     private companion object {
         const val RELAY_TTL_MILLIS = 24 * 60 * 60 * 1000L
     }
@@ -174,8 +178,12 @@ class DeliverySyncExecutor(
     private val queueIdProvider: suspend () -> String?,
     private val receiveBindingsProvider: suspend () -> List<ReceiveBinding>,
 ) {
-    suspend fun synchronizeNow(): DeliverySyncResult {
-        val outgoingResults = outgoing.retryDueMessages()
+    suspend fun synchronizeNow(forceRetry: Boolean = false): DeliverySyncResult {
+        val outgoingResults = if (forceRetry) {
+            outgoing.retryAllRetryableMessages()
+        } else {
+            outgoing.retryDueMessages()
+        }
         val queueId = queueIdProvider() ?: return DeliverySyncResult(outgoingResults, emptyList())
         val incomingResults = incoming.fetchAndProcess(queueId, receiveBindingsProvider())
         return DeliverySyncResult(outgoingResults, incomingResults)

@@ -48,7 +48,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 enum class UiNotice {
-    INVALID_INVITATION,
+    EMPTY_CONTACT_NAME,
+    EMPTY_INVITATION_CODE,
+    INVALID_OR_CORRUPTED_INVITATION,
+    UNSUPPORTED_INVITATION_VERSION,
     CONTACT_ADDED,
     DEVICE_STAGED,
     SESSION_UNAVAILABLE,
@@ -168,13 +171,15 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun importInvitation(encoded: String, localContactName: String) {
-        if (encoded.isBlank() || localContactName.isBlank()) {
-            mutableState.value = mutableState.value.copy(notice = UiNotice.INVALID_INVITATION)
+        val validation = validateInvitationImport(encoded, localContactName)
+        if (validation is InvitationImportValidationResult.Invalid) {
+            mutableState.value = mutableState.value.copy(notice = validation.error.toNotice())
             return
         }
+        validation as InvitationImportValidationResult.Valid
         launchMutation {
             try {
-                val invitation = InvitationCodec.decode(encoded.trim())
+                val invitation = validation.invitation
                 val existing = mutableState.value.contacts.firstOrNull {
                     it.identity.deviceId == invitation.identity.deviceId
                 }
@@ -186,14 +191,14 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 val contactId = existing?.contactId ?: UUID.randomUUID().toString()
                 val contact = Contact(
                     contactId = contactId,
-                    localDisplayName = localContactName.trim(),
+                    localDisplayName = validation.trimmedContactName,
                     queueId = invitation.queueId,
                     identity = invitation.identity,
                     verificationStatus = status,
                 )
                 localRepository.storeContact(contact)
                 if (existing == null) {
-                    val session = sessionManager.acceptInvitation(identityProvider.loadOrCreate(), encoded.trim())
+                    val session = sessionManager.acceptInvitation(identityProvider.loadOrCreate(), validation.trimmedInvitationCode)
                     sessions[contactId] = session
                     localRepository.storeSession(contactId, session)
                 } else if (status == VerificationStatus.KEY_CHANGED) {
@@ -203,7 +208,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 diagnosticsStore.record(DeliveryTechnicalEvent.PAIRING_INCOMPLETE)
                 refreshDiagnostics()
             } catch (_: Exception) {
-                mutableState.value = mutableState.value.copy(notice = UiNotice.INVALID_INVITATION)
+                mutableState.value = mutableState.value.copy(notice = UiNotice.INVALID_OR_CORRUPTED_INVITATION)
             }
         }
     }
@@ -399,7 +404,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 localRepository.stageNewDevice(contactId, invitation)
                 mutableState.value = mutableState.value.copy(notice = UiNotice.DEVICE_STAGED)
             } catch (_: Exception) {
-                mutableState.value = mutableState.value.copy(notice = UiNotice.INVALID_INVITATION)
+                mutableState.value = mutableState.value.copy(notice = UiNotice.INVALID_OR_CORRUPTED_INVITATION)
             }
         }
     }
@@ -564,7 +569,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             while (true) {
                 try {
                     val results = outgoingDelivery.retryDueMessages()
-                    results.forEach(::recordOutgoingAttempt)
+                    recordRetryAttempts(results)
                     if (results.any { it == OutgoingAttemptResult.RETRY_SCHEDULED }) {
                         syncScheduler.requestRetry()
                     }
@@ -597,6 +602,26 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
                 diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
             OutgoingAttemptResult.NOT_FOUND -> Unit
+        }
+    }
+
+    private fun recordRetryAttempts(results: List<OutgoingAttemptResult>) {
+        if (results.isEmpty()) return
+        diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_RETRY_STARTED)
+        results.forEach { attempt ->
+            when (attempt) {
+                OutgoingAttemptResult.SENT -> {
+                    diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SUCCEEDED)
+                    diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_SENT)
+                }
+                OutgoingAttemptResult.RETRY_SCHEDULED -> {
+                    diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_RETRY_FAILED)
+                    diagnosticsStore.record(DeliveryTechnicalEvent.OUTGOING_RETRY_SCHEDULED)
+                }
+                OutgoingAttemptResult.BLOCKED_BY_DEVICE_POLICY ->
+                    diagnosticsStore.record(DeliveryTechnicalEvent.DEVICE_BLOCKED_SEND)
+                OutgoingAttemptResult.NOT_FOUND -> Unit
+            }
         }
     }
 
@@ -663,4 +688,11 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         return listOf("generic", "emulator", "sdk_gphone", "goldfish", "ranchu")
             .none(buildDescription::contains)
     }
+}
+
+private fun InvitationImportValidationError.toNotice(): UiNotice = when (this) {
+    InvitationImportValidationError.EMPTY_CONTACT_NAME -> UiNotice.EMPTY_CONTACT_NAME
+    InvitationImportValidationError.EMPTY_INVITATION_CODE -> UiNotice.EMPTY_INVITATION_CODE
+    InvitationImportValidationError.INVALID_OR_CORRUPTED_INVITATION -> UiNotice.INVALID_OR_CORRUPTED_INVITATION
+    InvitationImportValidationError.UNSUPPORTED_INVITATION_VERSION -> UiNotice.UNSUPPORTED_INVITATION_VERSION
 }
