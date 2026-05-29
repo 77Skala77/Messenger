@@ -109,11 +109,41 @@ http://10.0.2.2:8787
 принимаются в обе стороны между физическим телефоном и Android Emulator через один
 локальный relay на ноутбуке.
 
+## Confirmed QA: automatic retry and delivery receipts
+
+Подтверждённый phone + emulator QA через local Node relay:
+
+- обычные сообщения доставляются;
+- receiving device после accept/decrypt/store отправляет encrypted delivery receipt
+  обратно отправителю;
+- исходящий статус меняется с `Отправлено на сервер доставки` на `Доставлено`
+  только после получения receipt;
+- небольшая задержка receipt является нормальной, потому что подтверждение идёт
+  отдельным обратным control message;
+- при остановленном relay новое сообщение получает `Ожидает синхронизации`;
+- после повторного запуска relay background sync / WorkManager автоматически
+  отправил pending/retry сообщения без обязательного нажатия `Синхронизировать сейчас`;
+- после receipt retry-сообщение стало `Доставлено`;
+- дубли не появились, а receipt не отображался как обычное chat message;
+- диагностика доставки показала receipt/retry events и понятные статусы.
+
+`Синхронизировать сейчас` остаётся полезной ручной QA-кнопкой, особенно если нужно
+ускорить fetch/retry или проверить состояние сразу. Успешный сценарий показывает,
+что доставка может восстановиться автоматически после возвращения relay, но
+WorkManager всё равно остаётся best-effort и может задерживаться Android power
+management.
+
+`Доставлено` означает delivery receipt от устройства получателя после принятия,
+расшифровки и сохранения сообщения. Это не означает, что пользователь прочитал
+сообщение: read receipts в MVP не реализованы.
+
 ## Retry И Duplicate Suppression
 
 Для retry временно остановите локальный `node src/server.mjs`, отправьте тестовое
 сообщение и убедитесь, что у отправителя появились failed/retry counters и событие
-`OUTGOING_RETRY_SCHEDULED`. После повторного запуска relay нажмите
+`OUTGOING_RETRY_SCHEDULED`. После повторного запуска relay можно дождаться
+background sync / WorkManager: подтверждённый QA показал, что retryable сообщения
+уходят автоматически. Для ручной проверки или ускорения сценария нажмите
 `Синхронизировать сейчас` на отправителе и получателе.
 
 Duplicate suppression обычно проверяется тестовым harness: после successful receive
@@ -236,3 +266,8 @@ plaintext-сообщение.
 транспортный канал до tunnel endpoint, но не делает relay production-secure и не
 заменяет протокольный аудит, metadata protection, rate limits, monitoring или
 secret-free operational logging.
+
+Даже в подтверждённом QA активные чаты продолжают использовать
+`SimplifiedSessionManager`. Signal-backed sessions выключены, `PARANOIA_C4_AEAD`
+выключен, local/debug HTTP relay не является production transport, и production
+security не заявляется.

@@ -28,6 +28,9 @@ default in-app language; English is available from Settings.
 - Durable pending/failed outgoing state with attempt count and exponential retry metadata.
   Foreground polling and WorkManager best-effort synchronization resend due ciphertext
   without logging its contents.
+- Confirmed phone + emulator QA shows automatic retry after relay recovery:
+  `Waiting for sync` messages can be resent by background sync / WorkManager without
+  requiring manual sync, then move to `Delivered` after the receiver's delivery receipt.
 - A two-peer integration test exercises reciprocal invitations, encrypted relay delivery,
   authenticated receive/storage/delete, duplicate replay suppression and tamper rejection.
 - Room persistence with no plaintext message column; profile name and session state
@@ -68,7 +71,8 @@ default in-app language; English is available from Settings.
   not synchronized protocol revocation.
 - WorkManager sync is implemented for due outgoing retry and incoming fetch, but it
   is best effort and may be delayed by Android power management. It is not an
-  assurance of timely delivery.
+  assurance of timely delivery. Manual sync remains useful for QA and immediate
+  checks, even though confirmed testing showed automatic retry after relay recovery.
 - The user-selected HTTP relay URL is allowed only by the debug development policy.
   The Settings screen warns about HTTP in debug builds. Release builds reject HTTP
   relay URLs and disallow cleartext networking; they do not yet have a production transport.
@@ -162,6 +166,13 @@ including safe diagnostic capture, use
 If a second phone is not available, use
 [docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md](docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md)
 and [docs/RELAY_PUBLIC_TESTING.md](docs/RELAY_PUBLIC_TESTING.md).
+
+Confirmed QA: phone + Android Emulator through the local Node relay delivered
+messages both ways, returned encrypted delivery receipts, updated outgoing status
+from `Sent to delivery server` to `Delivered`, recovered retryable messages after
+relay restart through background sync / WorkManager, and did not show duplicate
+chat messages. `Delivered` is a delivery receipt from the receiving device, not a
+read receipt.
 
 ## Delivery Diagnostics
 

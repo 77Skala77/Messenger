@@ -12,6 +12,11 @@ Current chats use the prototype `SimplifiedSessionManager`, not Signal
 PQXDH/Double Ratchet. The Signal-backed store is a disabled migration spike only.
 `PARANOIA_C4_AEAD` is also a disabled placeholder and is not an enabled secure mode.
 
+Confirmed QA: a physical Android phone and Android Emulator exchanged messages via
+the local Node relay, delivery receipts updated outgoing messages to `Delivered`,
+and WorkManager/background sync resent pending retry messages after relay recovery.
+`Delivered` is not a read receipt; user read receipts are not implemented.
+
 ## Build And Test
 
 ```bash
