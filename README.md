@@ -26,6 +26,11 @@ cd server/relay
 node --test
 ```
 
+Local Node relay is enough for LAN/debug QA. For phone + emulator tests outside one
+local network, use a public HTTPS relay URL and the VPS deployment examples under
+`android-app/deploy`; this is still QA infrastructure, not a production-security
+claim.
+
 ## Documentation
 
 - [Android app and relay overview](android-app/README.md)
@@ -33,6 +38,8 @@ node --test
 - [Manual two-device QA checklist](android-app/docs/MANUAL_TWO_DEVICE_QA.md)
 - [Crypto design](android-app/docs/CRYPTO_DESIGN.md)
 - [Security warnings](android-app/docs/SECURITY_WARNINGS.md)
+- [VPS HTTPS relay deployment](android-app/docs/VPS_RELAY_DEPLOYMENT.md)
+- [Relay deployment examples](android-app/deploy/README.md)
 - [Audit scope](android-app/docs/AUDIT_SCOPE.md)
 - [Known limitations](android-app/docs/KNOWN_LIMITATIONS.md)
 - [Audit checklist](android-app/docs/AUDIT_CHECKLIST.md)

@@ -143,7 +143,9 @@ adb reverse tcp:8787 tcp:8787
 With that USB route, set the debug app URL to `http://127.0.0.1:8787`. The release
 network policy does not allow cleartext endpoints. For phone + emulator tests
 through different networks, use one HTTPS relay URL on both clients, for example
-`https://temporary-relay.example`. The relay implements:
+`https://temporary-relay.example`. For VPS setup with systemd and HTTPS reverse
+proxy examples, see [docs/VPS_RELAY_DEPLOYMENT.md](docs/VPS_RELAY_DEPLOYMENT.md)
+and [deploy/README.md](deploy/README.md). The relay implements:
 
 ```text
 POST   /v1/messages
@@ -154,6 +156,9 @@ GET    /health
 
 The service stores opaque ciphertext envelopes and expiration timestamps only. In
 this MVP it can still observe queue identifiers, timing, message size and source IP.
+Local relay is appropriate for debug QA. A VPS HTTPS relay is useful for tests
+outside one local network, but it remains an untrusted QA transport rather than
+production infrastructure.
 
 An invitation advertises its creator's receive queue. Consequently, bidirectional
 testing requires reciprocal invitation import: B imports A's invitation to send to A,
@@ -227,6 +232,8 @@ scanner activity. The rest of the messenger is not orientation-locked.
 - [Manual Two Device QA](docs/MANUAL_TWO_DEVICE_QA.md)
 - [Phone + Emulator Public Relay QA](docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md)
 - [Relay Public Testing Notes](docs/RELAY_PUBLIC_TESTING.md)
+- [VPS HTTPS Relay Deployment](docs/VPS_RELAY_DEPLOYMENT.md)
+- [Relay Deployment Examples](deploy/README.md)
 - [Logcat QA](docs/LOGCAT_QA.md)
 - [Audit Scope](docs/AUDIT_SCOPE.md)
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md)

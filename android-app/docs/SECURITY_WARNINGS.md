@@ -22,6 +22,10 @@ server or privacy audit.
 - Public HTTPS tunnel/VPS relay testing is QA-only. It helps a phone and emulator
   reach the same relay, but it still exposes relay metadata and is not production
   infrastructure.
+- A VPS HTTPS relay is not trusted. HTTPS protects the network hop to the server,
+  but the relay can still observe IP addresses, request timing, queue metadata,
+  approximate message sizes and traffic frequency. It must not store messages beyond
+  TTL and must use secret-free logs.
 - The debug-only test-data reset intentionally preserves the configured relay URL for
   repeated LAN QA while removing local profiles, cryptographic/delivery state and
   diagnostics. It is not a forensic secure-erasure claim.
@@ -57,6 +61,10 @@ a metadata-anonymity guarantee.
 The optional QA logcat scripts sanitize labelled sensitive fields before saving or
 displaying output, but QA must use disposable messages: scripts cannot recognize
 arbitrary sensitive text introduced by future accidental logging.
+
+Public relay deployment adds operational obligations that are not solved by the MVP:
+abuse controls, rate limiting, monitoring, patching, incident response, retention
+review and independent server/protocol audit.
 
 ## Forbidden Claims
 

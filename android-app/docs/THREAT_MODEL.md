@@ -63,6 +63,13 @@ user-configured endpoint are not a deployable anonymity or production relay desi
 Release builds reject insecure HTTP relay configuration and cleartext traffic, but no
 production relay deployment has been reviewed.
 
+A public VPS HTTPS relay improves reachability for QA outside one LAN, but it is not
+a trusted privacy boundary. TLS protects traffic to the VPS endpoint; it does not
+hide IP addresses, request timing, queue metadata, approximate message sizes or
+traffic frequency from the relay operator. A public relay must keep TTL short, avoid
+payload logs, avoid full queue ID logs, and add abuse controls, monitoring and rate
+limiting before any broader test.
+
 ## Device Compromise
 
 Android Keystore reduces key extraction risk but does not make a compromised device
