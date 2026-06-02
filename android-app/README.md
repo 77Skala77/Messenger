@@ -160,6 +160,14 @@ Local relay is appropriate for debug QA. A VPS HTTPS relay is useful for tests
 outside one local network, but it remains an untrusted QA transport rather than
 production infrastructure.
 
+Confirmed VPS QA used an Ubuntu 24.04 LTS server with the Node relay bound only to
+`127.0.0.1:8787`, Caddy proxying public HTTP on port 80, and UFW blocking direct
+external access to `8787/tcp`. The temporary debug-only endpoint was
+`http://194.87.226.46`. Phone + Android Emulator delivery, automatic retry,
+delivery receipts and reboot recovery passed. This HTTP-by-IP endpoint is not
+suitable for release or production use: use a domain name and HTTPS before broader
+testing.
+
 An invitation advertises its creator's receive queue. Consequently, bidirectional
 testing requires reciprocal invitation import: B imports A's invitation to send to A,
 and A imports B's invitation to send to B. The delivery integration test uses this

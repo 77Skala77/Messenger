@@ -137,6 +137,23 @@ management.
 расшифровки и сохранения сообщения. Это не означает, что пользователь прочитал
 сообщение: read receipts в MVP не реализованы.
 
+## Confirmed QA: public VPS HTTP debug endpoint
+
+Также подтверждён временный VPS QA-сценарий для phone + emulator:
+
+- оба клиента использовали `http://194.87.226.46`;
+- Ubuntu 24.04 LTS VPS запускал Node relay через enabled systemd service
+  `secure-messenger-relay`;
+- Caddy принимал HTTP на порту 80 и проксировал на `127.0.0.1:8787`;
+- UFW блокировал прямой внешний доступ к `8787/tcp`;
+- доставка в обе стороны, automatic retry, WorkManager/background sync, delivery
+  receipt, отсутствие видимого receipt-сообщения и отсутствие дублей подтверждены;
+- после reboot VPS relay и Caddy автоматически запустились.
+
+Этот URL является временным debug-only HTTP endpoint. Он удобен для QA, но не
+подходит для release или production. Для дальнейшего публичного тестирования
+нужно настроить домен и HTTPS.
+
 ## Retry И Duplicate Suppression
 
 Для retry временно остановите локальный `node src/server.mjs`, отправьте тестовое

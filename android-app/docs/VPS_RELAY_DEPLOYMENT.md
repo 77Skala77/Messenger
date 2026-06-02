@@ -12,6 +12,35 @@ This is not a production deployment guide. Current Android chats still use
 disabled. A VPS relay still sees IP addresses, request timing, approximate payload
 sizes, queue metadata and traffic frequency.
 
+## Confirmed VPS Relay And Reboot QA
+
+A manual VPS QA pass was completed with this temporary debug-only setup:
+
+- VPS OS: Ubuntu 24.04 LTS.
+- Temporary public QA URL: `http://194.87.226.46`.
+- Caddy accepts HTTP on port 80 and proxies to `127.0.0.1:8787`.
+- Node relay runs as the enabled systemd service `secure-messenger-relay`.
+- `caddy.service` is enabled.
+- Node relay listens only on `127.0.0.1:8787`.
+- UFW blocks direct external access to `8787/tcp`.
+- `/health` responds directly on the loopback relay, through local Caddy and from
+  outside the VPS at `http://194.87.226.46/health`.
+- A physical Android phone and Android Emulator both connected to the public relay.
+- Messages were delivered in both directions.
+- With relay stopped, new messages changed to `Ожидает синхронизации`.
+- After relay recovery, WorkManager/background sync resent messages automatically
+  after approximately 6-7 seconds.
+- Delivery receipts returned and changed outgoing status to `Доставлено`.
+- Receipts did not appear as ordinary chat messages.
+- No duplicate chat messages appeared.
+- Reboot QA passed: after VPS reboot, Caddy and the relay started automatically.
+
+This confirmed endpoint is intentionally documented as debug/QA only. It is public
+HTTP by IP, not HTTPS. Do not use it as a release or production endpoint. Before
+broader testing, configure a DNS name and HTTPS, for example with the Caddy example
+below. HTTPS protects transport to the VPS but does not make the VPS trusted and
+does not replace end-to-end encryption or audit.
+
 ## VPS Requirements
 
 Minimum QA VPS:
@@ -256,6 +285,9 @@ sudo systemctl start secure-messenger-relay
 
 - HTTPS protects the transport channel to the VPS; it does not replace end-to-end
   encryption or protocol audit.
+- The confirmed `http://194.87.226.46` endpoint is a temporary debug/QA exception,
+  not a release or production URL. Replace it with a domain name and HTTPS before
+  broader testing.
 - The relay is untrusted for confidentiality and integrity of message content.
 - The relay still observes metadata: IP addresses, timing, message size, queue
   identifiers and request frequency.

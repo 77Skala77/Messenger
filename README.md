@@ -31,6 +31,12 @@ local network, use a public HTTPS relay URL and the VPS deployment examples unde
 `android-app/deploy`; this is still QA infrastructure, not a production-security
 claim.
 
+Confirmed VPS QA: an Ubuntu 24.04 LTS VPS served the relay through Caddy and
+systemd, survived reboot, and delivered messages plus delivery receipts between a
+physical phone and Android Emulator. The tested public endpoint was temporary
+debug-only HTTP by IP: `http://194.87.226.46`. It is not suitable for release or
+production use. A domain name and HTTPS are required before broader testing.
+
 ## Documentation
 
 - [Android app and relay overview](android-app/README.md)

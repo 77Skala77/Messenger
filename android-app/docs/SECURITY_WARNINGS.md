@@ -26,6 +26,9 @@ server or privacy audit.
   but the relay can still observe IP addresses, request timing, queue metadata,
   approximate message sizes and traffic frequency. It must not store messages beyond
   TTL and must use secret-free logs.
+- The confirmed public `http://194.87.226.46` endpoint is a temporary debug/QA
+  exception only. Public HTTP by IP is not acceptable for release or production.
+  Configure a domain name and HTTPS before broader testing.
 - The debug-only test-data reset intentionally preserves the configured relay URL for
   repeated LAN QA while removing local profiles, cryptographic/delivery state and
   diagnostics. It is not a forensic secure-erasure claim.

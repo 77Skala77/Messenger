@@ -88,6 +88,27 @@ logcat физического телефона не показал `FATAL EXCEPT
 сохранило сообщение, а затем отправило delivery receipt. Это не read receipt:
 прочтение пользователем в MVP не отслеживается.
 
+## Confirmed QA: VPS relay and reboot
+
+Дополнительно пройден QA через Ubuntu 24.04 LTS VPS:
+
+- временный debug-only URL: `http://194.87.226.46`;
+- Caddy принимает HTTP на порту 80 и проксирует на loopback relay
+  `127.0.0.1:8787`;
+- Node relay работает через enabled systemd service `secure-messenger-relay`;
+- `caddy.service` также enabled;
+- UFW закрывает прямой внешний доступ к `8787/tcp`;
+- телефон и Android Emulator успешно отправили и приняли сообщения в обе стороны;
+- после остановки relay сообщения получили `Ожидает синхронизации`;
+- после восстановления relay WorkManager/background sync автоматически повторил
+  отправку примерно через 6-7 секунд;
+- receipt вернулся, статус изменился на `Доставлено`, дубли не появились;
+- после reboot VPS Caddy и relay автоматически поднялись.
+
+Публичный HTTP по IP допустим только как временная debug/QA-проверка. Для release
+и production необходимы домен и HTTPS. VPS relay остаётся недоверенным transport:
+сервер видит IP, timing, queue metadata и приблизительные размеры сообщений.
+
 Cloudflare Tunnel или другой публичный HTTPS relay остаётся optional future/public-network
 вариантом, когда клиенты не могут достучаться до одного локального relay.
 
