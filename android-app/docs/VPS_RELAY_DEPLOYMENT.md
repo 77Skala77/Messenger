@@ -41,6 +41,44 @@ broader testing, configure a DNS name and HTTPS, for example with the Caddy exam
 below. HTTPS protects transport to the VPS but does not make the VPS trusted and
 does not replace end-to-end encryption or audit.
 
+## Confirmed SSH Hardening QA
+
+SSH hardening was verified on the same Ubuntu 24.04 LTS QA VPS:
+
+- SSH public key login works.
+- `PubkeyAuthentication yes` is enabled.
+- `PasswordAuthentication no` is effective.
+- `KbdInteractiveAuthentication no` is effective.
+- `PermitRootLogin prohibit-password` is effective.
+- The cloud-init override
+  `/etc/ssh/sshd_config.d/50-cloud-init.conf` was changed from
+  `PasswordAuthentication yes` to `PasswordAuthentication no`.
+- Effective SSH configuration was checked after the override.
+- Password-only login from macOS was rejected:
+
+```bash
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@194.87.226.46
+```
+
+Expected result:
+
+```text
+Permission denied (publickey).
+```
+
+- Normal public-key login still works:
+
+```bash
+ssh root@194.87.226.46
+```
+
+- After SSH hardening, `secure-messenger-relay` and `caddy.service` continued to
+  run and serve `/health`.
+
+Do not commit private keys, root passwords, SSH agent material or provider tokens.
+The documented IP is a temporary QA endpoint; production/release testing should use
+a domain name and HTTPS for the relay URL.
+
 ## VPS Requirements
 
 Minimum QA VPS:
@@ -51,6 +89,8 @@ Minimum QA VPS:
 - A DNS name such as `relay.example.com` pointing to the VPS.
 - Inbound TCP 80 and 443 for HTTPS setup.
 - Inbound SSH restricted to your admin IPs where practical.
+- SSH public-key authentication enabled, password and keyboard-interactive login
+  disabled, and cloud-init SSH overrides checked.
 - No shared application logs that print request bodies.
 
 Recommended:

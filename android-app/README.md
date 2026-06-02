@@ -165,8 +165,9 @@ Confirmed VPS QA used an Ubuntu 24.04 LTS server with the Node relay bound only 
 external access to `8787/tcp`. The temporary debug-only endpoint was
 `http://194.87.226.46`. Phone + Android Emulator delivery, automatic retry,
 delivery receipts and reboot recovery passed. This HTTP-by-IP endpoint is not
-suitable for release or production use: use a domain name and HTTPS before broader
-testing.
+suitable for release or production use. SSH public-key login was verified, password
+and keyboard-interactive login were disabled, and relay/Caddy continued working:
+use a domain name and HTTPS before broader testing.
 
 An invitation advertises its creator's receive queue. Consequently, bidirectional
 testing requires reciprocal invitation import: B imports A's invitation to send to A,

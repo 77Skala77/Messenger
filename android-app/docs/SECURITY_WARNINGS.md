@@ -29,6 +29,9 @@ server or privacy audit.
 - The confirmed public `http://194.87.226.46` endpoint is a temporary debug/QA
   exception only. Public HTTP by IP is not acceptable for release or production.
   Configure a domain name and HTTPS before broader testing.
+- VPS SSH access was hardened for QA with public-key login, disabled password login
+  and disabled keyboard-interactive login. This reduces one operational risk, but it
+  does not make the relay trusted or production-ready.
 - The debug-only test-data reset intentionally preserves the configured relay URL for
   repeated LAN QA while removing local profiles, cryptographic/delivery state and
   diagnostics. It is not a forensic secure-erasure claim.

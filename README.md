@@ -35,7 +35,8 @@ Confirmed VPS QA: an Ubuntu 24.04 LTS VPS served the relay through Caddy and
 systemd, survived reboot, and delivered messages plus delivery receipts between a
 physical phone and Android Emulator. The tested public endpoint was temporary
 debug-only HTTP by IP: `http://194.87.226.46`. It is not suitable for release or
-production use. A domain name and HTTPS are required before broader testing.
+production use. SSH public-key login was verified and password login was disabled.
+A domain name and HTTPS are required before broader testing.
 
 ## Documentation
 
