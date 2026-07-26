@@ -1,165 +1,209 @@
-# VPS HTTPS Relay Deployment
+# VPS Relay Deployment For Controlled QA
 
-## Scope
+## Role And Claim Boundary
 
-This guide prepares a public HTTPS relay for MVP QA when a phone and Android
-Emulator cannot share a local LAN relay. The relay remains a dumb delivery server:
-it stores opaque encrypted blobs with TTL and never receives plaintext, private
-keys, session keys, message keys, nonces or decrypted files.
+**Repository baseline reviewed:** `32433ef4aba5110e2670525430ed41bf72def8f5`
 
-This is not a production deployment guide. Current Android chats still use
-`SimplifiedSessionManager`; Signal-backed sessions and `PARANOIA_C4_AEAD` are
-disabled. A VPS relay still sees IP addresses, request timing, approximate payload
-sizes, queue metadata and traffic frequency.
+This guide describes a temporary public HTTPS deployment of the minimal Node relay for
+controlled MVP QA. It is not a production deployment design, authorization to expose a
+server, or proof that any historical VPS is still available or secure.
 
-## Confirmed VPS Relay And Reboot QA
+The relay does not receive message plaintext from the intended client path, but it still
+processes and can expose metadata including source IP, timing, queue identifiers, approximate
+payload sizes, request frequency, and availability behavior.
 
-A manual VPS QA pass was completed with this temporary debug-only setup:
+Normal Android chats continue to use `SimplifiedSessionManager` and `STANDARD_AEAD`.
+Signal-backed sessions and `PARANOIA_C4_AEAD` remain disabled. A VPS does not repair the
+prototype session protocol, warning-only first-contact risk, local-device exposure, or
+missing metadata protection.
 
-- VPS OS: Ubuntu 24.04 LTS.
-- Temporary public QA URL: `http://194.87.226.46`.
-- Caddy accepts HTTP on port 80 and proxies to `127.0.0.1:8787`.
-- Node relay runs as the enabled systemd service `secure-messenger-relay`.
-- `caddy.service` is enabled.
-- Node relay listens only on `127.0.0.1:8787`.
-- UFW blocks direct external access to `8787/tcp`.
-- `/health` responds directly on the loopback relay, through local Caddy and from
-  outside the VPS at `http://194.87.226.46/health`.
-- A physical Android phone and Android Emulator both connected to the public relay.
-- Messages were delivered in both directions.
-- With relay stopped, new messages changed to `Ожидает синхронизации`.
-- After relay recovery, WorkManager/background sync resent messages automatically
-  after approximately 6-7 seconds.
-- Delivery receipts returned and changed outgoing status to `Доставлено`.
-- Receipts did not appear as ordinary chat messages.
-- No duplicate chat messages appeared.
-- Reboot QA passed: after VPS reboot, Caddy and the relay started automatically.
+TQ-107 production relay and operational-security design remains blocked.
 
-This confirmed endpoint is intentionally documented as debug/QA only. It is public
-HTTP by IP, not HTTPS. Do not use it as a release or production endpoint. Before
-broader testing, configure a DNS name and HTTPS, for example with the Caddy example
-below. HTTPS protects transport to the VPS but does not make the VPS trusted and
-does not replace end-to-end encryption or audit.
+## Historical VPS Evidence
 
-## Confirmed SSH Hardening QA
+Repository records describe a historical QA deployment with:
 
-SSH hardening was verified on the same Ubuntu 24.04 LTS QA VPS:
+- Ubuntu 24.04 LTS;
+- the Node relay bound to `127.0.0.1:8787`;
+- Caddy and systemd;
+- UFW blocking direct public access to port `8787`;
+- SSH public-key login and disabled password/keyboard-interactive login;
+- phone + emulator delivery, retry recovery, delivery receipts, duplicate suppression, and
+  reboot recovery;
+- a temporary public HTTP-by-IP endpoint at `194.87.226.46`.
 
-- SSH public key login works.
-- `PubkeyAuthentication yes` is enabled.
-- `PasswordAuthentication no` is effective.
-- `KbdInteractiveAuthentication no` is effective.
-- `PermitRootLogin prohibit-password` is effective.
-- The cloud-init override
-  `/etc/ssh/sshd_config.d/50-cloud-init.conf` was changed from
-  `PasswordAuthentication yes` to `PasswordAuthentication no`.
-- Effective SSH configuration was checked after the override.
-- Password-only login from macOS was rejected:
+These are historical results only. They do not establish current ownership, authorization,
+reachability, DNS, TLS, service state, firewall, SSH policy, logs, retention, provider
+configuration, or production readiness. The historical IP must not be reused as a current
+endpoint merely because it appears in documentation.
 
-```bash
-ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@194.87.226.46
-```
+## Preconditions And Authorization
 
-Expected result:
+Before provisioning a VPS, record:
 
 ```text
-Permission denied (publickey).
+Commit:
+Purpose and test window:
+Infrastructure owner:
+Provider and account owner:
+VPS hostname / asset ID:
+Public hostname:
+Administrator(s):
+Source IPs allowed for SSH:
+Planned creation time:
+Planned shutdown time:
+Cleanup owner:
 ```
 
-- Normal public-key login still works:
+Required conditions:
+
+- explicit permission from the infrastructure and provider account owner;
+- disposable QA traffic only;
+- no production users or unrelated services on the endpoint;
+- trusted administrator workstation and fresh repository source;
+- domain ownership when public HTTPS is required;
+- credentials, SSH keys, tokens, and certificate private keys stored outside Git;
+- an agreed shutdown and cleanup procedure;
+- a written decision about logs and retention before traffic begins.
+
+Do not deploy from an untrusted cache, unknown archive, or historical local clone.
+
+## Current Relay Limitations
+
+The current server:
+
+- implements `/health` and the message POST/GET/DELETE API;
+- stores envelopes in memory;
+- limits request body size to 2 MB;
+- accepts TTL only within its configured maximum;
+- clears all in-memory messages when the process restarts;
+- has no built-in client authentication or authorization;
+- has no tenant isolation, durable queue, replication, backup, high availability, production
+  rate limiting, quota, monitoring, or abuse response;
+- cannot prevent a relay operator from observing metadata or denying service.
+
+A reverse proxy can add TLS and some resource controls, but it does not turn this server into
+production infrastructure.
+
+## Minimum QA Host Baseline
+
+A temporary QA host should have:
+
+- a supported, fully patched Linux distribution;
+- a dedicated provider account or clearly isolated project;
+- one named administrator and recovery contact;
+- public DNS controlled by the project owner;
+- inbound TCP 80/443 only where required for certificate issuance and HTTPS;
+- SSH restricted by provider firewall or host firewall where practical;
+- public-key authentication with password and keyboard-interactive login disabled;
+- a non-root service account;
+- automatic security update policy reviewed for the test window;
+- enough memory and disk for the OS, proxy, journal, and controlled QA load;
+- no observability agent configured to capture request bodies;
+- time synchronization;
+- explicit teardown after QA.
+
+Capacity values such as 1 vCPU or 1 GB RAM may be sufficient for a small test, but they are
+not a performance or production-sizing recommendation.
+
+## 1. Prepare The Host
+
+On a newly provisioned authorized VPS:
+
+1. apply OS security updates;
+2. create or verify a non-root administrator with `sudo`;
+3. install the administrator's public SSH key;
+4. test a second authenticated session before changing SSH policy;
+5. disable password and keyboard-interactive authentication after verifying key access;
+6. restrict root login according to the owner's policy;
+7. review all files under `/etc/ssh/sshd_config.d/`, including cloud-init overrides;
+8. validate effective SSH configuration before reload;
+9. keep the provider console or recovery channel available.
+
+Do not blindly copy historical SSH settings. Distribution and provider defaults can differ.
+A failed SSH change can lock out the administrator.
+
+Never commit or paste private keys, passwords, agent sockets, provider tokens, or recovery
+codes into repository files or QA reports.
+
+## 2. Install Runtime From Trusted Sources
+
+The relay requires Node.js 20+ according to the project documentation. Install it through a
+trusted and verified package source appropriate to the selected OS. Record exact versions:
 
 ```bash
-ssh root@194.87.226.46
-```
-
-- After SSH hardening, `secure-messenger-relay` and `caddy.service` continued to
-  run and serve `/health`.
-
-Do not commit private keys, root passwords, SSH agent material or provider tokens.
-The documented IP is a temporary QA endpoint; production/release testing should use
-a domain name and HTTPS for the relay URL.
-
-## VPS Requirements
-
-Minimum QA VPS:
-
-- Ubuntu 22.04 LTS or 24.04 LTS.
-- 1 vCPU, 512 MB to 1 GB RAM.
-- Public IPv4 or IPv6 reachable from test devices.
-- A DNS name such as `relay.example.com` pointing to the VPS.
-- Inbound TCP 80 and 443 for HTTPS setup.
-- Inbound SSH restricted to your admin IPs where practical.
-- SSH public-key authentication enabled, password and keyboard-interactive login
-  disabled, and cloud-init SSH overrides checked.
-- No shared application logs that print request bodies.
-
-Recommended:
-
-- Automatic security updates.
-- Non-root service user.
-- Caddy for automatic HTTPS.
-- Basic firewall and reverse-proxy rate limits.
-- Short message TTL and regular log review for operational errors only.
-
-## Install Node.js
-
-Install Node.js 20+ using your preferred package source. One common Ubuntu option:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
 node --version
 npm --version
 ```
 
-The relay currently has no npm runtime dependencies.
+Avoid treating an unaudited `curl | shell` command as a repository guarantee. Follow the
+current official package instructions and verify package signatures or repository origin
+according to the host policy.
 
-## Create Service User
+The current relay has no npm runtime dependencies, but this must be rechecked at the selected
+commit before deployment.
+
+## 3. Create A Dedicated Service Account
+
+Example:
 
 ```bash
-sudo useradd --system --home /opt/secure-messenger-relay --shell /usr/sbin/nologin securemessenger
-sudo mkdir -p /opt/secure-messenger-relay
-sudo chown securemessenger:securemessenger /opt/secure-messenger-relay
+sudo useradd --system \
+  --home /opt/secure-messenger-relay \
+  --shell /usr/sbin/nologin \
+  securemessenger
+sudo install -d -o securemessenger -g securemessenger -m 0750 \
+  /opt/secure-messenger-relay
 ```
 
-## Copy Relay Server
+The account should not have interactive login, `sudo`, SSH keys, or access to unrelated
+application data.
 
-From the repository, copy only the relay server files to the VPS. Example from your
-workstation:
+## 4. Transfer Reviewed Relay Files
+
+Transfer only the reviewed `android-app/server/relay` contents from the selected commit.
+Verify the source commit before copying.
+
+One possible administrator workflow is to stage files in a temporary administrator-owned
+directory and then copy them into `/opt/secure-messenger-relay` with controlled ownership.
+
+Do not transfer:
+
+- `.env` files or provider credentials;
+- SSH, Android signing, or certificate private keys;
+- APKs, Gradle caches, build outputs, `node_modules`, or local databases;
+- QA logs, invitation payloads, messages, or user data;
+- editor backups and machine-specific paths.
+
+After transfer, review ownership and permissions:
 
 ```bash
-rsync -av --delete android-app/server/relay/ securemessenger@relay.example.com:/opt/secure-messenger-relay/
-```
-
-If SSH login as the service user is disabled, copy to a temporary admin location and
-then move the files with `sudo`, preserving ownership:
-
-```bash
-sudo rsync -av --delete /tmp/relay/ /opt/secure-messenger-relay/
 sudo chown -R securemessenger:securemessenger /opt/secure-messenger-relay
+sudo find /opt/secure-messenger-relay -type d -exec chmod 0750 {} \;
+sudo find /opt/secure-messenger-relay -type f -exec chmod 0640 {} \;
 ```
 
-Do not copy `.env`, SSH keys, signing keys, local Android build artifacts, APKs,
-`node_modules`, Gradle caches or QA logs.
+Record the deployed commit in a local administrator-controlled deployment record. Do not
+claim reproducible deployment solely from a copied directory.
 
-## Run Relay Manually
+## 5. Test The Relay On Loopback
 
-On the VPS:
+Run manually as the service user:
 
 ```bash
 cd /opt/secure-messenger-relay
-sudo -u securemessenger HOST=127.0.0.1 PORT=8787 node src/server.mjs
+sudo -u securemessenger \
+  env HOST=127.0.0.1 PORT=8787 \
+  /usr/bin/node src/server.mjs
 ```
 
-In another shell:
+In another session:
 
 ```bash
-curl http://127.0.0.1:8787/health
+curl --fail --silent --show-error http://127.0.0.1:8787/health
 ```
 
-Expected response:
+Expected body:
 
 ```json
 {"status":"ok"}
@@ -167,170 +211,323 @@ Expected response:
 
 Stop the manual process before enabling systemd.
 
-## systemd Service
+Loopback health proves only local process reachability. It does not test proxy routing,
+public TLS, message API behavior, retention, or Android delivery.
 
-Use [../deploy/secure-messenger-relay.service.example](../deploy/secure-messenger-relay.service.example)
-as a starting point:
+## 6. Install The systemd Example Carefully
+
+Repository example:
+
+```text
+android-app/deploy/secure-messenger-relay.service.example
+```
+
+The reviewed template currently:
+
+- runs as `securemessenger`;
+- uses `/opt/secure-messenger-relay`;
+- binds `HOST=127.0.0.1` and `PORT=8787`;
+- restarts after failure;
+- enables `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, and `ProtectHome`.
+
+Copy it only after inspecting paths, Node location, user, group, and hardening settings for
+the selected host:
 
 ```bash
-sudo cp android-app/deploy/secure-messenger-relay.service.example /etc/systemd/system/secure-messenger-relay.service
+sudo install -m 0644 \
+  /path/to/repository/android-app/deploy/secure-messenger-relay.service.example \
+  /etc/systemd/system/secure-messenger-relay.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now secure-messenger-relay
-sudo systemctl status secure-messenger-relay
+sudo systemctl status --no-pager secure-messenger-relay
 ```
 
-The example binds the Node relay to `127.0.0.1:8787` so only the reverse proxy is
-public. It uses `Restart=always` and a dedicated `securemessenger` user. It contains
-no laptop paths, tokens or secrets.
+Check loopback health again.
 
-Check local health:
+The example is a starting point, not a complete sandbox. Review additional systemd controls,
+resource limits, restart loops, writable paths, process memory, and journal retention before
+broader exposure.
+
+## 7. Journal And Logging Review
+
+Inspect service logs:
 
 ```bash
-curl http://127.0.0.1:8787/health
+sudo journalctl -u secure-messenger-relay -n 100 --no-pager
 ```
 
-View logs without payloads:
+Expected normal output should be limited to lifecycle information such as listening address.
+Do not add request-body, ciphertext, queue ID, key, nonce, invitation, or message logging.
 
-```bash
-journalctl -u secure-messenger-relay -n 100 --no-pager
+Also review:
+
+- reverse-proxy access and error logs;
+- hosting-provider request capture;
+- firewall and intrusion-detection logs;
+- shell history;
+- crash dumps and observability agents;
+- systemd journal retention and access permissions.
+
+The Node process's logging intent does not prove that surrounding infrastructure is
+payload-free.
+
+## 8. Configure DNS And HTTPS
+
+Use a project-controlled domain such as `relay.example.com`. Confirm DNS ownership and record
+changes before exposing the service.
+
+### Caddy Example
+
+Repository file:
+
+```text
+android-app/deploy/Caddyfile.example
 ```
 
-The relay should log only minimal technical lifecycle events. Do not add logging for
-request bodies, queue IDs, ciphertext envelopes, nonces or keys.
+The reviewed example:
 
-## HTTPS Reverse Proxy: Caddy Preferred
+- serves one placeholder hostname;
+- routes only `/health`, `/v1/messages`, and `/v1/messages/*`;
+- proxies to `127.0.0.1:8787`;
+- adds basic response headers;
+- returns 404 for other paths.
 
-Caddy is preferred for QA because it can obtain and renew TLS certificates
-automatically.
-
-Install Caddy using the official package instructions for your OS, then adapt
-[../deploy/Caddyfile.example](../deploy/Caddyfile.example):
+Install Caddy from its current official source for the selected OS, replace the placeholder
+hostname, validate the file, and reload:
 
 ```bash
-sudo cp android-app/deploy/Caddyfile.example /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-The example:
+Caddy's successful certificate issuance and config validation do not add client
+authentication, queue authorization, durable storage, or production abuse controls.
 
-- accepts `https://relay.example.com`;
-- proxies to `127.0.0.1:8787`;
-- keeps `/health` working;
-- adds basic defensive headers;
-- does not include real secrets or certificate paths.
+### Nginx Alternative
 
-Public health check:
+Repository file:
 
-```bash
-curl https://relay.example.com/health
+```text
+android-app/deploy/nginx.example.conf
 ```
 
-## HTTPS Reverse Proxy: Nginx Alternative
+The reviewed example includes:
 
-Use [../deploy/nginx.example.conf](../deploy/nginx.example.conf) if you prefer Nginx.
-The file includes placeholder Certbot paths for `relay.example.com` and a simple
-request rate limit.
+- HTTP-to-HTTPS redirect;
+- placeholder certificate paths;
+- a 2 MB client-body limit;
+- routing to loopback relay;
+- a basic per-IP request-rate placeholder for message paths;
+- 404 for unrelated paths.
 
-Typical setup:
+Replace every placeholder and validate the final configuration before reload:
 
 ```bash
-sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp android-app/deploy/nginx.example.conf /etc/nginx/sites-available/secure-messenger-relay
-sudo ln -s /etc/nginx/sites-available/secure-messenger-relay /etc/nginx/sites-enabled/secure-messenger-relay
 sudo nginx -t
-sudo certbot --nginx -d relay.example.com
-sudo systemctl reload nginx
 ```
 
-Do not commit real certificate files or private keys. Certbot-managed files stay on
-the VPS under `/etc/letsencrypt`.
+The example's rate limit is not a reviewed abuse-control policy and can affect legitimate
+retry traffic. Test it with the current client behavior.
 
-## Firewall
+Do not commit private certificate files or provider-specific secrets.
 
-Example with UFW:
+## 9. Firewall And Network Exposure
+
+At both provider and host layers:
+
+- allow SSH only from approved administrator sources where practical;
+- allow TCP 80 only if needed for redirect or certificate validation;
+- allow TCP 443 for HTTPS QA;
+- deny public TCP 8787;
+- keep the Node relay bound to `127.0.0.1`;
+- review IPv4 and IPv6 rules separately;
+- verify that an old rule or provider security group does not expose the origin port.
+
+Example UFW review sequence:
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
 sudo ufw status verbose
+sudo ss -lntp
 ```
 
-Do not expose port `8787` publicly if Caddy/Nginx is running on the same host.
-The relay process should bind to `127.0.0.1`.
+Do not enable or change firewall rules remotely without preserving an authenticated recovery
+path.
 
-## TTL And Storage
+## 10. Public Verification
 
-The MVP relay stores messages in memory and enforces TTL through its relay store.
-Keep TTL short for QA. Do not modify the relay to persist encrypted blobs
-indefinitely. A production relay would need explicit retention policy, abuse
-controls, rate limits, monitoring, backups policy and privacy review.
-
-## Rate Limiting
-
-The Node relay intentionally stays minimal and does not implement production abuse
-controls. For public QA:
-
-- add reverse-proxy rate limits where supported;
-- restrict test windows where practical;
-- monitor only aggregate technical errors and request counts;
-- keep logs secret-free;
-- rotate logs with system defaults.
-
-Caddy OSS does not include a built-in generic rate limiter without plugins, so use
-firewall, provider-level controls or a fronting gateway if rate limiting is required.
-The Nginx example includes a conservative placeholder `limit_req` policy.
-
-## Android App Configuration
-
-On both Android clients:
-
-1. Open `Настройки` -> `Сервер доставки`.
-2. Enter the HTTPS relay URL, for example `https://relay.example.com`.
-3. Tap `Проверить сервер доставки`.
-4. Expect `Сервер доступен` / `Relay server is available`.
-5. Run `Готовность к тесту переписки` before sending messages.
-
-Use the same HTTPS URL on the physical phone and Android Emulator. Public HTTPS
-relay testing does not require `10.0.2.2` or a LAN IP.
-
-## Repeat QA Through VPS
-
-1. Start `secure-messenger-relay` on the VPS.
-2. Confirm `curl https://relay.example.com/health`.
-3. Configure the same HTTPS relay URL on both clients.
-4. Perform reciprocal QR/invitation pairing.
-5. Send A -> B and B -> A.
-6. Confirm outgoing status changes from `Отправлено на сервер доставки` to
-   `Доставлено` only after delivery receipt.
-7. Stop the systemd service:
+From a network outside the VPS:
 
 ```bash
-sudo systemctl stop secure-messenger-relay
+curl --fail --silent --show-error https://relay.example.com/health
 ```
 
-8. Send a disposable test message and confirm `Ожидает синхронизации`.
-9. Restart the relay:
+Then verify that direct public origin access is denied:
 
-```bash
-sudo systemctl start secure-messenger-relay
+```text
+http://relay.example.com:8787
 ```
 
-10. Wait for background sync or tap `Синхронизировать сейчас`.
-11. Confirm retry delivery, receipt update and no duplicate chat messages.
+Do not include a real admin IP, provider token, or private hostname in public evidence.
 
-## Security Boundaries
+A public health response is not sufficient. Before Android QA, verify the message API through
+controlled tests and inspect proxy logs for accidental identifiers or bodies.
 
-- HTTPS protects the transport channel to the VPS; it does not replace end-to-end
-  encryption or protocol audit.
-- The confirmed `http://194.87.226.46` endpoint is a temporary debug/QA exception,
-  not a release or production URL. Replace it with a domain name and HTTPS before
-  broader testing.
-- The relay is untrusted for confidentiality and integrity of message content.
-- The relay still observes metadata: IP addresses, timing, message size, queue
-  identifiers and request frequency.
-- Do not log plaintext, keys, nonces, ciphertext contents, encrypted blob bodies,
-  full queue IDs or invitation payloads.
-- This deployment is for QA only and makes no production security claim.
+## 11. Android QA Configuration
+
+On the physical phone and Android Emulator:
+
+1. use the same HTTPS base URL;
+2. save the relay URL;
+3. run the in-app health check;
+4. run conversation preflight;
+5. perform reciprocal invitation import;
+6. verify warning-only first-contact behavior;
+7. complete A → B and B → A delivery;
+8. distinguish `SENT`, `RECEIVED`, and `DELIVERED`;
+9. confirm encrypted delivery receipts are not visible chat messages;
+10. perform independent safety-number or verification-QR comparison;
+11. test retry only within the authorized outage window;
+12. confirm no duplicate plaintext.
+
+Follow [PHONE_EMULATOR_PUBLIC_RELAY_QA.md](PHONE_EMULATOR_PUBLIC_RELAY_QA.md) for the detailed
+client procedure.
+
+`DELIVERED` means authenticated receiver-app acceptance, decryption, and durable storage. It
+is not a read receipt.
+
+## 12. Controlled Restart And Reboot QA
+
+A restart or reboot test must be explicitly in scope because the relay store is in memory.
+Restarting the Node service loses queued envelopes that were not already deleted.
+
+Record separately:
+
+- service restart behavior;
+- process crash/restart loop;
+- VPS reboot and service ordering;
+- proxy availability;
+- client retry recovery;
+- any message lost because the current in-memory relay restarted;
+- receipt and duplicate behavior.
+
+Do not interpret automatic service startup as durable message storage or high availability.
+
+## 13. TTL, Retention, And Deletion
+
+The relay accepts client expiration timestamps up to its configured maximum and purges
+expired records during store activity. For QA:
+
+- use short, bounded TTL values from the current client behavior;
+- do not modify the server to retain messages indefinitely;
+- distinguish client `DELETE`, TTL expiry, and process-memory loss;
+- inspect reverse-proxy and provider retention separately;
+- document that client reset does not remotely purge every copy;
+- do not describe deletion as forensic erasure.
+
+A production retention policy requires a separate privacy and operations design.
+
+## 14. Basic Resource And Abuse Controls
+
+The minimal Node relay has no built-in production controls. Temporary QA exposure should
+limit:
+
+- test window duration;
+- source networks where possible;
+- request rate and body size at proxy/provider layers;
+- total provider resources;
+- administrator access;
+- log retention.
+
+Do not perform load, flood, denial-of-service, firewall-bypass, or credential testing without
+separate written authorization and scope.
+
+## 15. Updates And Rollback
+
+For every QA redeployment:
+
+1. record the old and new commit;
+2. review the one-step change;
+3. run relay tests before transfer;
+4. keep a known deployment artifact or source snapshot for rollback without including
+   secrets;
+5. stop the service before replacing incompatible files when required;
+6. validate health and full Android flow after update;
+7. record rollback result if used.
+
+Copying `main` without pinning a commit is not a controlled deployment procedure.
+
+## 16. Incident Response During QA
+
+If unexpected traffic, logging, data retention, compromise, or provider warning occurs:
+
+1. stop public access;
+2. preserve only necessary sanitized evidence;
+3. revoke temporary credentials and provider tokens;
+4. inspect administrative access and host changes;
+5. do not continue Android testing until ownership and integrity are restored;
+6. create a separate incident and remediation record;
+7. disclose any possibility that invitation data, queue identifiers, ciphertext, or
+   credentials were exposed.
+
+Do not place raw sensitive evidence in a public issue.
+
+## 17. Teardown
+
+A temporary QA deployment is incomplete until teardown is recorded.
+
+1. stop and disable the relay service when no longer needed;
+2. stop or remove the reverse proxy site;
+3. remove temporary DNS records;
+4. close provider and host firewall rules;
+5. revoke temporary SSH and provider credentials;
+6. inspect and sanitize logs;
+7. remove relay files and temporary deployment material according to the owner's policy;
+8. deprovision the VPS when appropriate;
+9. verify the public health endpoint is unreachable;
+10. record resources intentionally retained and their owner.
+
+Deleting the VPS does not prove provider backups or logs were immediately erased.
+
+## QA Exit Criteria
+
+A QA deployment result must record:
+
+- exact repository commit and deployed files;
+- administrator and infrastructure authorization;
+- OS, Node, proxy, and service versions;
+- DNS and TLS result;
+- origin port exposure check;
+- systemd and proxy configuration validation;
+- log review;
+- Android bidirectional delivery, receipt, retry, and duplicate results;
+- restart/reboot result if in scope;
+- all failures and skips;
+- endpoint teardown or explicit retained-resource owner.
+
+No result from this guide authorizes production use.
+
+## Production Gap
+
+A production relay would require a separate approved design covering:
+
+- authenticated and authorized queue access;
+- rate, abuse, quota, storage, and resource controls;
+- durable storage and availability semantics;
+- certificate, DNS, secret, and administrative-access lifecycle;
+- privacy, metadata, logging, and retention policy;
+- monitoring, alerting, patching, incident response, backup, and recovery;
+- deployment provenance, signing, rollback, and vulnerability handling;
+- legal and operational ownership;
+- independent security review.
+
+TLS, systemd, Caddy/Nginx, UFW, and SSH hardening are necessary operational measures but are
+not sufficient for production security.
+
+## Related Documents
+
+- [Deployment Examples](../deploy/README.md)
+- [Public Relay Testing Notes](RELAY_PUBLIC_TESTING.md)
+- [Phone + Emulator Relay QA](PHONE_EMULATOR_PUBLIC_RELAY_QA.md)
+- [Threat Model](THREAT_MODEL.md)
+- [Known Limitations](KNOWN_LIMITATIONS.md)
+- [Task Queue](ai-workflow/TASK_QUEUE.md)
