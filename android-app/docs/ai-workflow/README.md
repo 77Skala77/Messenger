@@ -36,10 +36,11 @@ For audit or documentation-review tasks, report proposed changes before editing 
 3. Read [`CURRENT_PROJECT_STATE.md`](CURRENT_PROJECT_STATE.md) when the task depends on current implementation, feature flags, modules, infrastructure, or known limitations.
 4. Read [`HANDOFF.md`](HANDOFF.md) when continuing unfinished work; verify its mutable claims.
 5. Read [`DECISIONS.md`](DECISIONS.md) when architecture, security boundaries, compatibility, or durable rationale matters.
-6. Read [`TASK_QUEUE.md`](TASK_QUEUE.md) when selecting or updating concrete future work.
-7. Read the checklist relevant to the task.
-8. Inspect the relevant source code, tests, build configuration, CI, README files, and design documents.
-9. Use [`PROMPTS_FOR_CODEX.md`](PROMPTS_FOR_CODEX.md) only when a reusable task template is useful.
+6. Read [`DEVICE_TRUST_POLICY.md`](DEVICE_TRUST_POLICY.md) for the accepted warning-only trust-on-first-use decision and its fail-closed exceptions.
+7. Read [`TASK_QUEUE.md`](TASK_QUEUE.md) when selecting or updating concrete future work.
+8. Read the checklist relevant to the task.
+9. Inspect the relevant source code, tests, build configuration, CI, README files, and design documents.
+10. Use [`PROMPTS_FOR_CODEX.md`](PROMPTS_FOR_CODEX.md) only when a reusable task template is useful.
 
 Do not load every workflow document for every small task. Read only the material needed to verify the requested scope safely.
 
@@ -49,6 +50,7 @@ Do not load every workflow document for every small task. Read only the material
 - [`README.md`](README.md) — this index and reading guide.
 - [`CURRENT_PROJECT_STATE.md`](CURRENT_PROJECT_STATE.md) — mutable factual snapshot verified against the current repository.
 - [`DECISIONS.md`](DECISIONS.md) — durable accepted decisions, rationale, consequences, and review conditions.
+- [`DEVICE_TRUST_POLICY.md`](DEVICE_TRUST_POLICY.md) — accepted warning-only trust-on-first-use policy, exact device-state vocabulary, persistence constraints, and required hardening follow-up.
 - [`TASK_QUEUE.md`](TASK_QUEUE.md) — ordered concrete work, prerequisites, blockers, and acceptance criteria.
 - [`HANDOFF.md`](HANDOFF.md) — short replaceable record of current unfinished work.
 - [`PROMPTS_FOR_CODEX.md`](PROMPTS_FOR_CODEX.md) — reusable task templates that do not override rules, evidence, or explicit instructions.
@@ -60,7 +62,7 @@ Do not load every workflow document for every small task. Read only the material
 
 - Stable mandatory rules belong in `AGENTS.md`.
 - Mutable verified facts belong in `CURRENT_PROJECT_STATE.md`.
-- Durable rationale belongs in `DECISIONS.md`.
+- Durable rationale belongs in `DECISIONS.md`; focused accepted amendments may be recorded in a linked decision file until the main log is reconciled.
 - Concrete future work belongs in `TASK_QUEUE.md`.
 - Temporary unfinished-session context belongs in `HANDOFF.md`.
 - Reusable wording belongs in `PROMPTS_FOR_CODEX.md`.
