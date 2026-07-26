@@ -14,7 +14,7 @@ It is not:
 
 - Repository: `https://github.com/77Skala77/Messenger`
 - Authoritative recoverable branch: `main`
-- Last verified GitHub HEAD: `c974e460b827022a841e374a95cb1ed736b2c25b`
+- Last verified GitHub HEAD before this queue update: `d2a38a25f24e6ea2f7c674d9f51c9daa6a77e8e0`
 - Queue created: `2026-07-26`
 - Open GitHub issues found during queue creation: none
 - Current limitation: the previous laptop and local clone are unavailable; only the Android phone is available.
@@ -210,7 +210,8 @@ Determine canonical identifiers and semantics from current code and persisted fo
 ## TQ-004 — Reconcile existing project documentation
 
 **Priority:** P1
-**Status:** READY AFTER TQ-003
+**Status:** DONE
+**Completed:** 2026-07-26
 **Type:** File-by-file documentation audit
 **Security-sensitive:** Yes
 
@@ -218,7 +219,9 @@ Determine canonical identifiers and semantics from current code and persisted fo
 
 Bring non-workflow documentation into agreement with code, the workflow package, and canonical device-state findings.
 
-### Initial targets
+### Completed scope
+
+Core documents:
 
 - `android-app/README.md`
 - `android-app/docs/CRYPTO_DESIGN.md`
@@ -230,9 +233,19 @@ Bring non-workflow documentation into agreement with code, the workflow package,
 - `android-app/docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`
 - `android-app/docs/DEPENDENCY_REVIEW.md`
 - `android-app/docs/AUDIT_READINESS.md`
-- relay, QA, VPS, localization, and deployment guides in later passes.
 
-### Rules
+Later relay, QA, VPS, localization, and deployment passes:
+
+- `android-app/docs/LOCALIZATION.md`
+- `android-app/docs/TWO_DEVICE_TEST.md`
+- `android-app/docs/MANUAL_TWO_DEVICE_QA.md`
+- `android-app/docs/PHONE_EMULATOR_PUBLIC_RELAY_QA.md`
+- `android-app/docs/RELAY_PUBLIC_TESTING.md`
+- `android-app/docs/VPS_RELAY_DEPLOYMENT.md`
+- `android-app/deploy/README.md`
+- `android-app/docs/LOGCAT_QA.md`
+
+### Rules applied
 
 - Audit and propose before editing each file.
 - Preserve verified historical QA, labelled historical.
@@ -243,15 +256,27 @@ Bring non-workflow documentation into agreement with code, the workflow package,
 
 ### Acceptance criteria
 
-- [ ] Device-state terminology is consistent or explicitly mapped.
-- [ ] Commands align with README and CI.
-- [ ] Active/disabled/experimental status aligns with code and flags.
-- [ ] Historical VPS claims are not presented as current.
-- [ ] Delivery and `Delivered` semantics are consistent.
-- [ ] Storage and erase limitations remain accurate.
-- [ ] Signal and C4 gates remain explicit.
-- [ ] Links resolve.
-- [ ] Each document retains a distinct role.
+- [x] Device-state terminology is consistent or explicitly mapped.
+- [x] Commands align with README and CI where the documents prescribe repository checks.
+- [x] Active/disabled/experimental status aligns with code and flags.
+- [x] Historical VPS claims are not presented as current.
+- [x] Delivery and `Delivered` semantics are consistent.
+- [x] Storage and erase limitations remain accurate.
+- [x] Signal and C4 gates remain explicit.
+- [x] Links and referenced paths were reviewed during the file passes.
+- [x] Each document retains a distinct role.
+
+### Completion evidence
+
+- Eighteen documents were audited and updated through separate documentation-only commits.
+- Every write was followed by a one-commit, one-file diff check.
+- The final documentation-pass HEAD before this queue update was `d2a38a25f24e6ea2f7c674d9f51c9daa6a77e8e0`.
+- No runtime source, test source, Gradle configuration, relay implementation, deployment example, or QA script was changed by TQ-004.
+- Android, relay, instrumented, and release tests were not run for the documentation-only passes and are not claimed as passed.
+
+### Remaining boundary
+
+TQ-004 reconciled documentation claims; it did not establish a fresh executable, release, infrastructure, dependency, or security-assurance baseline. Those remain assigned to TQ-005 through TQ-008 and the blocked security program.
 
 ---
 
@@ -595,6 +620,8 @@ Do not open these as implementation tasks merely because they appear in the road
 TQ-001 is complete outside GitHub and is retained as a compact record until TQ-002 integrates the reviewed package.
 
 The workflow drafts are still not repository changes and do not complete TQ-002.
+
+TQ-004 is complete. Its compact evidence is retained in this queue while Git history remains authoritative for the eighteen individual document commits.
 
 For later completed tasks, retain a compact entry only until its commit or pull request is recorded, affected documentation is updated, and the next dependency is unblocked. Then rely on Git history.
 
