@@ -1,91 +1,399 @@
 # Threat Model
 
-## Status
+## Status And Evidence Boundary
 
 This repository is an audit-ready MVP prototype, not a production-secure messenger.
-The document describes intended boundaries and the current implementation honestly;
-it is not an assurance report.
 
-## MVP Protects
+This document describes:
 
-- Message content processed through working authenticated encryption (`STANDARD_AEAD`).
-- Persisted local message payloads from being stored as plaintext.
-- Local profile display name and prototype session state using an Android
-  Keystore-backed vault key.
-- Opaque disabled Signal-store spike record contents, when populated in tests, using
-  the same local vault; this adds no active messaging protocol guarantee.
-- Basic QR invitation import, displayed safety fingerprint, manual verification status,
-  and warnings when an observed contact key changes.
-- Durable rejection of a replayed authenticated message number across app restarts.
-- Staging an explicitly imported additional device without automatically trusting it
-  or enabling delivery to it.
-- Preventing the current delivery path from sending to a primary device locally marked
-  pending, revoked or key-changed.
-- Redacted local delivery diagnostics that omit payloads and cryptographic material
-  and shorten queue identifiers to fingerprints.
+- the accepted security policy;
+- security-relevant behavior visible in the current runtime code;
+- narrowly scoped controls represented by current test source;
+- known limitations and open hardening work.
+
+It is not an assurance report or evidence of an independent cryptographic, Android,
+protocol, server, or privacy audit.
+
+Repository test and QA records must be interpreted carefully. A test in the source tree
+shows intended regression coverage but does not prove that it passed for the current
+commit unless a current test run is recorded. Historical phone, emulator, restart, retry,
+receipt, and VPS QA results are useful context but are not verification of a later commit
+or of current infrastructure.
+
+Disabled Signal, Signal-store, PQXDH invitation, and `PARANOIA_C4_AEAD` boundaries add no
+security guarantee to the active messaging path.
+
+## Adversaries And Capabilities
+
+The MVP considers the following relevant threats:
+
+- an untrusted or malicious relay that can observe metadata, withhold or delete blobs,
+  replay previously submitted blobs, inject malformed blobs, or fill a queue;
+- a network or relay operator that can observe IP addresses, timing, approximate message
+  sizes, queue identifiers, and traffic frequency;
+- an attacker that can replace or modify an invitation before the recipient independently
+  verifies the remote safety number;
+- malware, accessibility abuse, or a malicious operating system on an unlocked device;
+- local access to database structure, identifiers, routing metadata, and access patterns;
+- denial of service through relay unavailability, message withholding, queue flooding,
+  or delayed Android background execution.
+
+The current design does not claim protection against every capability of these
+adversaries.
+
+## Current Implemented Controls
+
+The current implementation contains the following security-relevant controls:
+
+- Message content is processed through the working authenticated-encryption suite
+  `STANDARD_AEAD`.
+- AEAD authenticates ciphertext and associated routing data before incoming plaintext is
+  accepted.
+- Room does not contain a plaintext message-body column. Persisted message payloads are
+  encrypted ciphertext packages.
+- The local profile display name, local contact display label, and prototype session state
+  are wrapped using an Android Keystore-backed local vault key.
+- Opaque disabled Signal-store record contents are also vault-wrapped when populated by
+  tests. This adds no active Signal Protocol guarantee.
+- Session send state is persisted before network delivery begins, and nonce allocation
+  uses persisted counter state.
+- Incoming encrypted messages and their accepted replay tuples are committed in one Room
+  transaction before normal relay deletion.
+- A later authenticated duplicate of an accepted replay tuple is suppressed.
+- Delivery receipts are encrypted and authenticated control messages. A message is marked
+  `DELIVERED` only after the receiving application accepts, decrypts, and durably stores
+  it and the sender authenticates the resulting receipt.
+- QR invitation import, safety-number display, verification QR comparison, manual
+  verification, key-change warnings, and per-device approval state exist in the current
+  application.
+- An additional imported device is staged without automatically becoming a delivery
+  target.
+- Current delivery selects only the device matching the contact's primary identity and
+  never silently fans out a single-device ciphertext to a secondary device.
+- Delivery diagnostics omit plaintext, key material, nonce values, and ciphertext
+  envelopes and use short queue fingerprints instead of full queue identifiers.
+
+These controls protect specific data and operations under the assumptions below. They do
+not make the prototype suitable for sensitive real-world communication.
+
+## Identity, Invitation, And Device Trust
+
+### Separate trust models
+
+The project has two separate persisted trust models.
+
+Contact-level identity verification:
+
+```text
+VerificationStatus.VERIFIED
+VerificationStatus.UNVERIFIED
+VerificationStatus.KEY_CHANGED
+VerificationStatus.UNKNOWN
+```
+
+Per-contact-device delivery approval:
+
+```text
+DeviceApprovalStatus.PRIMARY_UNVERIFIED
+DeviceApprovalStatus.VERIFIED
+DeviceApprovalStatus.PENDING_APPROVAL
+DeviceApprovalStatus.KEY_CHANGED
+DeviceApprovalStatus.REVOKED
+```
+
+These values must not be collapsed into one informal device-state model.
+
+A newly imported contact is normally stored as:
+
+```text
+VerificationStatus.UNVERIFIED
+```
+
+Its matching primary device is normally stored as:
+
+```text
+DeviceApprovalStatus.PRIMARY_UNVERIFIED
+```
+
+### Warning-only trust on first use
+
+After the reciprocal invitation flow, the accepted MVP policy permits communication when:
+
+- the contact is `VerificationStatus.UNVERIFIED`; and
+- the matching primary device is
+  `DeviceApprovalStatus.PRIMARY_UNVERIFIED`.
+
+This is warning-only trust on first use.
+
+Encryption of this first unverified exchange can protect message content from parties
+that do not possess the established session key. It does not prove that the imported key
+belongs to the intended human.
+
+The conversation interface must continue to display a clear warning that the contact's
+identity has not been independently verified. The state must not be called `VERIFIED` or
+presented as appropriate for real sensitive communication.
+
+Later comparison of the safety number or verification QR through a trusted or independent
+channel may move both the contact and its primary device to `VERIFIED`.
+
+An attacker controlling the initial invitation-delivery channel can still substitute the
+first imported key. Warning-only trust on first use is a usability decision, not
+protection against first-contact impersonation.
+
+Bidirectional communication operationally requires reciprocal invitation import because
+each invitation advertises its creator's receiving queue and public identity.
+
+### Blocking states and current enforcement boundary
+
+The accepted policy requires delivery to remain blocked for:
+
+- `VerificationStatus.KEY_CHANGED`;
+- `DeviceApprovalStatus.PENDING_APPROVAL`;
+- `DeviceApprovalStatus.KEY_CHANGED`;
+- `DeviceApprovalStatus.REVOKED`;
+- a missing primary-device record.
+
+The current interactive-send path explicitly blocks
+`VerificationStatus.KEY_CHANGED`. The current primary-only delivery planner permits
+`PRIMARY_UNVERIFIED` and `VERIFIED`, and blocks pending, revoked, key-changed, or missing
+primary-device state.
+
+A changed primary-contact key is persisted as both contact-level and primary-device
+key-changed state in the normal import flow.
+
+Local device revocation is a local delivery block. It is not synchronized cryptographic
+revocation across several devices.
+
+### Open trust-state hardening
+
+Policy requires the following states to fail closed:
+
+- `VerificationStatus.UNKNOWN`;
+- malformed enum strings;
+- unsupported persisted states;
+- corrupt trust records;
+- otherwise invalid contact or device trust state.
+
+This is not yet a complete runtime guarantee.
+
+The normal onboarding flow does not use `UNKNOWN` as an approved first-contact state, but
+current UI and interactive-send checks explicitly block `KEY_CHANGED` rather than
+comprehensively rejecting every non-approved verification value.
+
+The lower-level outgoing retry and delivery planner bases its target decision on the
+primary device approval state. Current runtime and regression evidence does not yet prove
+that every queued-retry, restart, migration, and invalid contact-verification case fails
+closed.
+
+Persisted enum values are read using exact enum-name conversion. Malformed values may
+therefore cause deserialization failures, and handling is not uniform across UI
+observation, direct delivery, background retry, restart, and migration paths.
+
+Migration 1 to 2 maps every contact verification value other than `VERIFIED` to
+`PRIMARY_UNVERIFIED`. Targeted runtime changes and regression tests remain required for
+old `KEY_CHANGED`, `UNKNOWN`, malformed, unsupported, and corrupt values before the
+persistence boundary can be described as fully fail closed.
+
+The uppercase enum names stored in Room are part of the local database compatibility
+surface. They must not be renamed, lowercased, merged, or reinterpreted without a reviewed
+migration, compatibility analysis, rollback planning, and regression tests.
+
+See
+[Device Trust Policy](ai-workflow/DEVICE_TRUST_POLICY.md)
+for the accepted decision and
+[Cryptographic Design](CRYPTO_DESIGN.md)
+for the broader protocol and persistence boundary.
 
 ## MVP Does Not Fully Protect Yet
 
-- Timing metadata, IP addresses, message size, or traffic frequency.
-- Server-side queue metadata and complete social-graph resistance.
-- Local Signal-store lookup metadata such as record/address identifiers; only opaque
-  record payload bytes are wrapped by the vault.
-- A device compromised while unlocked or a malicious operating system.
-- Screenshots, keyboard collection, notification leakage, or memory inspection.
-- Cryptographic multi-device delivery fan-out, synchronized revocation and cross-device state synchronization.
-- Prompt delivery while the application is not active; WorkManager synchronization
-  is best effort and Android may postpone it.
-- Forward secrecy and post-compromise recovery equivalent to Double Ratchet.
-- Authenticity of an invitation acquired over an untrusted channel before the user
-  compares its safety number.
+The current MVP does not fully protect:
+
+- the authenticity of the intended human during an unverified first contact;
+- timing metadata, IP addresses, message size, or traffic frequency;
+- stable queue linkability, server-side queue metadata, or the complete social graph;
+- local database structure, routing AAD, lookup identifiers, table relationships, or
+  access patterns;
+- Signal-store lookup metadata such as record and address identifiers;
+- a device compromised while unlocked or a malicious operating system;
+- plaintext shown on screen or present in Compose, keyboard, clipboard, notification, or
+  application memory;
+- screenshots, keyboard collection, accessibility capture, notification leakage, or
+  memory inspection;
+- cryptographic multi-device fan-out, synchronized revocation, or cross-device state
+  synchronization;
+- prompt delivery while the application is inactive;
+- guaranteed WorkManager execution or timely offline delivery;
+- forward secrecy and post-compromise recovery equivalent to a reviewed Double Ratchet;
+- secure backup, device transfer, attachment handling, or app-lock protection;
+- forensic secure deletion from flash storage;
+- complete fail-closed handling of unknown, malformed, unsupported, or migrated trust
+  state;
+- deletion of already queued relay ciphertext as a consequence of local app-data
+  deletion;
+- relay availability, resistance to message withholding, or resistance to queue-filling
+  denial of service;
+- production relay deployment, metadata anonymity, or independently reviewed release
+  hardening.
 
 ## Assets And Trust Boundaries
 
-- Private device agreement key: intended to remain inside Android Keystore.
-- Session root key: derived using prototype EC ECDH and stored only as an encrypted
-  local blob; it is necessarily present in memory while an active session is used.
-- Per-message keys: derived using HKDF for an operation and explicitly overwritten afterward.
-- Plaintext: exists in Compose/input/application memory while displayed or encrypted;
-  it must not enter Room, relay payload logs, or diagnostics.
-- Relay: untrusted for confidentiality and integrity; AEAD authenticates content and AAD.
+### Device agreement key
+
+The private EC device-agreement key is intended to remain inside Android Keystore.
+
+A compromised Android runtime, operating system, accessibility service, or unlocked
+application can still abuse the key or obtain plaintext without directly extracting its
+private key bytes.
+
+### Session root
+
+The prototype session root is derived using EC ECDH and HKDF and stored as a
+Keystore-wrapped local blob.
+
+It is necessarily present in application memory while an active session is used. The
+static-ECDH session design does not provide Double Ratchet forward secrecy or
+post-compromise recovery.
+
+### Per-message keys and nonce state
+
+Per-message keys are derived using HKDF for an operation and explicitly overwritten
+afterward.
+
+Nonce and session-counter persistence are security-critical. Backup, restore, migration,
+rollback, device transfer, or concurrent-write changes can invalidate the current nonce
+and counter assumptions and require a new security review.
+
+### Plaintext
+
+Plaintext exists in Compose, input, application, and display memory while a message is
+typed, encrypted, decrypted, or displayed.
+
+Plaintext must not enter Room, relay payload logs, delivery diagnostics, or exported QA
+reports.
+
+### Persisted trust state
+
+Contact verification and per-device approval values directly affect delivery decisions.
+
+Room trust values, their enum conversion, migration behavior, and retry behavior are
+therefore part of the security boundary rather than ordinary presentation state.
+
+### Invitation and verification channels
+
+The initial invitation-delivery channel is not automatically trusted.
+
+A safety number or verification QR provides identity assurance only when compared through
+a trusted or independent channel. Merely displaying a fingerprint does not prove who owns
+the key.
+
+### Relay
+
+The relay is untrusted for confidentiality, integrity, availability, and metadata
+privacy.
+
+Payload AEAD protects message content and authenticated associated data against relay
+modification, but it does not hide routing and traffic metadata or prevent relay denial
+of service.
+
+### Security-relevant UI
+
+The UI is responsible for preserving the distinction between encrypted and verified.
+
+An `UNVERIFIED` contact may communicate under the accepted warning-only policy, but the
+interface must continue to show that identity authenticity has not been established.
 
 ## Relay Limitations
 
 The relay stores opaque encrypted blobs with TTL and supports deletion after receipt.
-It does not receive plaintext or private keys. It still observes a queue identifier,
-arrival/retrieval times, approximate message sizes and network-layer source data.
-Relay denial of service, deletion, withholding and traffic analysis remain possible.
-Malformed unauthenticated blobs are retained rather than acknowledged, so an abusive
-relay or sender can also deny delivery by filling a queue.
-The runnable endpoint is a debug development transport that may be exposed on a
-local Wi-Fi network for physical-device testing. Cleartext LAN transport and a
-user-configured endpoint are not a deployable anonymity or production relay design.
-Release builds reject insecure HTTP relay configuration and cleartext traffic, but no
-production relay deployment has been reviewed.
 
-A public VPS HTTPS relay improves reachability for QA outside one LAN, but it is not
-a trusted privacy boundary. TLS protects traffic to the VPS endpoint; it does not
-hide IP addresses, request timing, queue metadata, approximate message sizes or
-traffic frequency from the relay operator. A public relay must keep TTL short, avoid
-payload logs, avoid full queue ID logs, and add abuse controls, monitoring and rate
-limiting before any broader test.
+It does not receive message plaintext or private keys through the intended delivery
+interface. It still observes:
 
-## Device Compromise
+- queue identifiers;
+- arrival and retrieval times;
+- approximate message sizes;
+- source network information;
+- traffic frequency.
 
-Android Keystore reduces key extraction risk but does not make a compromised device
-safe. Malware with UI/accessibility privileges may read plaintext displayed on screen
-or capture it before encryption. Local wipe removes current app entries and Keystore
-aliases but cannot promise forensic secure erase on flash storage.
+Relay deletion, withholding, reordering, replay, traffic analysis, and denial of service
+remain possible.
+
+Malformed or unauthenticated blobs are not acknowledged as accepted messages. Because
+they remain available for later processing or expiry, an abusive sender or relay can deny
+delivery by filling a queue with unusable blobs.
+
+The runnable endpoint is a debug development transport that may be exposed on a local
+Wi-Fi network for physical-device testing. A cleartext LAN connection and a
+user-configured endpoint are not a deployable anonymity or production-relay design.
+
+Release builds reject insecure HTTP relay configuration and Android cleartext traffic.
+This transport restriction does not make an unreviewed HTTPS relay production-secure.
+
+A public HTTPS relay or tunnel can improve reachability for QA outside one LAN, but it is
+not a trusted privacy boundary. TLS protects the network hop to the endpoint; it does not
+hide IP addresses, request timing, queue metadata, approximate message sizes, or traffic
+frequency from the relay operator.
+
+Before any broader test, a public relay requires short retention, payload-log
+prohibition, full-queue-ID log prohibition, access control where appropriate, abuse
+controls, monitoring, patching, rate limiting, and incident-response planning.
+
+Historical VPS and endpoint records do not establish current availability, ownership,
+configuration, security, or authorization.
+
+## Device Compromise And Local Deletion
+
+Android Keystore reduces direct key-extraction risk but does not make a compromised
+device safe.
+
+Malware with UI, accessibility, input, or operating-system privileges may read plaintext
+displayed on screen, capture it before encryption, or act through the application while
+keys are usable.
+
+The current local deletion path removes Room application data, prototype sessions,
+replay and retry state, disabled Signal-spike records, local queue state, nonce
+preferences, and current Keystore aliases.
+
+The saved relay URL is retained for repeated development and QA use.
+
+Local deletion does not request deletion of every blob already present on a relay.
+Remaining relay ciphertext is subject to normal receipt deletion, relay behavior, and
+TTL.
+
+Neither application deletion nor Android Keystore alias deletion can promise forensic
+secure erase of historical flash-storage blocks.
 
 ## Security Assumptions
 
-- Android API 31+ Keystore correctly protects generated EC agreement and AES vault keys.
-- The JCA AES-GCM and HMAC-SHA-256 implementations on the device are correct.
-- Counter state writes complete before AEAD encryption; backup is disabled for local
-  database and preferences to avoid restoring old nonce state.
-- Users verify safety fingerprints using a trusted out-of-band comparison.
+The current implementation depends on the following assumptions:
+
+- Android API 31+ Keystore correctly protects generated EC agreement and AES vault keys
+  against direct extraction under the documented device conditions.
+- The platform JCA AES-GCM and HMAC-SHA-256 implementations behave correctly.
+- Nonce counter state is durably advanced before ciphertext is emitted.
+- Session send state is persisted before network delivery begins.
+- Database and preference backup remains disabled so old nonce and session state is not
+  restored alongside existing keys.
+- Room transactions provide the documented atomicity for accepted replay tuples and
+  incoming encrypted messages.
+- Identity authenticity is claimed only after the user compares the safety number or
+  verification QR through a trusted or independent channel.
+- Communication in `UNVERIFIED` / `PRIMARY_UNVERIFIED` state makes no identity-authenticity
+  assumption and continues to display the required warning.
+
+Failure of these assumptions can invalidate the documented controls.
 
 ## Future Metadata Reductions
 
-Sealed sender, opaque single-use queues, padding, batching, relay chaining, Tor/P2P
-transport, and removal of stable queue linkability belong to later reviewed phases.
+The following are future proposals, not current protections:
+
+- sealed-sender-style delivery;
+- opaque or single-use queues;
+- message padding;
+- batching;
+- relay chaining;
+- Tor or reviewed P2P transport;
+- removal of stable queue linkability.
+
+Each requires separate protocol design, implementation, testing, migration analysis, and
+security review before it can be described as implemented.
