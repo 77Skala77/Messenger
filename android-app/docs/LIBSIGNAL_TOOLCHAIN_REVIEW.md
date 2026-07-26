@@ -1,58 +1,373 @@
 # libsignal Toolchain Review
 
-## Status
+## Role And Evidence Boundary
 
-Reviewed on 2026-05-26 for an isolated, disabled integration spike. This document
-does not authorize runtime Signal-backed chats and is not a legal or security audit.
+**Repository baseline reviewed:** `e7e14e0de77c8308ff29eb773bdddc75710b8a28`
 
-## Official Artifacts Observed
+This document records toolchain and packaging risks for a disabled libsignal migration
+investigation. It is not:
 
-| Item | Finding |
+- approval to upgrade any dependency;
+- approval to activate Signal-backed chats;
+- proof that official protocol integration works;
+- a legal conclusion;
+- a security audit;
+- a substitute for current build and release evidence.
+
+The repository pin, the version most recently published upstream, and a future selected
+migration target are separate facts. Do not merge them into one statement.
+
+Concrete work remains controlled by
+[Task Queue](ai-workflow/TASK_QUEUE.md), especially TQ-100 through TQ-105. The protocol and
+storage gates are summarized in
+[Signal Migration Spike](SIGNAL_MIGRATION_SPIKE.md).
+
+## Current Repository Toolchain
+
+The current repository version catalog and Android configuration specify:
+
+| Area | Repository value |
 | --- | --- |
-| Published artifact version | `org.signal:libsignal-client:0.94.1` and `org.signal:libsignal-android:0.94.1` |
-| Maven metadata update marker | `20260516203204` |
-| License declared by official POM | `AGPLv3` |
-| Kotlin dependency declared by POM | `org.jetbrains.kotlin:kotlin-stdlib:2.2.20` |
-| Coroutine dependency declared by POM | `kotlinx-coroutines-core-jvm:1.10.2` |
-| Native Android ABIs in resolved AAR | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` |
+| Android Gradle Plugin | `8.5.2` |
+| Kotlin Gradle plugin | `1.9.24` |
+| Compose compiler extension | `1.5.14` |
+| Compose BOM | `2024.06.00` |
+| Room | `2.6.1` |
+| Kotlin Coroutines | `1.8.1` |
+| WorkManager | `2.9.1` |
+| Application compile SDK | `34` |
+| Application target SDK | `34` |
+| Application minimum SDK | `31` |
+| Java source and target | `17` |
+| Kotlin JVM target | `17` |
+| Repository-pinned libsignal | `0.94.1` |
 
-The official repository also states that published Java packages are for Signal's
-own use and that external use is unsupported. API stability and maintenance must be
-treated as integration risks.
+These are repository declarations, not proof that every build variant currently passes.
+Fresh results belong to TQ-006 and TQ-007.
 
-## Toolchain Mismatch
+## Current Official Artifact Gate
 
-This project currently builds Kotlin code with Kotlin `1.9.24`. The official
-`libsignal 0.94.1` artifacts carry Kotlin `2.2.20` dependencies and Kotlin metadata
-newer than the current Kotlin compiler expects during some analysis paths.
+The isolated `core:signal-protocol` Android library:
 
-The existing `core:signal-protocol` gate is Java-only and disabled. The new
-`core:signalstore` boundary deliberately has no dependency on official libsignal
-types. It can therefore compile without upgrading the Android application toolchain.
+- applies only the Android library plugin;
+- contains Java source compatibility set to 17;
+- does not apply the Kotlin plugin;
+- depends on both `org.signal:libsignal-client` and `org.signal:libsignal-android`;
+- resolves those artifacts from Signal's official Maven repository;
+- is not connected to the active chat runtime.
 
-Do not upgrade the complete project to Kotlin `2.2.20` as an incidental spike
-change. A controlled decision must consider Compose compiler compatibility, AGP,
-Room/KAPT or KSP migration, lint, instrumentation coverage and release artifacts.
+The Signal Maven repository is restricted in Gradle to the `org.signal` group. This reduces
+accidental resolution from that repository but does not provide dependency verification,
+artifact locking, signature verification, SBOM coverage, or a legal/security approval.
+
+The Java-only gate deliberately avoids forcing an application-wide Kotlin migration merely
+to inspect official APIs. A passing compile gate would establish only narrow source and
+dependency compatibility for that module and environment.
+
+It would not establish:
+
+- Kotlin adapter compatibility;
+- official record-store correctness;
+- JNI loading;
+- supported Android ABI packaging;
+- debug or release APK correctness;
+- protocol interoperability;
+- migration or rollback behavior;
+- legal distribution permission;
+- production security.
+
+## Historical Official Artifact Snapshot
+
+The following observations were recorded on **2026-05-26** for repository-pinned version
+`0.94.1`. They are a dated artifact snapshot, not a claim that `0.94.1` is still the latest
+upstream version:
+
+| Item | Historical finding for `0.94.1` |
+| --- | --- |
+| Official artifacts inspected | `org.signal:libsignal-client:0.94.1`, `org.signal:libsignal-android:0.94.1` |
+| Maven metadata marker observed | `20260516203204` |
+| License declared by inspected POM | `AGPLv3` |
+| Kotlin stdlib declared by inspected client POM | `2.2.20` |
+| Coroutines Core JVM declared by inspected client POM | `1.10.2` |
+| Android native ABIs observed in inspected AAR | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` |
+| Native library observed | `libsignal_jni.so` |
+
+The official libsignal repository also documented:
+
+- JDK 17 as the supported JDK for Android builds;
+- the need for both `libsignal-client` and `libsignal-android` on Android;
+- Android native libraries for four ABIs;
+- packaging exclusions for non-Android native resources carried by `libsignal-client`;
+- that published Java packages are for Signal's own use and external use is unsupported;
+- AGPLv3 licensing.
+
+Upstream release activity continued after this historical snapshot. Before any migration or
+upgrade decision, refresh every artifact fact from official sources and record the date,
+exact version, hashes or verification metadata where available, and relevant release notes.
+
+## Why The Current Boundary Is Safe To Keep Disabled
+
+The project currently avoids a broad toolchain migration because:
+
+- the official gate is Java-only;
+- `core:signalstore` uses neutral interfaces rather than official libsignal types;
+- normal chats stay on `SimplifiedSessionManager`;
+- Signal-backed session flags remain disabled;
+- experimental invitation version 2 remains a DTO/codec boundary only.
+
+This separation prevents a compile spike from silently changing the active protocol,
+conversation format, storage records, device fan-out, or user security claims.
+
+It does not mean the existing spike is complete. It means the risk is contained while the
+gates remain disabled.
+
+## Toolchain Compatibility Risks
+
+### Kotlin metadata and runtime alignment
+
+The project's Kotlin plugin is `1.9.24`, while the historically inspected `0.94.1` client
+POM declared Kotlin stdlib `2.2.20`. A Kotlin adapter compiled directly against official
+APIs may encounter metadata, compiler, binary, or dependency-alignment issues not exercised
+by the current Java-only gate.
+
+Do not solve this by forcing Kotlin stdlib versions or suppressing metadata errors without a
+reviewed compatibility analysis. Such work can create compile success while leaving runtime
+or transitive incompatibility unresolved.
+
+### Compose compiler and Kotlin coupling
+
+The current application explicitly uses Compose compiler extension `1.5.14`. A Kotlin
+migration must verify the supported Compose compiler or plugin model for the selected Kotlin
+version. Updating Kotlin alone may break compilation, Compose tooling, lint, or generated
+code.
+
+### Android Gradle Plugin and Gradle
+
+A selected Kotlin or Compose migration may require an AGP or Gradle change. That affects:
+
+- Android variant APIs;
+- manifest processing;
+- lint behavior;
+- resource shrinking and R8;
+- packaging;
+- test infrastructure;
+- CI images and caches;
+- release artifact reproducibility.
+
+No broad AGP or Gradle upgrade belongs inside a protocol adapter commit.
+
+### Room, KAPT, and possible KSP migration
+
+The current repository uses Room `2.6.1` and the Kotlin KAPT plugin. A toolchain change must
+check:
+
+- generated DAO and database code;
+- schema export and migration tests;
+- KAPT compatibility;
+- whether KSP is required or merely optional;
+- incremental build behavior;
+- Room transaction and nullability behavior;
+- instrumented persistence tests.
+
+Changing annotation processing while mapping official protocol records would combine two
+high-risk migrations and should be avoided.
+
+### Coroutines alignment
+
+The project declares Coroutines `1.8.1`; the historical `0.94.1` client POM declared
+Coroutines Core JVM `1.10.2`. A future adapter must inspect the full resolved graph and
+verify:
+
+- version conflict resolution;
+- Android and JVM coroutine artifacts;
+- cancellation behavior;
+- dispatcher assumptions;
+- binary compatibility;
+- WorkManager interaction;
+- tests under process death and retry.
+
+Dependency resolution alone is not evidence that coroutine semantics are correct.
+
+### Minimum SDK and Android API behavior
+
+The application minimum SDK is 31. The selected official artifacts may support a broader
+range, but the project must test the actual supported project range rather than relying on
+artifact metadata. Verify device and emulator behavior for every ABI and API level the
+project intends to support.
+
+## Native And Packaging Risks
+
+Official Android integration brings Rust-backed JNI libraries into the Android artifact.
+Required review includes:
+
+- `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64` presence for the selected version;
+- duplicate native libraries and resource merge conflicts;
+- non-Android `.dll` and `.dylib` resources carried by `libsignal-client`;
+- official recommended packaging exclusions;
+- optional testing JNI libraries;
+- release stripping and symbol behavior;
+- APK/AAB size impact;
+- ABI splits;
+- Play or other distribution requirements;
+- native crash reporting and redaction;
+- loading on physical devices and emulators;
+- R8/ProGuard keep requirements;
+- license and acknowledgment files in distributed artifacts.
+
+A debug Java compile does not exercise these risks. TQ-007 must inspect the actual release
+artifact before any distribution claim.
+
+## Supply-Chain Risks
+
+Current repository configuration does not by itself prove:
+
+- Gradle dependency verification;
+- dependency locking;
+- trusted checksums for official artifacts;
+- deterministic dependency resolution;
+- complete transitive inventory;
+- native-library inventory;
+- CVE analysis;
+- SBOM generation;
+- reproducible builds;
+- license-notice completeness.
+
+These controls belong to TQ-008 and must not be assumed from version pinning alone.
+
+A future libsignal task must record:
+
+- exact artifact coordinates;
+- source repository;
+- hashes or Gradle verification metadata;
+- transitive dependencies;
+- native files and ABIs;
+- license information;
+- release notes and API changes;
+- chosen rollback version.
+
+## Legal And Support Gate
+
+The inspected official POM and repository identify AGPLv3 licensing, while upstream states
+that external use of published packages is unsupported.
+
+Before runtime activation or distribution, TQ-100 requires qualified review of:
+
+- source and distribution obligations;
+- modifications and corresponding-source requirements;
+- notices and acknowledgments;
+- combined-work implications;
+- app-store and distribution constraints;
+- unsupported API and maintenance risk;
+- interoperability and update cadence;
+- project-owner risk acceptance.
+
+This document is technical context only and is not legal advice.
+
+## Controlled Migration Plan
+
+TQ-101 should create a staged plan rather than one large upgrade.
+
+### Stage A — Reproduce the current baseline
+
+Record current results for:
+
+```bash
+cd android-app
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug :core:signal-protocol:testDebugUnitTest :core:signalstore:test test
+```
+
+Also record relay tests and compatible instrumented tests. A skipped check is not a pass.
+
+### Stage B — Resolve and inventory the selected official version
+
+Without activating runtime Signal chats:
+
+- refresh official metadata;
+- select and justify a target version;
+- inspect POM and Gradle metadata;
+- inventory transitive and native artifacts;
+- add dependency verification or locking as separately approved;
+- record licenses and upstream support warnings.
+
+### Stage C — Establish the target toolchain in isolated commits
+
+Separate changes for:
+
+- Gradle wrapper if required;
+- AGP;
+- Kotlin;
+- Compose compiler/plugin and BOM;
+- Room and annotation processing;
+- Coroutines and WorkManager;
+- lint and test infrastructure.
+
+Each step needs rollback and the full relevant regression subset.
+
+### Stage D — Validate packaging before protocol mapping
+
+Build and inspect debug and release-like artifacts across intended ABIs. Confirm JNI loading,
+resource exclusions, R8 behavior, artifact size, native contents, and device execution.
+
+### Stage E — Map official records in the disabled store
+
+Only after toolchain and packaging baselines are stable, implement reviewed official record
+mapping and lifecycle semantics under disabled flags. Do not activate normal conversations.
+
+### Stage F — Isolated test conversations
+
+Only after TQ-100 through TQ-104 and interoperability gates clear, consider new isolated
+test conversations behind an explicit disabled-by-default feature flag.
+
+## Required Verification Matrix
+
+A migration proposal must specify exact pass, fail, or skip evidence for:
+
+- clean-clone dependency resolution;
+- debug assembly and lint;
+- release assembly and lint;
+- all JVM/unit tests;
+- Room migration and persistence tests;
+- UI and storage instrumented tests;
+- JNI loading on every intended ABI;
+- physical-device and emulator runs;
+- R8/resource-shrunk artifact behavior;
+- official protocol interoperability;
+- restart, crash, retry, replay, identity-change, and revocation behavior;
+- downgrade and rollback;
+- dependency verification and SBOM output;
+- absence of secrets, local paths, debug controls, and unintended native artifacts.
+
+Record the exact commit, JDK, Gradle, AGP, Kotlin, Android SDK, NDK if applicable, artifact
+versions, device/emulator, ABI, and API level.
 
 ## Current Safe Scope
 
-- Persist neutral opaque serialized record bytes encrypted by the existing local vault.
-- Define interfaces for identity, session, prekey, signed prekey and Kyber prekey records.
-- Encode/decode `INVITE_V2_SIGNAL_PQXDH_EXPERIMENTAL` as a neutral DTO only.
-- Keep `SIGNAL_BACKED_SESSIONS_ENABLED=false`.
-- Leave all working chats on the existing explicitly non-production prototype path.
+Until all gates clear, allowed work remains limited to reviewed disabled investigation:
 
-## Blocks Before Runtime Integration
+- inspect official metadata and APIs;
+- maintain the isolated Java compile gate;
+- define neutral encrypted store interfaces;
+- test storage-only encrypted opaque records;
+- maintain an explicitly experimental invitation DTO;
+- design migrations, rollback, and interoperability tests;
+- keep all feature flags disabled;
+- keep normal chats on the prototype path.
 
-- Legal review of AGPLv3 obligations and upstream unsupported-external-use position.
-- Approved Kotlin/AGP/Compose/Room toolchain migration with full regression testing.
-- Reviewed mapping from official libsignal record types into encrypted durable stores.
-- Versioned PQXDH/prekey exchange, identity-change and per-device session semantics.
-- JNI packaging validation across required device/emulator ABI targets.
-- Independent protocol integration and application security review.
+Do not introduce official types into the active ViewModel, delivery processor, current
+conversation records, or version-1 invitation flow.
 
-## Primary Sources
+## Official Sources
 
-- Official repository: <https://github.com/signalapp/libsignal>
-- Official Maven metadata: <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/maven-metadata.xml>
-- Official `0.94.1` POM: <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/0.94.1/libsignal-client-0.94.1.pom>
+Reverify official information when a migration task begins:
+
+- libsignal repository, license, Android build instructions, packaging notes, and support
+  boundary: <https://github.com/signalapp/libsignal>
+- official Signal Maven repository:
+  <https://build-artifacts.signal.org/libraries/maven/>
+- repository-pinned client POM snapshot:
+  <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-client/0.94.1/libsignal-client-0.94.1.pom>
+- repository-pinned Android POM snapshot:
+  <https://build-artifacts.signal.org/libraries/maven/org/signal/libsignal-android/0.94.1/libsignal-android-0.94.1.pom>
+
+Do not rely on this dated snapshot to choose a future version.
