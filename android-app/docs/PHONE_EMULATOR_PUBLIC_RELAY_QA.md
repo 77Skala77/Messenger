@@ -1,193 +1,121 @@
 # Phone + Emulator Relay QA
 
-## Назначение
+## Роль И Граница Доказательств
 
-Этот сценарий заменяет обязательные два физических телефона: один участник
-работает на реальном Android-телефоне, второй - в Android Emulator на ноутбуке.
-Подтверждённый рабочий вариант использует локальный Node relay на ноутбуке без
-Cloudflare Tunnel: физический телефон подключается к LAN IP ноутбука, а эмулятор -
-к Android host alias `10.0.2.2`. Это только QA-сценарий MVP; активные чаты всё ещё
-используют `SimplifiedSessionManager`, Signal-backed sessions и `PARANOIA_C4_AEAD`
-выключены.
+**Проверенная база репозитория:** `83785913910b9ee2ccc63f96c6c922cd39e678c5`
 
-## Подтверждённый Локальный Сценарий
+Этот документ описывает ручной debug QA между физическим Android-телефоном и Android Emulator.
+Он поддерживает два разных сетевых маршрута:
 
-Подтверждённый рабочий QA-сценарий:
+1. один локальный Node relay на ноутбуке, доступный телефону по LAN IP и эмулятору по
+   `10.0.2.2`;
+2. один временный публичный HTTPS relay или reverse tunnel, доступный обоим клиентам по
+   одинаковому URL.
 
-- локальный relay запущен на ноутбуке и слушает `0.0.0.0:8787`;
-- физический телефон использует `http://<LAN_IP_ноутбука>:8787`, например
-  `http://192.168.1.45:8787`;
+Это процедура, а не отчёт о pass. Исторические результаты не подтверждают текущий commit,
+устройства, tunnel, VPS или endpoint.
+
+Приложение остаётся непроизводственным MVP:
+
+- normal chats используют `SimplifiedSessionManager` и `STANDARD_AEAD`;
+- Signal-backed sessions и `PARANOIA_C4_AEAD` выключены;
+- warning-only первый контакт не подтверждает личность владельца ключа;
+- WorkManager не гарантирует своевременную доставку;
+- public HTTPS защищает сетевой hop, но не скрывает метаданные от relay/tunnel operator;
+- независимый аудит и production relay отсутствуют.
+
+Используйте одноразовые профили и бессодержательные тестовые сообщения.
+
+## Выбор Маршрута
+
+### Маршрут A — локальный relay на ноутбуке
+
+Подходит, когда телефон и ноутбук находятся в одной доверенной Wi-Fi сети.
+
+- физический телефон использует `http://<LAN_IP_ноутбука>:8787`;
 - Android Emulator использует `http://10.0.2.2:8787`;
-- URL разные, но оба указывают на один и тот же relay process на ноутбуке;
-- сообщения успешно отправляются и принимаются в обе стороны:
-  телефон -> эмулятор и эмулятор -> телефон.
+- URL различаются, но указывают на один Node relay process;
+- cleartext HTTP допустим только в debug QA.
 
-Для эмулятора `10.0.2.2` означает host-машину. Для физического телефона этот адрес
-не подходит: телефон должен видеть ноутбук по его LAN IP в той же сети Wi-Fi.
+Этот маршрут не является публичным relay.
 
-`127.0.0.1` и `localhost` на телефоне указывают на сам телефон. `0.0.0.0` подходит
-серверу для прослушивания интерфейсов, но не подходит клиенту как URL.
+### Маршрут B — временный публичный HTTPS relay или tunnel
 
-## Запуск Локального Relay
+Подходит, когда телефон и эмулятор не могут обратиться к одному локальному endpoint.
 
-В терминале на ноутбуке:
+- оба клиента используют один и тот же HTTPS base URL;
+- endpoint должен быть временным, явно разрешённым владельцем и предназначенным только для
+  одноразового QA;
+- HTTP через интернет не допускается;
+- tunnel provider, reverse proxy и relay operator считаются недоверенными;
+- URL, токены, credentials и provider secrets нельзя коммитить или публиковать.
+
+Не используйте исторический endpoint из старых QA-записей без новой авторизации и полной
+проверки.
+
+## Карточка Запуска
+
+Заполните перед началом:
+
+```text
+Commit:
+Debug APK:
+Дата / время:
+Ноутбук / ОС:
+JDK / Gradle / Node.js:
+Телефон / API / ABI:
+Эмулятор / API / ABI:
+Выбранный маршрут: A / B
+Relay или tunnel provider:
+Relay URL телефона:
+Relay URL эмулятора:
+Public URL expiry / owner, если применимо:
+Tester:
+```
+
+В публичном отчёте маскируйте hostname, когда его раскрытие не требуется для воспроизведения.
+
+## 1. Автоматизированные Предварительные Проверки
+
+Из корня репозитория:
+
+```bash
+cd android-app
+./gradlew :app:assembleDebug
+./gradlew :app:lintDebug :core:signal-protocol:testDebugUnitTest :core:signalstore:test test
+```
+
+Relay:
+
+```bash
+cd android-app/server/relay
+node --test
+```
+
+Запишите pass/fail/skip каждой команды. Наличие тестов в source не является pass.
+
+## 2. Запуск Локального Node Relay
+
+Для обоих маршрутов локальный relay может быть origin-сервисом:
 
 ```bash
 cd android-app/server/relay
 node src/server.mjs
 ```
 
-Relay должен слушать `0.0.0.0:8787`. Локально проверьте:
+Проверка на ноутбуке:
 
 ```bash
 curl http://127.0.0.1:8787/health
 ```
 
-На macOS Wi-Fi IP ноутбука обычно можно узнать так:
+Ожидаемый ответ:
 
-```bash
-ipconfig getifaddr en0
+```json
+{"status":"ok"}
 ```
 
-Если команда ничего не вернула, проверьте активный интерфейс через:
-
-```bash
-networksetup -listallhardwareports
-```
-
-## Relay URL В Приложении
-
-На физическом телефоне:
-
-```text
-http://<LAN_IP_ноутбука>:8787
-```
-
-Пример:
-
-```text
-http://192.168.1.45:8787
-```
-
-В Android Emulator:
-
-```text
-http://10.0.2.2:8787
-```
-
-В обоих клиентах откройте `Настройки` -> `Сервер доставки`, сохраните URL и
-нажмите `Проверить сервер доставки`. На обоих клиентах ожидается статус
-`Сервер доступен`.
-
-## Двустороннее Подключение
-
-1. Телефон A создаёт локальный профиль.
-2. Эмулятор B создаёт отдельный локальный профиль.
-3. A открывает `Добавить контакт` и показывает QR.
-4. B сканирует QR A или вручную вставляет код из кнопки `Скопировать код приглашения`.
-5. B показывает QR или копирует свой код приглашения.
-6. A сканирует QR B или вручную вставляет код.
-7. На обоих устройствах откройте переписку и подтвердите, что выполнен импорт
-   обоих QR / invitation codes.
-
-Ручной обмен invitation code предназначен для случаев, когда камера телефона не
-может удобно считать QR с эмулятора или наоборот. Не публикуйте invitation payload
-в общих чатах или логах.
-
-## Проверка Доставки
-
-1. На телефоне и эмуляторе проверьте `Настройки` -> `Сервер доставки`:
-   - телефон: `http://<LAN_IP_ноутбука>:8787`;
-   - эмулятор: `http://10.0.2.2:8787`.
-2. На A нажмите `Проверить готовность к переписке`.
-3. Отправьте короткое disposable test message A -> B.
-4. На B нажмите `Синхронизировать сейчас`, если сообщение не пришло автоматически.
-5. Проверьте получение сообщения и событие `INCOMING_ACCEPTED` в диагностике B.
-6. Повторите B -> A.
-
-Этот локальный сценарий уже подтверждён вручную: сообщения успешно отправляются и
-принимаются в обе стороны между физическим телефоном и Android Emulator через один
-локальный relay на ноутбуке.
-
-## Confirmed QA: automatic retry and delivery receipts
-
-Подтверждённый phone + emulator QA через local Node relay:
-
-- обычные сообщения доставляются;
-- receiving device после accept/decrypt/store отправляет encrypted delivery receipt
-  обратно отправителю;
-- исходящий статус меняется с `Отправлено на сервер доставки` на `Доставлено`
-  только после получения receipt;
-- небольшая задержка receipt является нормальной, потому что подтверждение идёт
-  отдельным обратным control message;
-- при остановленном relay новое сообщение получает `Ожидает синхронизации`;
-- после повторного запуска relay background sync / WorkManager автоматически
-  отправил pending/retry сообщения без обязательного нажатия `Синхронизировать сейчас`;
-- после receipt retry-сообщение стало `Доставлено`;
-- дубли не появились, а receipt не отображался как обычное chat message;
-- диагностика доставки показала receipt/retry events и понятные статусы.
-
-`Синхронизировать сейчас` остаётся полезной ручной QA-кнопкой, особенно если нужно
-ускорить fetch/retry или проверить состояние сразу. Успешный сценарий показывает,
-что доставка может восстановиться автоматически после возвращения relay, но
-WorkManager всё равно остаётся best-effort и может задерживаться Android power
-management.
-
-`Доставлено` означает delivery receipt от устройства получателя после принятия,
-расшифровки и сохранения сообщения. Это не означает, что пользователь прочитал
-сообщение: read receipts в MVP не реализованы.
-
-## Confirmed QA: public VPS HTTP debug endpoint
-
-Также подтверждён временный VPS QA-сценарий для phone + emulator:
-
-- оба клиента использовали `http://194.87.226.46`;
-- Ubuntu 24.04 LTS VPS запускал Node relay через enabled systemd service
-  `secure-messenger-relay`;
-- Caddy принимал HTTP на порту 80 и проксировал на `127.0.0.1:8787`;
-- UFW блокировал прямой внешний доступ к `8787/tcp`;
-- доставка в обе стороны, automatic retry, WorkManager/background sync, delivery
-  receipt, отсутствие видимого receipt-сообщения и отсутствие дублей подтверждены;
-- после reboot VPS relay и Caddy автоматически запустились.
-
-Этот URL является временным debug-only HTTP endpoint. Он удобен для QA, но не
-подходит для release или production. Для дальнейшего публичного тестирования
-нужно настроить домен и HTTPS.
-
-## Retry И Duplicate Suppression
-
-Для retry временно остановите локальный `node src/server.mjs`, отправьте тестовое
-сообщение и убедитесь, что у отправителя появились failed/retry counters и событие
-`OUTGOING_RETRY_SCHEDULED`. После повторного запуска relay можно дождаться
-background sync / WorkManager: подтверждённый QA показал, что retryable сообщения
-уходят автоматически. Для ручной проверки или ускорения сценария нажмите
-`Синхронизировать сейчас` на отправителе и получателе.
-
-Duplicate suppression обычно проверяется тестовым harness: после successful receive
-relay удаляет сообщение, поэтому вручную дубль не должен появляться. Если один и тот
-же authenticated envelope будет подан повторно, UI не должен показать второе
-plaintext-сообщение.
-
-## Diagnostics
-
-Скопируйте `Диагностика доставки` только при сбое. Отчёт должен содержать статусы,
-счётчики, время и короткие `sha256:...` fingerprints; он не должен содержать текст
-сообщений, ключи, nonce, ciphertext или полный queue ID. Для logcat используйте
-[LOGCAT_QA.md](LOGCAT_QA.md).
-
-## Optional: Public HTTPS Relay / Tunnel
-
-Cloudflare Tunnel или временный VPS больше не обязательны для локального QA
-телефон + эмулятор. Используйте public HTTPS relay только если телефон и эмулятор
-не могут подключиться к одному локальному relay на ноутбуке.
-
-В public/tunnel варианте оба клиента используют один и тот же HTTPS URL:
-
-```text
-https://temporary-relay.example
-```
-
-Dev tunnel или VPS должны проксировать HTTPS к тому же relay API:
+Текущий relay предоставляет:
 
 ```text
 GET    /health
@@ -196,95 +124,277 @@ GET    /v1/messages/{queueId}
 DELETE /v1/messages/{messageId}
 ```
 
-HTTP через интернет не используйте. HTTP остаётся только для debug LAN.
+Он хранит в памяти непрозрачные envelopes, queue ID, message ID и expiration timestamp. Это
+не durable production queue и не high-availability service.
 
-## Проверка Tunnel Tools
+## 3. Настройка Маршрута A
 
-Перед тестом на ноутбуке проверьте, установлен ли tunnel tool:
+### Физический телефон
 
-```bash
-cloudflared --version
-ngrok version
-brew list cloudflared
-brew list ngrok
-```
-
-На текущей dev-машине `cloudflared` и `ngrok` могут отсутствовать. Рекомендуемый
-вариант для этого сценария:
+Узнайте LAN IP ноутбука. На macOS обычно:
 
 ```bash
-brew install cloudflared
+ipconfig getifaddr en0
 ```
 
-## Подготовка
-
-1. Соберите и установите debug APK на телефон и эмулятор.
-2. В терминале 1 запустите локальный relay:
+При необходимости:
 
 ```bash
-cd android-app/server/relay
-node src/server.mjs
+networksetup -listallhardwareports
 ```
 
-Relay должен слушать `0.0.0.0:8787`. Локально проверьте:
-
-```bash
-curl http://127.0.0.1:8787/health
-```
-
-3. В терминале 2 откройте временный HTTPS tunnel к локальному relay:
-
-```bash
-cloudflared tunnel --url http://localhost:8787
-```
-
-4. В выводе `cloudflared` найдите публичный URL вида:
+Пример URL телефона:
 
 ```text
-https://something.trycloudflare.com
+http://192.168.1.45:8787
 ```
 
-Скопируйте весь `https://...trycloudflare.com` без пути, query string и лишних
-символов. Именно этот URL нужно указать в приложении на обоих клиентах.
+### Android Emulator
 
-5. Проверьте public `/health`:
+Используйте host alias:
+
+```text
+http://10.0.2.2:8787
+```
+
+Правила:
+
+- `10.0.2.2` не подходит физическому телефону;
+- `127.0.0.1` и `localhost` на телефоне указывают на телефон;
+- `0.0.0.0` — bind address сервера, а не client URL;
+- firewall ноутбука должен разрешать LAN access к Node;
+- не публикуйте port `8787` в интернет.
+
+В приложении на обоих клиентах сохраните соответствующий URL и выполните health check.
+
+## 4. Настройка Маршрута B
+
+Выберите авторизованный временный HTTPS reverse tunnel или отдельный QA VPS. Следуйте
+официальной документации выбранного provider и локальной security policy. Этот репозиторий не
+делает конкретный tunnel tool обязательным.
+
+Endpoint должен:
+
+- завершать TLS с действительным сертификатом;
+- проксировать только необходимый relay API;
+- не изменять method, path или opaque body;
+- поддерживать request body не меньше текущего relay limit;
+- не кэшировать queue responses;
+- не журналировать request body, ciphertext, полный queue ID или credentials;
+- иметь ограниченный срок жизни и явного владельца;
+- быть отключён после теста.
+
+Проверьте публичный health endpoint:
 
 ```bash
-curl https://something.trycloudflare.com/health
+curl https://temporary-relay.example/health
 ```
 
-Ожидается успешный health response relay. Если health недоступен, не переходите к
-pairing: сначала проверьте, что локальный relay продолжает работать и tunnel не
-остановлен.
+Ожидается тот же JSON health response. Затем укажите одинаковый HTTPS base URL на телефоне и
+эмуляторе и повторите проверку в приложении.
 
-6. На телефоне и в эмуляторе откройте `Настройки` -> `Сервер доставки`.
-7. Введите одинаковый публичный HTTPS relay URL, сохраните и нажмите
-   `Проверить сервер доставки`.
-8. В preflight должен отображаться режим `Публичный сервер / tunnel`, а при
-   доступном `/health` - `Публичный сервер доставки доступен`.
+Если `/health` доступен, это подтверждает только reachability. Это не проверка privacy,
+retention, authentication, rate limits или production hardening.
 
-Практический порядок:
+## 5. Безопасность Публичного Endpoint
 
-1. Остановите `cloudflared` или локальный `node src/server.mjs`.
-2. Отправьте disposable test message.
-3. Проверьте failed/retry counters в `Диагностика доставки`.
-4. Снова запустите relay/tunnel и проверьте public `/health`.
-5. Нажмите `Синхронизировать сейчас` на отправителе и получателе.
+Перед тестом зафиксируйте:
 
-Duplicate suppression обычно проверяется тестовым harness: после successful receive
-relay удаляет сообщение, поэтому вручную дубль не должен появляться. Если один и тот
-же authenticated envelope будет подан повторно, UI не должен показать второе
-plaintext-сообщение.
+- владельца инфраструктуры и разрешение на использование;
+- срок жизни endpoint;
+- где завершается TLS;
+- какие access/error logs создают tunnel, proxy и hosting platform;
+- кто имеет административный доступ;
+- как endpoint будет отключён и удалён;
+- что реальный пользовательский трафик не проходит через этот relay.
 
-## Ограничения Dev Tunnel
+Не передавайте через публичный QA endpoint:
 
-Временный tunnel/VPS не является production-инфраструктурой. Он может видеть IP,
-время, размер сообщений, queue metadata и частоту запросов. TLS у tunnel защищает
-транспортный канал до tunnel endpoint, но не делает relay production-secure и не
-заменяет протокольный аудит, metadata protection, rate limits, monitoring или
-secret-free operational logging.
+- реальные сообщения;
+- реальные invitation payload;
+- private/session keys;
+- authentication tokens сторонних систем;
+- персональные данные;
+- production secrets.
 
-Даже в подтверждённом QA активные чаты продолжают использовать
-`SimplifiedSessionManager`. Signal-backed sessions выключены, `PARANOIA_C4_AEAD`
-выключен, local/debug HTTP relay не является production transport, и production
-security не заявляется.
+TLS не скрывает от оператора IP, timing, queue identifiers, approximate envelope size,
+frequency и факт использования одного relay двумя клиентами.
+
+## 6. Установка И Одноразовые Профили
+
+- Соберите и установите debug APK текущего commit на телефон и эмулятор.
+- Создайте разные одноразовые локальные профили.
+- Проверьте сохранение выбранного языка при перезапуске.
+- Убедитесь, что `Paranoia C4` недоступна.
+- Не импортируйте старую базу или непроверенные ключи.
+
+## 7. Взаимный Импорт Приглашений
+
+1. Телефон A показывает invitation A.
+2. Эмулятор B сканирует или вручную импортирует A.
+3. Эмулятор B показывает invitation B.
+4. Телефон A сканирует или вручную импортирует B.
+5. На обоих клиентах подтвердите завершение двух импортов.
+6. Проверьте `Готово к переписке`.
+
+Invitation code можно копировать только между одноразовыми тестовыми клиентами. Не помещайте
+его в issue, общий чат, Logcat или commit.
+
+## 8. Warning-Only Первый Контакт
+
+До независимой verification:
+
+- contact должен быть `VerificationStatus.UNVERIFIED`;
+- primary device — `DeviceApprovalStatus.PRIMARY_UNVERIFIED`;
+- UI должен показывать постоянное предупреждение;
+- тестовая отправка на primary device должна быть разрешена;
+- состояние не должно называться `VERIFIED`.
+
+`Готово к переписке` означает пригодный маршрут, а не доказанную личность.
+
+## 9. Preflight
+
+На обоих клиентах:
+
+1. откройте проверяемую переписку;
+2. откройте `Готовность к тесту переписки`;
+3. проверьте relay mode, URL, health, pairing, primary-device state и retry counts;
+4. запустите проверку.
+
+Для маршрута B UI должен распознавать HTTPS public/tunnel mode. Preflight не является
+криптографической аттестацией endpoint или контакта.
+
+## 10. Полный Цикл A → B И B → A
+
+Для каждого направления:
+
+1. Отправьте уникальное бессодержательное сообщение.
+2. На отправителе различите `PENDING`/`FAILED` и `SENT`.
+3. На получателе выполните manual sync, если fetch задержан.
+4. Проверьте один экземпляр `RECEIVED`.
+5. Проверьте постановку encrypted delivery receipt.
+6. На отправителе обработайте receipt.
+7. Проверьте переход исходного сообщения в `DELIVERED`.
+
+`SENT` означает relay acceptance. `DELIVERED` означает authenticated receipt о
+receiver-app acceptance, decryption и durable storage. Это не read receipt.
+
+## 11. Независимая Verification
+
+После warning-only проверки:
+
+1. сравните safety number или verification QR по доверенному или независимому каналу;
+2. при полном совпадении отметьте contact и primary device verified;
+3. проверьте исчезновение warning только после verification;
+4. повторите сообщение в обе стороны с receipt round trip.
+
+Несовпадение нельзя обходить ручным подтверждением.
+
+## 12. Retry И Восстановление
+
+### Маршрут A
+
+Остановите локальный Node relay.
+
+### Маршрут B
+
+Остановите origin relay или временный tunnel только если это разрешено и не затрагивает
+других пользователей. Не тестируйте отказ на shared infrastructure без согласования.
+
+Затем:
+
+1. отправьте новое уникальное сообщение;
+2. зафиксируйте `PENDING`/`FAILED`, attempt count и next retry;
+3. восстановите endpoint;
+4. снова проверьте `/health`;
+5. дождитесь best-effort WorkManager либо выполните manual sync для разделения scheduler и
+   delivery pipeline;
+6. выполните fetch на получателе;
+7. проверьте один plaintext instance;
+8. проверьте receipt и `DELIVERED`.
+
+Не записывайте конкретное число секунд как гарантию WorkManager.
+
+## 13. Duplicate, Restart И Invalid Blob
+
+- перезапуск клиентов не должен терять accepted message, replay marker или delivery status;
+- повторная синхронизация не должна создавать duplicate plaintext;
+- receipt не должен отображаться как chat message;
+- повторный authenticated envelope должен подавляться;
+- malformed или unauthenticated envelope не должен отображаться и может остаться на relay
+  до TTL или внешнего удаления;
+- ручное изменение ciphertext не требуется для обычного QA.
+
+## 14. Диагностика И Logcat
+
+Сохраняйте только sanitized evidence:
+
+- commit, device/API/ABI;
+- relay mode и health timestamps;
+- статусы, counts и next retry;
+- короткие queue fingerprints;
+- event codes и last error;
+- provider status без credentials.
+
+Не сохраняйте message text, полный queue ID, invitation payload, keys, nonce, ciphertext,
+provider token или server secret.
+
+Для Android logs используйте [LOGCAT_QA.md](LOGCAT_QA.md).
+
+## 15. Завершение И Cleanup
+
+После теста:
+
+1. остановите local relay, если он больше не нужен;
+2. остановите и удалите временный tunnel;
+3. отключите временный VPS endpoint согласно разрешённой процедуре;
+4. удалите локальные временные config/log files с credentials;
+5. выполните debug reset одноразовых app profiles при необходимости;
+6. помните, что reset сохраняет Relay URL и не является forensic erase;
+7. проверьте, что публичный `/health` больше недоступен, если endpoint должен быть удалён;
+8. сохраните только sanitized report.
+
+Client reset не гарантирует удаление каждого blob с внешнего relay. Учитывайте delete, TTL и
+поведение инфраструктуры.
+
+## Исторические Результаты
+
+Репозиторий содержит исторические записи о:
+
+- phone + emulator через один локальный Node relay;
+- двусторонней доставке;
+- retry recovery, receipts и duplicate suppression;
+- временном Ubuntu VPS;
+- HTTP-by-IP endpoint `194.87.226.46`;
+- systemd, Caddy, UFW и reboot recovery.
+
+Это исторический QA-контекст. Он не подтверждает текущий commit, доступность или владение VPS,
+endpoint reachability, DNS, TLS, firewall, SSH, logs, retention, abuse controls или
+production readiness. Исторический HTTP endpoint нельзя использовать как действующий адрес.
+
+## Критерии Успеха
+
+Отчёт должен содержать:
+
+- точный commit и среду;
+- pass/fail/skip предварительных команд;
+- выбранный маршрут и явное различение local/public;
+- health обоих клиентов;
+- mutual pairing;
+- warning-only first-contact state;
+- independent verification transition;
+- A → B и B → A с `SENT`, `RECEIVED`, `DELIVERED`;
+- receipt behavior;
+- retry recovery без duplicate plaintext;
+- cleanup public endpoint;
+- все failures и skips.
+
+## Связанные Документы
+
+- [Manual Two-Device QA](MANUAL_TWO_DEVICE_QA.md)
+- [Two Physical Devices](TWO_DEVICE_TEST.md)
+- [Relay Public Testing](RELAY_PUBLIC_TESTING.md)
+- [VPS Relay Deployment](VPS_RELAY_DEPLOYMENT.md)
+- [Logcat QA](LOGCAT_QA.md)
+- [MVP Delivery Baseline](MVP_DELIVERY_BASELINE.md)
+- [Known Limitations](KNOWN_LIMITATIONS.md)
