@@ -48,11 +48,6 @@
     <string name="encryption_suite">Encryption Suite</string>
     <string name="suite_value_format">%1$s: %2$s</string>
     <string name="standard_aead">Standard AEAD</string>
-    <string name="paranoia_c4_aead">Paranoia C4</string>
-    <string name="experimental_mode">Experimental Mode</string>
-    <string name="experimental_suite_format">%1$s - %2$s</string>
-    <string name="c4_warning">Paranoia C4 mode is experimental in this version. Do not use this application for real sensitive conversations until an independent audit has been completed.</string>
-    <string name="c4_disabled">Unavailable in this build: audited primitive implementations and test vectors are required.</string>
     <string name="unverified_warning">This contact is unverified. Before sending important messages, compare the safety number or perform QR verification.</string>
     <string name="key_changed_warning">This contact\'s security key has changed. This may indicate a new device, an app reinstall, or an attempted attack. Verify the contact again.</string>
     <string name="message_input">Message</string>

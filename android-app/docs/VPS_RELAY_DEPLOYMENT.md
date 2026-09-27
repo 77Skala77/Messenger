@@ -13,9 +13,9 @@ processes and can expose metadata including source IP, timing, queue identifiers
 payload sizes, request frequency, and availability behavior.
 
 Normal Android chats continue to use `SimplifiedSessionManager` and `STANDARD_AEAD`.
-Signal-backed sessions and `PARANOIA_C4_AEAD` remain disabled. A VPS does not repair the
-prototype session protocol, warning-only first-contact risk, local-device exposure, or
-missing metadata protection.
+Signal-backed sessions remain disabled. `PARANOIA_C4_AEAD` no longer exists in the
+codebase (removed 2026-09-27). A VPS does not repair the prototype session protocol,
+warning-only first-contact risk, local-device exposure, or missing metadata protection.
 
 TQ-107 production relay and operational-security design remains blocked.
 

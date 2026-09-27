@@ -30,5 +30,3 @@ class InvalidCiphertextException(message: String, cause: Throwable? = null) :
     CryptoException(message, cause)
 class NonceReuseException : CryptoException("Encryption nonce reuse detected")
 class ReplayDetectedException : CryptoException("Message replay detected")
-class ExperimentalSuiteDisabledException :
-    CryptoException("PARANOIA_C4_AEAD is disabled and is not a secure implemented suite")

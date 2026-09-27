@@ -36,7 +36,7 @@ Translations must not imply that:
 - WorkManager guarantees prompt delivery;
 - local reset provides forensic secure erasure;
 - a public relay, tunnel, or VPS is production infrastructure;
-- disabled Signal or Paranoia C4 boundaries are active security features.
+- disabled Signal boundaries are active security features. (`PARANOIA_C4_AEAD` no longer exists in the codebase — removed 2026-09-27.)
 
 ## Locale Policy
 
@@ -111,7 +111,6 @@ Localized text must not collapse contact verification and device approval into o
 | Secure Messenger | Защищённый мессенджер |
 | Encryption Suite | Режим шифрования |
 | Standard AEAD | Стандартное шифрование |
-| Paranoia C4 | Paranoia C4 |
 | Contact | Контакт |
 | Invitation | Приглашение |
 | QR Verification | Проверка через QR-код |
@@ -143,7 +142,7 @@ Both locales must communicate these points clearly where relevant:
 - public HTTPS protects the network hop but not metadata from the relay operator;
 - reset deletes documented local QA state but retains the selected relay URL and is not
   forensic erasure;
-- Signal-backed sessions and Paranoia C4 remain disabled.
+- Signal-backed sessions remain disabled. `PARANOIA_C4_AEAD` no longer exists in the codebase (removed 2026-09-27), so there is no longer a corresponding UI string to translate.
 
 Warnings should be direct and must not be weakened for brevity.
 

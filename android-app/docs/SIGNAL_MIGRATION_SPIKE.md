@@ -288,7 +288,7 @@ This spike does not authorize:
 - reinterpretation of existing conversations;
 - multi-device fan-out;
 - synchronized protocol revocation;
-- enabling `PARANOIA_C4_AEAD`;
+- reintroducing `PARANOIA_C4_AEAD` or any similar home-grown cipher cascade (removed entirely 2026-09-27, see DEC-016);
 - a production relay or release;
 - any Signal, post-quantum, or production-security marketing claim.
 

@@ -48,11 +48,6 @@
     <string name="encryption_suite">Режим шифрования</string>
     <string name="suite_value_format">%1$s: %2$s</string>
     <string name="standard_aead">Стандартное шифрование</string>
-    <string name="paranoia_c4_aead">Paranoia C4</string>
-    <string name="experimental_mode">Экспериментальный режим</string>
-    <string name="experimental_suite_format">%1$s — %2$s</string>
-    <string name="c4_warning">Режим Paranoia C4 является экспериментальным в этой версии. Не используйте приложение для реальной чувствительной переписки до независимого аудита.</string>
-    <string name="c4_disabled">Недоступно в этой сборке: требуются проверенные реализации примитивов и тестовые векторы.</string>
     <string name="unverified_warning">Контакт не проверен. Перед отправкой важных сообщений сравните контрольный код безопасности или выполните проверку через QR-код.</string>
     <string name="key_changed_warning">Ключ безопасности этого контакта изменился. Это может означать новое устройство, переустановку приложения или попытку атаки. Проверьте контакт заново.</string>
     <string name="message_input">Сообщение</string>

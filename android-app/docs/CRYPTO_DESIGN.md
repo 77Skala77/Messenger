@@ -358,39 +358,20 @@ compromised device.
 Room is not a fully SQLCipher-encrypted database. Table shape, identifiers, routing AAD,
 lookup keys, and access patterns may remain visible locally.
 
-## PARANOIA_C4_AEAD Design Boundary
+## PARANOIA_C4_AEAD — Removed (Phase 0, 2026-09-27)
 
-The target proposal is payload encryption only:
+`PARANOIA_C4_AEAD` was a design-only, permanently-disabled cascade-cipher proposal
+(Threefish -> Serpent -> AES -> SHACAL-2). It was never an implemented secure mode:
+the code always threw an exception, and no reviewed primitive implementation, KDF/MAC
+design, or test vectors ever existed for it.
 
-```text
-message key
-  -> domain-separated KDF subkeys for Threefish, Serpent, AES, SHACAL-2, MAC, nonce
-plaintext -> Threefish -> Serpent -> AES -> SHACAL-2 -> ciphertext
-tag = MAC(macKey, associatedData || ciphertext)
-```
+It was removed entirely from the codebase in Phase 0 of the crypto rewrite (see
+`docs/ai-workflow/REWRITE_PLAN.md`), rather than kept as a disabled placeholder,
+because a home-grown cipher cascade adds attack surface without any provable security
+benefit over a single reviewed AEAD construction — the same reasoning that governs
+this project's choice to migrate to real `libsignal` Double Ratchet + PQXDH instead of
+inventing additional home-grown ratchet layers.
 
-Any future implementation must:
-
-- authenticate before releasing plaintext;
-- never fall back to plaintext;
-- never share direct keys across primitives;
-- never bypass verification;
-- define framing, modes, nonces, and failure behavior precisely.
-
-In the current MVP, `ParanoiaC4Aead` always fails with
-`ExperimentalSuiteDisabledException`.
-
-There is no accepted XOR cascade, toy implementation, or unsupported secure-mode claim.
-
-Safe implementation would require:
-
-- selected reviewed primitive libraries;
-- precisely specified modes, framing, and nonce construction;
-- domain-separated KDF and MAC design;
-- independent test vectors;
-- differential testing;
-- side-channel review;
-- external cryptographic audit.
-
-Paranoia C4 cannot replace identity verification, authenticated key agreement,
-ratcheting, device management, or metadata protection.
+`STANDARD_AEAD` (AES-256-GCM) remains the only executable payload-encryption suite in
+the legacy prototype session path. It is being replaced by real Double Ratchet sessions
+per the rewrite plan; see that document for the current protocol direction.

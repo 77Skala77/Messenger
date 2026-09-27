@@ -49,12 +49,13 @@ server or privacy audit.
 - Basic release defaults now disable cleartext networking and enable shrinking, but
   no reproducible-build review or external release-hardening audit has been completed.
 
-## Paranoia C4
+## Paranoia C4 (removed)
 
-`PARANOIA_C4_AEAD` is disabled. The module is only an interface and design note until
-all necessary primitives are sourced from reliable reviewed implementations, its full
-composition is specified and tested, and an independent audit accepts the result.
-It must not be enabled, advertised, or treated as secure based on its cascade name.
+`PARANOIA_C4_AEAD` was a permanently-disabled cascade-cipher placeholder. It was
+removed from the codebase entirely in Phase 0 of the crypto rewrite (see
+`docs/ai-workflow/REWRITE_PLAN.md`) rather than kept disabled — it never had reviewed
+primitives, a specified composition, or an audit, and a home-grown cascade would not
+have added provable security over a single reviewed AEAD suite in any case.
 
 ## Logging And Diagnostics Policy
 

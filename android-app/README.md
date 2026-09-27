@@ -52,7 +52,8 @@ the default in-app language; English is available from Settings.
   invitation import. The app continues to display an identity-not-verified warning until
   the safety number or verification QR is checked through a trusted or independent channel.
 - Primary-only delivery policy. The current planner never silently selects a secondary device.
-- Disabled `PARANOIA_C4_AEAD` module boundary and explicit experimental warning.
+- `PARANOIA_C4_AEAD` was removed entirely (2026-09-27) — it is not present in any form,
+  not merely disabled. See `docs/ai-workflow/DECISIONS.md` DEC-016.
 - Disabled official `libsignal` migration module pinned at `0.94.1`; it compiles as a
   dependency gate but is not used by the running MVP.
 - Disabled `core:signalstore` spike: neutral Signal record interfaces, vault-encrypted
@@ -157,10 +158,11 @@ for the accepted decision and persistence boundary.
 `AES/GCM/NoPadding`, 256-bit keys, a 96-bit nonce assembled from a random per-key
 prefix and durable monotonic counter, a 128-bit authentication tag, and bound AAD.
 
-`PARANOIA_C4_AEAD` is an isolated, disabled placeholder. It contains no home-grown
-cascade or fallback encryption. It cannot be enabled as secure until independently
-reviewed implementations of Threefish, Serpent, AES and SHACAL-2, domain-separated
-KDF/MAC design, test vectors, and an audit are available.
+`PARANOIA_C4_AEAD` — a proposed Threefish/Serpent/AES/SHACAL-2 cascade — was removed
+from the codebase entirely on 2026-09-27 rather than kept as a disabled placeholder.
+It never had reviewed primitive implementations, domain-separated KDF/MAC design, or
+test vectors, and a home-grown cascade would not have added provable security over a
+single reviewed AEAD suite. See `docs/ai-workflow/DECISIONS.md` DEC-016.
 
 ## Build Android App
 

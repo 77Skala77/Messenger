@@ -49,10 +49,12 @@ When changing an accepted decision:
 | DEC-009 | HTTP relay access is debug-only; release cleartext is denied | ACCEPTED |
 | DEC-010 | Signal migration must use a reviewed official integration, not a handwritten ratchet | GATED |
 | DEC-011 | SignalStore and invitation v2 remain disabled experimental boundaries | ACCEPTED |
-| DEC-012 | `PARANOIA_C4_AEAD` remains disabled and cannot replace a session protocol | ACCEPTED |
+| DEC-012 | `PARANOIA_C4_AEAD` remains disabled and cannot replace a session protocol | SUPERSEDED by DEC-016 |
 | DEC-013 | Diagnostics use minimum necessary, sanitized technical data | ACCEPTED |
 | DEC-014 | Reset and deletion must not claim forensic secure erase | ACCEPTED |
 | DEC-015 | Workflow documents have separate, non-overlapping roles | ACCEPTED |
+| DEC-016 | `PARANOIA_C4_AEAD` removed entirely rather than kept disabled | ACCEPTED |
+| DEC-017 | Keep and finish `:core:signal-protocol`/`:core:signalstore` rather than rebuild clean | ACCEPTED |
 
 ---
 
@@ -175,7 +177,7 @@ A reviewed Signal-backed implementation is ready behind an explicit feature flag
 
 ### Context
 
-The repository has one executable payload-encryption suite and one disabled experimental Paranoia C4 boundary.
+The repository has one executable payload-encryption suite. The former disabled experimental Paranoia C4 boundary was removed 2026-09-27 (see DEC-016).
 
 ### Decision
 
@@ -504,7 +506,8 @@ The gated migration work has a reviewed implementation plan and the user explici
 
 ## DEC-012 — `PARANOIA_C4_AEAD` remains disabled and cannot replace a session protocol
 
-**Status:** ACCEPTED
+**Status:** SUPERSEDED by DEC-016 (2026-09-27) — `PARANOIA_C4_AEAD` was removed from
+the codebase entirely, not merely kept disabled. This record is retained for history.
 **Recorded from existing repository evidence:** 2026-07-26
 
 ### Context
@@ -674,6 +677,101 @@ The workflow becomes too large, conflicting, or insufficient for actual reposito
 
 ---
 
+## DEC-016 — `PARANOIA_C4_AEAD` removed entirely rather than kept disabled
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-27
+
+### Context
+
+DEC-012 kept `PARANOIA_C4_AEAD` as a disabled placeholder pending a hypothetical future
+independent review of a home-grown Threefish/Serpent/AES/SHACAL-2 cascade. Starting the
+crypto-core rewrite in `docs/ai-workflow/REWRITE_PLAN.md` (real Double Ratchet + PQXDH
+via `libsignal`) forced the question of what, if anything, Paranoia C4 was still for.
+
+### Decision
+
+Remove `PARANOIA_C4_AEAD` from the codebase entirely: the `ParanoiaC4Aead` class, the
+`ExperimentalSuiteDisabledException` it alone used, the `EncryptionMode.PARANOIA_C4_AEAD`
+enum entry, the dead `ENABLE_PARANOIA_C4` `BuildConfig` field, the disabled option row
+and warning text in the Settings screen, and the associated string resources. Do not
+keep it as a disabled boundary "for later" — a home-grown cipher cascade does not add
+provable security over a single reviewed AEAD suite, and this project's own committed
+direction is a reviewed protocol (`libsignal` Double Ratchet/PQXDH), not additional
+home-grown layers on top of it.
+
+### Consequences
+
+- No code path anywhere in the repository references `PARANOIA_C4_AEAD` after this
+  decision. `EncryptionMode` now has exactly one value, `STANDARD_AEAD`.
+- `EncryptionMode` was never persisted in Room and is not part of any wire format, QR
+  invitation, or migration — removal required no schema migration.
+- DEC-012 is superseded by this decision and retained only for history.
+- Any future desire for a second/alternate payload cipher must go through the same
+  independent-review bar as `STANDARD_AEAD` did — no revival of the cascade design.
+
+### Evidence
+
+- [`../CRYPTO_DESIGN.md`](../CRYPTO_DESIGN.md)
+- [`../SECURITY_WARNINGS.md`](../SECURITY_WARNINGS.md)
+- [`REWRITE_PLAN.md`](REWRITE_PLAN.md)
+
+### Revisit when
+
+Never, unless someone proposes a specific reviewed additional cipher with a concrete
+threat-model justification independent of "more layers feels safer."
+
+---
+
+## DEC-017 — Keep and finish `:core:signal-protocol` and `:core:signalstore` rather than rebuild clean
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-27
+
+### Context
+
+Starting the crypto-core rewrite (`docs/ai-workflow/REWRITE_PLAN.md`) required deciding
+whether `:core:signal-protocol` (the `OfficialSignalDoubleRatchetGate` boundary pinned to
+`libsignal` `0.94.1`) and `:core:signalstore` (the neutral `Signal*StoreBoundary`
+interfaces and `EncryptedSignal*RecordEntity` Room tables already at schema v5) should be
+finished as the landing spot for real Double Ratchet/PQXDH sessions, or deleted and
+rebuilt from a blank module.
+
+### Decision
+
+Keep both modules and finish them in place. They are already structured correctly for
+this purpose: the dependency is pinned, the store interfaces match the shape `libsignal`
+needs (identity/session/prekey/signed-prekey/Kyber-prekey records), and the Room schema
+already reserves encrypted-at-rest tables for them. Phase 1 of `REWRITE_PLAN.md` turns
+`OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` on behind a feature flag and
+implements the `Signal*StoreBoundary` interfaces against real `libsignal` record types,
+rather than starting a new module pair from scratch.
+
+### Consequences
+
+- No new Gradle modules are created for the Double Ratchet/PQXDH work; `:core:signal-protocol`
+  and `:core:signalstore` stop being disabled placeholders and become live, in-progress code
+  once Phase 1 starts.
+- The existing Room v5 schema for `signal_*` tables is the basis for Phase 2's real migration,
+  not a throwaway placeholder to delete.
+- `DisabledSignalSessionManagerAdapter` and `OfficialSignalDoubleRatchetGate`'s current
+  "throws while disabled" behavior stays in place until Phase 1 explicitly replaces it
+  behind the feature flag described there — this decision does not itself enable anything.
+
+### Evidence
+
+- [`REWRITE_PLAN.md`](REWRITE_PLAN.md) Phase 1
+- `core/signalstore/src/main/kotlin/app/securemessenger/signalstore/SignalStoreBoundaries.kt`
+- `core/signal-protocol/src/main/java/app/securemessenger/signalprotocol/OfficialSignalDoubleRatchetGate.java`
+- `core/storage/src/main/kotlin/app/securemessenger/storage/SecureDatabase.kt` (schema v5 `signal_*` tables)
+
+### Revisit when
+
+Phase 1 implementation reveals the existing interfaces don't actually fit real
+`libsignal` store contracts and need a structural redesign rather than filling in.
+
+---
+
 ## Explicitly rejected shortcuts
 
 The following are not accepted project decisions:
@@ -682,7 +780,7 @@ The following are not accepted project decisions:
 - treating experimental invitation v2 as real PQXDH;
 - using in-memory Signal stores in the application runtime;
 - implementing a handwritten Double Ratchet as a shortcut;
-- enabling Paranoia C4 without full reviewed design and audit;
+- reviving Paranoia C4 or any home-grown cipher cascade in any form (removed entirely, see DEC-016 — not merely "disabled without audit");
 - adding plaintext fallback for compatibility or availability;
 - trusting relay acceptance as receiver delivery;
 - treating `Delivered` as a read receipt;
@@ -697,12 +795,16 @@ The following are not accepted project decisions:
 
 ## Deferred directions that are not current decisions to implement
 
-These remain roadmap topics, not active commitments:
+**Updated 2026-09-27:** reviewed Signal/PQXDH plus Double Ratchet activation and
+cryptographic multi-device fan-out are **no longer merely deferred** — they are the
+committed direction of `docs/ai-workflow/REWRITE_PLAN.md` Phases 1 and 4. They are
+kept in this list below only to record that they were once undecided; treat the
+rewrite plan as authoritative on this point. Paranoia C4 is removed below (it was
+deleted from the codebase, not deferred — see DEC-016).
 
-- reviewed Signal/PQXDH plus Double Ratchet activation;
-- post-quantum ML-KEM hybrid handshake;
-- cryptographic multi-device fan-out;
-- synchronized device revocation;
+Remaining roadmap topics that are still genuinely deferred, not active commitments:
+
+- post-quantum ML-KEM hybrid handshake beyond what PQXDH itself provides;
 - MLS-based groups;
 - sealed sender;
 - padding and batching;
@@ -713,8 +815,7 @@ These remain roadmap topics, not active commitments:
 - app lock and biometric unlock;
 - encrypted backup;
 - secure data-destruction design;
-- reproducible builds, SBOM, and full incident-response process;
-- Paranoia C4 implementation.
+- reproducible builds, SBOM, and full incident-response process.
 
 Each requires a separate scoped decision before implementation begins.
 

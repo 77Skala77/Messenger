@@ -610,19 +610,7 @@ private fun SettingsScreen(
                         selected = true,
                         modifier = Modifier.testTag("encryption_option_standard"),
                     ) {}
-                    SelectableOptionRow(
-                        label = stringResource(
-                            R.string.experimental_suite_format,
-                            stringResource(R.string.paranoia_c4_aead),
-                            stringResource(R.string.experimental_mode),
-                        ),
-                        selected = false,
-                        enabled = false,
-                        modifier = Modifier.testTag("encryption_option_paranoia_c4"),
-                    ) {}
                 }
-                SecurityWarning(stringResource(R.string.c4_warning))
-                Text(stringResource(R.string.c4_disabled), style = MaterialTheme.typography.bodySmall)
             }
             item { Text(stringResource(R.string.relay_server), style = MaterialTheme.typography.titleLarge) }
             item {

@@ -133,7 +133,7 @@ Review whether these can accidentally become reachable:
 - neutral Signal-record stores;
 - experimental PQXDH invitation version 2;
 - active version-1 invitation separation;
-- `PARANOIA_C4_AEAD` placeholder;
+- confirmation that `PARANOIA_C4_AEAD` is absent (removed 2026-09-27, not a placeholder to inspect);
 - debug-only QA features;
 - release flags and resources.
 
@@ -244,8 +244,8 @@ Disclose these before audit intake:
 - local deletion cannot guarantee deletion of every relay copy;
 - relay metadata exposure and denial of service;
 - no production relay or current verified infrastructure;
-- official libsignal integration disabled and blocked;
-- `PARANOIA_C4_AEAD` disabled and unimplemented;
+- official libsignal integration disabled and blocked (rewrite in progress, see `docs/ai-workflow/REWRITE_PLAN.md`);
+- `PARANOIA_C4_AEAD` removed from the codebase (2026-09-27) — no longer a boundary to audit;
 - dependency verification, SBOM, reproducibility, and signing process incomplete;
 - no independent audit completed.
 

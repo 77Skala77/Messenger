@@ -18,12 +18,11 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("boolean", "ENABLE_PARANOIA_C4", "false")
+            // No debug-only build config fields at present.
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            buildConfigField("boolean", "ENABLE_PARANOIA_C4", "false")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

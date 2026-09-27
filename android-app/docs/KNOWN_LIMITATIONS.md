@@ -8,9 +8,11 @@ or release-security audit and must not be represented as suitable for real sensi
 communications.
 
 Current chats use `SimplifiedSessionManager` and the executable `STANDARD_AEAD` suite.
-There is no active PQXDH or Double Ratchet session. Signal-backed sessions remain
-disabled, and `PARANOIA_C4_AEAD` remains a disabled placeholder rather than a secure
-mode. Disabled modules, storage spikes, DTOs, interfaces, and test fixtures add no
+There is no active PQXDH or Double Ratchet session yet — real Double Ratchet/PQXDH
+via `libsignal` is the committed direction of `docs/ai-workflow/REWRITE_PLAN.md`.
+Signal-backed sessions remain disabled pending that rewrite. `PARANOIA_C4_AEAD` was
+removed from the codebase entirely (2026-09-27) rather than kept as a disabled
+placeholder. Disabled modules, storage spikes, DTOs, interfaces, and test fixtures add no
 security guarantee to the active messaging path.
 
 ## Session And Protocol Security

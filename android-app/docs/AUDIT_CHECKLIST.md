@@ -4,7 +4,7 @@
 
 - [ ] Confirm active chats instantiate `SimplifiedSessionManager`, with its non-production limitation visible in documentation.
 - [ ] Confirm Signal-backed session feature flags remain disabled and no active delivery path calls the adapter.
-- [ ] Confirm `PARANOIA_C4_AEAD` remains disabled and contains no fake or fallback implementation.
+- [ ] Confirm `PARANOIA_C4_AEAD` is absent from the codebase (removed 2026-09-27) and was not reintroduced in any form.
 
 ## Payload And Local Data
 

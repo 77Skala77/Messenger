@@ -3,7 +3,6 @@ package app.securemessenger.crypto
 import app.securemessenger.domain.Invitation
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class SerializationAndInvitationTest {
@@ -55,12 +54,5 @@ class SerializationAndInvitationTest {
         assertEquals(original.conversationId, restored.conversationId)
         assertEquals(original.nextSendingNumber, restored.nextSendingNumber)
         assertArrayEquals(original.rootKey, restored.rootKey)
-    }
-
-    @Test
-    fun `paranoia c4 remains disabled without audited primitives`() {
-        assertThrows(ExperimentalSuiteDisabledException::class.java) {
-            ParanoiaC4Aead().encrypt(ByteArray(32), ByteArray(1), ByteArray(0))
-        }
     }
 }

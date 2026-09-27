@@ -4,7 +4,6 @@ import android.app.Application
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import app.securemessenger.crypto.CryptoFeatureFlags
 import app.securemessenger.crypto.EstablishedSession
 import app.securemessenger.crypto.InvitationCodec
 import app.securemessenger.crypto.PersistentCounterNonceManager
@@ -69,7 +68,6 @@ data class SecureMessengerUiState(
     val messages: Map<String, List<DisplayMessage>> = emptyMap(),
     val devices: Map<String, List<ContactDevice>> = emptyMap(),
     val encryptionMode: EncryptionMode = EncryptionMode.STANDARD_AEAD,
-    val paranoiaAvailable: Boolean = CryptoFeatureFlags.PARANOIA_C4_AEAD_AVAILABLE,
     val relayServerUrl: String = RelayServerSettings.DEFAULT_EMULATOR_URL,
     val relayHealthStatus: RelayHealthStatus? = null,
     val allowInsecureRelayHttp: Boolean = false,

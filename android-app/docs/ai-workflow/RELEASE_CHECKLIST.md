@@ -47,7 +47,8 @@ Current repository defaults at the last documentation verification:
 - version name: `0.1.0-mvp`
 - release minification: enabled
 - release resource shrinking: enabled
-- `ENABLE_PARANOIA_C4`: false in debug and release
+- `ENABLE_PARANOIA_C4` `BuildConfig` field: removed entirely (2026-09-27) — it was dead
+  configuration read by no code path, and `PARANOIA_C4_AEAD` itself no longer exists
 
 Reverify these values from the current repository before every release.
 
@@ -110,7 +111,7 @@ Do not remove the `mvp`, `alpha`, `preview`, or equivalent warning until the pro
 - [ ] Debug-only relay allowances remain scoped to debug resources/configuration.
 - [ ] Release cleartext networking remains disabled.
 - [ ] Release code rejects HTTP relay URLs.
-- [ ] `ENABLE_PARANOIA_C4` remains `false`.
+- [ ] `PARANOIA_C4_AEAD` remains absent from the codebase (removed 2026-09-27; the `ENABLE_PARANOIA_C4` `BuildConfig` field was removed with it, not just kept `false`).
 - [ ] Signal-backed session activation flags remain `false` unless reviewed activation was explicitly approved.
 - [ ] No debug dependency, mock transport, test fixture, sample key, bypass, or development server setting leaks into release.
 - [ ] Manifest merge output is reviewed when manifests, permissions, components, or build types changed.
@@ -164,7 +165,7 @@ Current repository policy to reverify:
 - [ ] In-memory Signal stores are not reachable from app runtime.
 - [ ] Experimental PQXDH invitation v2 cannot enter the active v1 invitation flow.
 - [ ] SignalStore record boundaries are not described as completed official protocol storage.
-- [ ] `PARANOIA_C4_AEAD` remains disabled.
+- [ ] `PARANOIA_C4_AEAD` remains absent from the codebase (removed 2026-09-27, not reintroduced).
 - [ ] No home-grown cascade, placeholder primitive, unsafe fallback, or incomplete protocol path is packaged as an active feature.
 - [ ] Dependency, Gradle, Kotlin, manifest, resource, JNI/ABI, shrinker, and packaging changes did not accidentally activate disabled code.
 - [ ] Licensing and distribution impact was reviewed for any libsignal-related artifact change.

@@ -14,10 +14,16 @@ It is not:
 
 - Repository: `https://github.com/77Skala77/Messenger`
 - Authoritative recoverable branch: `main`
-- Last verified GitHub HEAD before this queue update: `d2a38a25f24e6ea2f7c674d9f51c9daa6a77e8e0`
-- Queue created: `2026-07-26`
+- Last verified GitHub HEAD before this queue update: `527c5ae95609b1601b6f6e8a0823c097a0ba4dd3`
+- Queue created: `2026-07-26`; reconciled `2026-09-27` (Phase 0 of `REWRITE_PLAN.md`)
 - Open GitHub issues found during queue creation: none
-- Current limitation: the previous laptop and local clone are unavailable; only the Android phone is available.
+- Current limitation (as of 2026-07-26, now outdated): the previous laptop and local
+  clone were unavailable; only the Android phone was available. A working development
+  machine now exists (2026-09-27); see `CURRENT_PROJECT_STATE.md` section 14.
+- **Primary current direction:** `docs/ai-workflow/REWRITE_PLAN.md` — a real
+  Double Ratchet/PQXDH crypto rewrite followed by a UI pass. TQ-100 through TQ-107
+  below describe overlapping Signal-migration groundwork; treat the rewrite plan as
+  authoritative where the two disagree on sequencing.
 
 Reverify branch, HEAD, issues, pull requests, and repository state before starting a task.
 
@@ -45,7 +51,7 @@ Reverify branch, HEAD, issues, pull requests, and repository state before starti
 3. Do not infer implementation from documentation, interfaces, DTOs, placeholders, disabled modules, fixtures, or historical chat reports.
 4. Keep each task narrow enough for one focused review and commit.
 5. Split unrelated runtime, build, storage, protocol, UI, and documentation changes.
-6. Do not enable disabled Signal, PQXDH, libsignal, SignalStore, or Paranoia C4 paths through an ordinary task.
+6. Do not enable disabled Signal, PQXDH, libsignal, or SignalStore paths through an ordinary task. (`PARANOIA_C4_AEAD` no longer exists in the codebase — removed 2026-09-27.)
 7. Do not commit or push unless explicitly requested.
 8. Record exact checks run and skipped.
 9. Link a GitHub issue or pull request when one is created.
@@ -54,15 +60,17 @@ Reverify branch, HEAD, issues, pull requests, and repository state before starti
 
 ## Current order
 
-1. TQ-002 — Add the approved workflow package to GitHub
-2. TQ-003 — Audit canonical device-state identifiers
-3. TQ-004 — Reconcile existing project documentation
+1. ~~TQ-002 — Add the approved workflow package to GitHub~~ — DONE
+2. ~~TQ-004 — Reconcile existing project documentation~~ — DONE
+3. TQ-003 — Audit canonical device-state identifiers
 4. TQ-005 — Rebuild a trusted development environment
 5. TQ-006 — Re-establish the executable verification baseline
 6. TQ-007 — Establish the release-variant baseline
 7. TQ-008 — Add dependency verification, locking, and SBOM workflow
 
-Signal migration, production relay, and independent audit tasks remain blocked.
+Signal migration, production relay, and independent audit tasks remain blocked, and
+are superseded in sequencing by `docs/ai-workflow/REWRITE_PLAN.md`, which is now the
+primary active plan for the crypto rewrite.
 
 ---
 
@@ -86,7 +94,8 @@ Completion evidence is the final reviewed package and the separate workflow cons
 ## TQ-002 — Add the approved workflow package to GitHub
 
 **Priority:** P0
-**Status:** READY
+**Status:** DONE (corrected 2026-09-27 — was stale as READY; integrated via commits
+`abfa147` through `527c5ae`, see `CURRENT_PROJECT_STATE.md` section 13)
 **Type:** Documentation-only repository change
 **Security-sensitive:** Yes
 **Explicit repository-write approval required:** Yes
@@ -147,7 +156,7 @@ A full Android build may be skipped as documentation-only, but skipped checks mu
 ## TQ-003 — Audit canonical device-state identifiers and persistence
 
 **Priority:** P0
-**Status:** READY AFTER TQ-002
+**Status:** READY (TQ-002 is now DONE, corrected 2026-09-27)
 **Type:** Audit first; no code change in the first pass
 **Security-sensitive:** Yes
 
@@ -611,13 +620,14 @@ These roadmap directions require a new decision and scoped design before enterin
 - encrypted backup;
 - secure data-destruction design;
 - synchronized cryptographic revocation;
-- Paranoia C4 implementation.
+- Paranoia C4 implementation — moot: `PARANOIA_C4_AEAD` was removed entirely from the
+  codebase 2026-09-27 (Phase 0 of `REWRITE_PLAN.md`), not merely left disabled.
 
 Do not open these as implementation tasks merely because they appear in the roadmap.
 
 # Done retention
 
-TQ-001 is complete outside GitHub and is retained as a compact record until TQ-002 integrates the reviewed package.
+TQ-001 is complete outside GitHub; TQ-002 integrated the reviewed package (DONE, see above). This record is retained for history.
 
 The workflow drafts are still not repository changes and do not complete TQ-002.
 

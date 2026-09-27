@@ -9,7 +9,7 @@ failure-investigation aid, not protocol verification, security audit evidence by
 guarantee that captured output is free of sensitive information.
 
 The active app remains a prototype using `SimplifiedSessionManager` and `STANDARD_AEAD`.
-Signal-backed sessions and `PARANOIA_C4_AEAD` remain disabled.
+Signal-backed sessions remain disabled. `PARANOIA_C4_AEAD` no longer exists in the codebase (removed 2026-09-27).
 
 ## Current Helper Scripts
 

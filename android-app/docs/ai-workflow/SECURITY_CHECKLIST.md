@@ -168,8 +168,7 @@ Mark every applicable item. For an item that is not applicable, record `N/A` and
 - [ ] Dependency, Kotlin, Gradle, JNI, ABI, manifest, resource, shrinker, and packaging changes do not accidentally activate experimental code.
 - [ ] AGPL/licensing and unsupported-external-use concerns were reviewed when libsignal-related distribution changed.
 - [ ] Migration, rollback, downgrade, interoperability, and identity-change behavior were reviewed before any Signal activation.
-- [ ] `PARANOIA_C4_AEAD` remains disabled unless explicit reviewed activation work was approved.
-- [ ] Paranoia C4 is not described as a replacement for a reviewed session protocol.
+- [ ] `PARANOIA_C4_AEAD` remains absent from the codebase (removed 2026-09-27; would require a fresh design and independent review to ever reintroduce, not a flag flip).
 - [ ] No home-grown cascade, fallback, unauthenticated composition, ambiguous KDF reuse, or incomplete primitive placeholder entered an active path.
 - [ ] Historical lost local Signal work was not recreated or ported wholesale without current-repository review and explicit approval.
 

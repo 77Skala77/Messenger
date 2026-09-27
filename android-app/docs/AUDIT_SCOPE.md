@@ -18,7 +18,7 @@ production-secure and must not be used for real sensitive conversations.
 
 - Active chats still use `SimplifiedSessionManager` based on prototype ECDH/HKDF behavior.
 - Signal-backed sessions are disabled and are not reachable from active message delivery.
-- `PARANOIA_C4_AEAD` is disabled and has no executable cascade implementation.
+- `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27; there is no cascade implementation to scope in.
 - LAN `http://` relay access is debug-only; release configuration blocks insecure HTTP URLs.
 
 ## Review Objectives

@@ -1,8 +1,10 @@
 package app.securemessenger.domain
 
+// PARANOIA_C4_AEAD was removed (2026-09-27): it was a disabled, unreviewed cascade-cipher
+// placeholder (Threefish -> Serpent -> AES -> SHACAL-2) with no accepted implementation.
+// STANDARD_AEAD remains the only executable suite. See REWRITE_PLAN.md Phase 0.
 enum class EncryptionMode(val suiteId: String) {
     STANDARD_AEAD("STANDARD_AEAD"),
-    PARANOIA_C4_AEAD("PARANOIA_C4_AEAD"),
 }
 
 enum class VerificationStatus {

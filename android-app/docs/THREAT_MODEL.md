@@ -20,8 +20,9 @@ commit unless a current test run is recorded. Historical phone, emulator, restar
 receipt, and VPS QA results are useful context but are not verification of a later commit
 or of current infrastructure.
 
-Disabled Signal, Signal-store, PQXDH invitation, and `PARANOIA_C4_AEAD` boundaries add no
-security guarantee to the active messaging path.
+Disabled Signal, Signal-store, and PQXDH invitation boundaries add no security
+guarantee to the active messaging path. `PARANOIA_C4_AEAD` no longer exists in the
+codebase (removed 2026-09-27) and never added one either.
 
 ## Adversaries And Capabilities
 

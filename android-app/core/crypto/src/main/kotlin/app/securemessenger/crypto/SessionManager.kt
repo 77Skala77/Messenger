@@ -47,6 +47,17 @@ interface SessionManager {
     fun detectReplay(conversationId: String, messageNumber: Long)
 }
 
+/**
+ * LEGACY / FROZEN (2026-09-27): this is the prototype session layer — static ECDH plus
+ * HKDF-derived per-message keys, with no Double Ratchet forward secrecy or post-compromise
+ * security. It is being replaced by real `libsignal` Double Ratchet + PQXDH sessions per
+ * `docs/ai-workflow/REWRITE_PLAN.md` Phase 1.
+ *
+ * Existing local conversations keep working on this path. Do not add new features or
+ * "improvements" here; fix only what is required to keep existing behavior correct while
+ * the real protocol is built alongside it. New conversation work belongs in the Phase 1
+ * `libsignal`-backed session path once it lands.
+ */
 class SimplifiedSessionManager(
     private val suite: EncryptionSuite,
     private val random: SecureRandom = SecureRandom(),

@@ -9,8 +9,11 @@ English is available in Settings.
 > sensitive conversations.
 
 Current chats use the prototype `SimplifiedSessionManager`, not Signal
-PQXDH/Double Ratchet. The Signal-backed store is a disabled migration spike only.
-`PARANOIA_C4_AEAD` is also a disabled placeholder and is not an enabled secure mode.
+PQXDH/Double Ratchet. The Signal-backed store is a disabled migration spike only,
+now being finished into a real integration — see
+[`android-app/docs/ai-workflow/REWRITE_PLAN.md`](android-app/docs/ai-workflow/REWRITE_PLAN.md).
+`PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27; it is not
+present in any form, not merely disabled.
 
 Confirmed QA: a physical Android phone and Android Emulator exchanged messages via
 the local Node relay, delivery receipts updated outgoing messages to `Delivered`,
@@ -41,6 +44,7 @@ A domain name and HTTPS are required before broader testing.
 ## Documentation
 
 - [Android app and relay overview](android-app/README.md)
+- [Crypto-core rewrite plan (active)](android-app/docs/ai-workflow/REWRITE_PLAN.md)
 - [Two-device LAN test](android-app/docs/TWO_DEVICE_TEST.md)
 - [Manual two-device QA checklist](android-app/docs/MANUAL_TWO_DEVICE_QA.md)
 - [Crypto design](android-app/docs/CRYPTO_DESIGN.md)

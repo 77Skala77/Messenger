@@ -9,8 +9,8 @@ reachable by separated QA clients. It is not a deployment runbook, production de
 report, or proof that any public endpoint is currently authorized or reachable.
 
 Public reachability does not improve the client session protocol. Normal chats still use
-`SimplifiedSessionManager` and `STANDARD_AEAD`; Signal-backed sessions and
-`PARANOIA_C4_AEAD` remain disabled.
+`SimplifiedSessionManager` and `STANDARD_AEAD`; Signal-backed sessions remain disabled.
+`PARANOIA_C4_AEAD` no longer exists in the codebase (removed 2026-09-27).
 
 ## Prefer Local QA First
 

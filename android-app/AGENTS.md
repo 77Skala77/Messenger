@@ -29,7 +29,7 @@ It is not production-ready and must not be represented as ready for real sensiti
 
 The current executable chat path uses the prototype session layer and `STANDARD_AEAD`.
 
-Signal-backed sessions, PQXDH semantics, official libsignal processing, SignalStore integration, and `PARANOIA_C4_AEAD` are experimental or disabled boundaries unless current code, dependency wiring, feature flags, and tests explicitly prove otherwise.
+Signal-backed sessions, PQXDH semantics, official libsignal processing, and SignalStore integration are experimental or disabled boundaries unless current code, dependency wiring, feature flags, and tests explicitly prove otherwise. `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27 and no longer exists in any form (see `docs/ai-workflow/DECISIONS.md` DEC-016).
 
 Distinguish these statuses in code reviews and documentation:
 
@@ -149,7 +149,7 @@ Treat these as security-critical:
 - diagnostics and copied reports
 - reset, wipe, and secure-erasure claims
 - disabled Signal, libsignal, PQXDH, and SignalStore boundaries
-- disabled `PARANOIA_C4_AEAD` boundary
+- removed `PARANOIA_C4_AEAD` boundary (do not reintroduce a home-grown cipher cascade in any form)
 - dependency, Kotlin/Gradle, JNI/ABI, manifest, resource, and packaging changes that could activate experimental code
 - release cleartext-network policy and debug/release separation
 
@@ -214,7 +214,7 @@ Do not treat the disabled SignalStore spike as production Signal storage or as a
 
 Do not enable libsignal-backed processing without explicit approval, tests, threat review, licensing review, toolchain review, JNI/ABI and packaging review, migration and rollback review, interoperability testing, and independent integration review.
 
-Do not enable `PARANOIA_C4_AEAD` as secure without independently reviewed primitives, test vectors, domain-separated KDF/MAC design, failure semantics, and audit.
+`PARANOIA_C4_AEAD` was removed from the codebase entirely (2026-09-27, DEC-016) rather than kept disabled. Do not reintroduce it, or any other home-grown cipher cascade, without independently reviewed primitives, test vectors, domain-separated KDF/MAC design, failure semantics, and audit.
 
 Determine any Signal migration task from the current repository, `docs/ai-workflow/TASK_QUEUE.md`, `docs/ai-workflow/DECISIONS.md`, `docs/ROADMAP.md`, and `docs/SIGNAL_MIGRATION_SPIKE.md`. The concrete task queue and current code take precedence over roadmap wording.
 
@@ -353,4 +353,4 @@ For Signal, crypto, session, or invitation work, also report explicitly:
 - `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` value
 - Official libsignal active in normal chats: yes/no
 - Normal v1 invitation flow changed: yes/no
-- `PARANOIA_C4_AEAD` enabled: yes/no
+- `PARANOIA_C4_AEAD` reintroduced in any form: yes/no (must always be no; it was removed entirely, not gated)

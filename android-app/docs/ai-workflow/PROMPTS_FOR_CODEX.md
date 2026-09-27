@@ -23,7 +23,7 @@ For every task:
 - Keep changes minimal and reviewable.
 - Preserve fail-closed behavior.
 - Do not expose plaintext, keys, tokens, QR payloads, raw protocol records, or unsafe diagnostics.
-- Do not enable Signal, PQXDH, libsignal, SignalStore, or `PARANOIA_C4_AEAD` paths unless the task explicitly requests reviewed activation work.
+- Do not enable Signal, PQXDH, libsignal, or SignalStore paths unless the task explicitly requests reviewed activation work. `PARANOIA_C4_AEAD` no longer exists in the codebase (removed 2026-09-27) and must not be reintroduced.
 - Do not commit or push unless the prompt explicitly requests it.
 - Report what was verified and what could not be verified.
 
@@ -206,7 +206,7 @@ Review at minimum:
 - secret logging or copied-diagnostics exposure;
 - debug/release boundary drift;
 - accidental Signal/libsignal/PQXDH/SignalStore activation;
-- accidental `PARANOIA_C4_AEAD` activation;
+- reintroduction of `PARANOIA_C4_AEAD` or any home-grown cipher cascade (it was removed entirely, not gated);
 - dependency, manifest, resource, JNI/ABI, and packaging changes;
 - unsupported production-security or interoperability claims.
 
@@ -338,7 +338,7 @@ Check:
 - branch and HEAD;
 - module list;
 - active session and crypto path;
-- Signal, migration, and Paranoia C4 flags;
+- Signal and migration flags (`PARANOIA_C4_AEAD` no longer exists to flag-check);
 - relay API and build policy;
 - Room schema and migration version;
 - device states and delivery semantics;

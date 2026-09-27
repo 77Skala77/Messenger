@@ -16,8 +16,10 @@ A test file or historical QA report is not proof that the same check passed for 
 reviewed commit. Exact pass, fail, or skip results must come from a current recorded run.
 
 The active Android chat path uses the prototype `SimplifiedSessionManager` with
-`STANDARD_AEAD`. Signal-backed sessions and `PARANOIA_C4_AEAD` remain disabled and do
-not replace, migrate, or strengthen the active delivery path.
+`STANDARD_AEAD`. Signal-backed sessions remain disabled and do not yet replace,
+migrate, or strengthen the active delivery path (a real Double Ratchet/PQXDH rewrite
+is planned — see `docs/ai-workflow/REWRITE_PLAN.md`). `PARANOIA_C4_AEAD` no longer
+exists in the codebase (removed 2026-09-27).
 
 ## Current Runtime Contract
 
@@ -244,7 +246,7 @@ or VPS remains available, authorized, or securely configured.
 - WorkManager does not guarantee prompt or reliable offline delivery.
 - The relay exposes metadata and can deny service.
 - Debug HTTP transport is for development and QA only.
-- `PARANOIA_C4_AEAD` is disabled and contains no operational secure implementation.
+- `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27.
 - Signal-backed sessions remain disabled.
 - No independent cryptographic, Android, protocol, relay, privacy, or application-security
   audit has been completed.

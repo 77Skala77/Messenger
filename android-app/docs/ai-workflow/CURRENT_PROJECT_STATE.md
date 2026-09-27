@@ -1,6 +1,6 @@
 # Current Project State — Secure Messenger MVP
 
-Last repository verification: 2026-07-26
+Last repository verification: 2026-09-27
 
 This file records the current recoverable state of Secure Messenger as verified against the GitHub default branch. It is a mutable factual snapshot, not a roadmap, decision log, task queue, release approval, or production-security claim.
 
@@ -8,11 +8,16 @@ This file records the current recoverable state of Secure Messenger as verified 
 
 - Repository: `https://github.com/77Skala77/Messenger`
 - Default branch: `main`
-- Last verified GitHub HEAD: `c974e460b827022a841e374a95cb1ed736b2c25b`
-- HEAD message: `Add Codex workflow guardrails`
-- Previous verified commit: `4d5ee3dcafb51ef772b7c725ef2151b75b5f9a90` — `Document VPS SSH hardening`
+- Last verified GitHub HEAD before this update: `527c5ae95609b1601b6f6e8a0823c097a0ba4dd3`
+- HEAD message: `Close TQ-004 documentation reconciliation`
+- The `c974e460b8...` HEAD this file previously recorded is stale; the ten-file
+  workflow package described in section 13 was already integrated and reconciled
+  through commits `abfa147` (`Integrate secure messenger workflow documentation`)
+  through `527c5ae` (`Close TQ-004 documentation reconciliation`).
 - The current GitHub default branch is the only known recoverable repository baseline.
-- The previous local clone and unpushed local commits are no longer available.
+- A working local clone now exists on a development machine (as of 2026-09-27); the
+  "only the phone is available" constraint recorded in section 14 is outdated — see
+  the update there.
 - Historical chat extracts and handoff notes provide context only. They do not prove that a file, commit, test, or implementation exists in the repository.
 
 When sources disagree, use this order:
@@ -176,6 +181,12 @@ This endpoint was debug-only HTTP by IP and was not suitable for release or prod
 
 ### Signal-backed sessions
 
+**Module fate decided (2026-09-27, DEC-017):** `:core:signal-protocol` and
+`:core:signalstore` are kept and will be finished in place as the real Double
+Ratchet/PQXDH implementation, per `docs/ai-workflow/REWRITE_PLAN.md` Phase 1 — not
+deleted and rebuilt from scratch. Both flags below remain `false` until Phase 1
+explicitly changes that behind a feature flag; this decision alone enables nothing.
+
 - **DISABLED:** `SignalStoreFeatureFlags.SIGNAL_BACKED_SESSIONS_ENABLED = false`.
 - **DISABLED:** `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED = false`.
 - **IMPLEMENTED/DISABLED:** official artifacts are pinned at `0.94.1` in a separate migration module.
@@ -209,11 +220,11 @@ Current documented migration blockers include:
 
 ### Paranoia C4
 
-- **DISABLED:** `PARANOIA_C4_AEAD` is an isolated placeholder.
-- It is not an enabled secure mode.
-- It contains no accepted home-grown cascade or fallback implementation in the active path.
-- It must not be enabled or described as secure without reviewed implementations, domain-separated KDF/MAC design, test vectors, integration tests, and independent audit.
-- Paranoia C4 does not replace a reviewed session protocol.
+- **REMOVED (2026-09-27, Phase 0 of the crypto rewrite):** `PARANOIA_C4_AEAD` no longer
+  exists in the codebase. It was a disabled cascade-cipher placeholder with no reviewed
+  primitives, KDF/MAC design, or test vectors, and was deleted rather than kept as a
+  disabled boundary. See `docs/ai-workflow/REWRITE_PLAN.md` for the rewrite this
+  removal is part of.
 
 ## 9. Current modules
 
@@ -311,38 +322,38 @@ Therefore:
 
 ## 13. Documentation audit state
 
-A complete ten-file workflow package has been prepared outside GitHub:
+**Superseded (2026-09-27).** The ten-file workflow package this section used to
+describe as "prepared outside GitHub, not yet integrated" was integrated into the
+repository through commits `abfa147` through `527c5ae` and reconciled across TQ-002
+through TQ-004. `TASK_QUEUE.md` should mark TQ-002 `DONE`, not `READY`, accordingly.
 
-- revised `android-app/AGENTS.md`;
-- revised `android-app/docs/ai-workflow/README.md`;
-- new `CURRENT_PROJECT_STATE.md`;
-- revised `HANDOFF.md`;
-- revised `PROMPTS_FOR_CODEX.md`;
-- revised `SECURITY_CHECKLIST.md`;
-- revised `TESTING_CHECKLIST.md`;
-- revised `RELEASE_CHECKLIST.md`;
-- new `DECISIONS.md`;
-- new `TASK_QUEUE.md`.
-
-The cross-document consistency review was completed outside the repository on 2026-07-26. The package is internally aligned for the next repository-integration step.
-
-These drafts are not part of the authoritative GitHub baseline until the user explicitly approves the repository write and the resulting GitHub commit is verified.
-
-The next queued task is TQ-002 in `TASK_QUEUE.md`: add the approved workflow package to GitHub without changing executable behavior.
+Current documentation direction lives in `docs/ai-workflow/REWRITE_PLAN.md` (the
+crypto-core rewrite: real Double Ratchet/PQXDH via `libsignal`, relay hardening,
+proper multi-device fan-out, then a Telegram-style UI pass). `TASK_QUEUE.md`'s
+TQ-1xx/TQ-100+ Signal-migration tasks and the rewrite plan describe overlapping work;
+reconciling the two into one task list is deferred rather than done here, to keep
+this Phase 0 change narrow — flagged for a follow-up documentation task.
 
 `SESSION_NOTES.md` is intentionally not planned unless a concrete need for a separate experiment journal appears.
 
 ## 14. Operational constraint
 
-User-confirmed current constraint:
+**Updated (2026-09-27):** a working local clone and development machine (Windows)
+now exist and are in active use — the "only the phone is available" constraint below
+no longer holds. Retained for history:
+
+Previously recorded constraint (2026-07-26, now outdated):
 
 - the previous laptop was formatted and sold;
-- the previous local clone is unavailable;
-- only the Android phone is currently available;
-- GitHub is the sole recoverable project baseline known to the user;
-- local Android/Gradle/emulator/VPS verification cannot currently be assumed available.
+- the previous local clone was unavailable;
+- only the Android phone was available;
+- GitHub was the sole recoverable project baseline known to the user;
+- local Android/Gradle/emulator/VPS verification could not be assumed available.
 
-Any future task must report clearly when verification requires a newly provisioned desktop, SDK, emulator, signing environment, or server access.
+Current state: JDK and Android SDK are **not yet installed** on the current
+development machine (verified 2026-09-27) — no local build/test run is possible yet.
+Installing them is planned for later in the rewrite (see `REWRITE_PLAN.md`), timed to
+when real build/integration-test verification is first needed, not before.
 
 ## 15. Update rules
 

@@ -65,8 +65,10 @@ post-compromise recovery, cryptographic multi-device fan-out, synchronized proto
 revocation, timely delivery guarantees, production relay privacy, secure backup, secure
 wipe, or a production release process.
 
-Signal-backed sessions and `PARANOIA_C4_AEAD` remain disabled. Experimental modules,
-storage boundaries, DTOs, interfaces, and fixtures do not strengthen the active chat path.
+Signal-backed sessions remain disabled pending the crypto rewrite (see
+`docs/ai-workflow/REWRITE_PLAN.md`). `PARANOIA_C4_AEAD` was removed from the codebase
+entirely on 2026-09-27, not kept disabled. Experimental modules, storage boundaries,
+DTOs, interfaces, and fixtures do not strengthen the active chat path.
 
 ## Near-Term Program — Documentation, Recovery, And Verification
 
@@ -272,15 +274,20 @@ Each direction requires a separate product decision, threat analysis, protocol a
 design, migration and rollback plan, abuse analysis, tests, and security review before it
 can enter the active queue.
 
-### Paranoia C4
+### Paranoia C4 (removed)
 
-`PARANOIA_C4_AEAD` is not a required roadmap destination. It remains a disabled placeholder
-and must not be activated or called secure.
+`PARANOIA_C4_AEAD` was never a required roadmap destination. It was removed from the
+codebase entirely on 2026-09-27 (see `docs/ai-workflow/DECISIONS.md` DEC-016) rather
+than kept as a disabled placeholder, because a home-grown cipher cascade does not add
+provable security over a single reviewed AEAD suite, and this project's committed
+crypto direction (`docs/ai-workflow/REWRITE_PLAN.md`) is a reviewed protocol —
+`libsignal` Double Ratchet + PQXDH — not additional home-grown layers on top of it.
 
-Any future proposal would require a separate accepted specification, independently reviewed
-primitive implementations, explicit domain-separated KDF and MAC design, nonce and key
-lifecycle analysis, test vectors, interoperability and integration tests, migration and
-rollback planning, release review, and independent cryptographic audit.
+Any future proposal to revive a similar idea would require a separate accepted
+specification, independently reviewed primitive implementations, explicit
+domain-separated KDF and MAC design, nonce and key lifecycle analysis, test vectors,
+interoperability and integration tests, migration and rollback planning, release
+review, and independent cryptographic audit — the same bar DEC-016 already sets.
 
-Paranoia C4 cannot replace a reviewed session protocol, identity system, device-trust model,
-or production-security program.
+A cipher cascade of this kind cannot replace a reviewed session protocol, identity
+system, device-trust model, or production-security program regardless of primitives.
