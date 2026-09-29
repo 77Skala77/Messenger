@@ -56,6 +56,8 @@ When changing an accepted decision:
 | DEC-016 | `PARANOIA_C4_AEAD` removed entirely rather than kept disabled | ACCEPTED |
 | DEC-017 | Keep and finish `:core:signal-protocol`/`:core:signalstore` rather than rebuild clean | ACCEPTED |
 | DEC-018 | libsignal store adapter semantics: blocking, strict identity trust, fail-closed Kyber handling | ACCEPTED |
+| DEC-019 | Step 1e design: relayed committed invitation, one-sided pairing with explicit request, flag-gated enablement | ACCEPTED |
+| DEC-020 | Relay-supplied message IDs are never trusted as local keys or cross-contact receipt targets | ACCEPTED |
 
 ---
 
@@ -825,6 +827,156 @@ one-time versus last-resort, and how local identity is created.
 
 The step 1e pipeline integration or an independent review shows a store contract was
 misread, or when multi-device (Phase 4) needs per-device identity handling.
+
+---
+
+## DEC-019 — Step 1e design: relayed committed invitation, one-sided pairing, flag-gated enablement
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-29. Owner approvals given in chat on 2026-09-29 (items O1–O4). Items
+T1–T8 were proposed by the assistant with the approvals and not objected to. Nothing here is
+implemented yet; implementation status is tracked in `REWRITE_PLAN.md` and `PHASE_1E_PREP.md`.
+
+### Context
+
+Step 1e wires libsignal PQXDH + Double Ratchet into invitations and delivery. `AGENTS.md`
+requires explicit owner approval, feature-flag isolation, tests, migration and threat review,
+and independent review before experimental sessions serve normal chats.
+
+Measured with libsignal 0.94.1 on 2026-09-29 (scratch program, real library): `KEMKeyType`
+offers only `KYBER_1024`; its serialized public key is 1569 bytes; a complete bundle encoded as
+invitation text is about 2574 characters (v1 is about 250), which needs a QR code near the
+format's maximum size at the lowest error-correction level; a first (PreKey) message carrying
+two bytes of text is 1759 bytes. Also observed: `SessionBuilder` takes `(remote, local)`
+addresses but `SessionCipher` takes `(local, remote)` — the wrapper must hide this.
+
+### Owner decisions
+
+- **O1 Invitation transport.** The QR code is small and carries a commitment; the full bundle
+  travels through the untrusted relay and is accepted only if it matches the commitment. The
+  relay API is unchanged.
+- **O2 Pairing.** One side scans. The scanned side receives a contact **request** that a person
+  must explicitly accept. This is trust on first use for the accepting side (weaker than mutual
+  scanning, which was offered and not chosen). Unaccepted requests never become contacts,
+  never get receipts, and cannot receive messages.
+- **O3 Enablement.** New sessions sit behind a feature flag that is OFF by default. It may be
+  turned ON only in debug builds, only after the step 1f gate passes (these are isolated test
+  conversations in the sense of TQ-105). Release builds keep it OFF until the independent
+  review of Phase 5. Legacy prototype code coexists temporarily; it is deleted in 1f together
+  with the explicit legacy reset, and a conversation never runs on both protocols.
+  Accepted consequence: the libsignal identity private key is a software key, encrypted at rest
+  with a Keystore key and present in app memory while in use (as in Signal-Android). The legacy
+  P-256 identity key was hardware-backed and non-exportable.
+- **O4 Legacy vulnerability.** The relay-supplied message ID issue is patched in the legacy path
+  now (DEC-020) and closed by design in v2 (T4).
+
+### Technical decisions
+
+- **T1 Message bodies at rest** are encrypted with the Keystore-backed vault (AES-GCM), with the
+  message ID, contact ID, and direction bound into the AAD. A ratchet deletes message keys, so
+  stored protocol ciphertext cannot be decrypted again. This is not weaker than the legacy
+  design, whose stored session root key already decrypts every stored message.
+- **T2 Atomicity.** Decrypting advances the ratchet. Session-record updates, the stored message,
+  and an envelope-digest marker commit in one Room transaction, under one process-wide protocol
+  lock shared by the UI and the WorkManager worker. The relay copy is deleted only after the
+  commit. A byte-identical re-delivery is recognised by its digest and deleted without
+  decryption. Encrypt-and-enqueue is atomic in the same way, so a sending chain position is
+  never reused.
+- **T3 Envelope v2.** A distinct magic and version; v1 and v2 envelopes are never accepted in
+  place of each other. Each envelope carries a random 16-byte routing tag assigned by the
+  recipient (per contact), instead of any sender identifier, so no trial decryption is needed.
+- **T4 Message IDs.** The sender's message ID travels inside the encrypted payload. Local
+  storage IDs are generated locally. A receipt names an inner ID and only updates a message
+  that was sent to the contact whose session authenticated the receipt.
+- **T5 Pre-keys.** Every invitation has its own signed pre-key, one-time EC pre-key, and
+  one-time Kyber pre-key, and no last-resort key, so one QR code yields at most one request and
+  invitations share no key state (no rotation logic). The one-time keys are consumed by the
+  first session; the whole set is deleted when the invitation expires unused, and the signed
+  pre-key of a used invitation after a grace period. (Refined during sub-step 2; the first
+  draft of this decision shared one rotated signed pre-key.)
+- **T6 Addressing.** libsignal address = (local contact ID, device 1) until Phase 4. Contact
+  rows gain an explicit protocol version so v1 and v2 contacts are never confused.
+- **T7 Identity change** stays strict (DEC-018): it surfaces as `KEY_CHANGED`, blocks sending
+  and receiving, and requires re-pairing.
+- **T8 Bundle confidentiality.** The relayed bundle is encrypted with a random single-use
+  AES-256-GCM key taken from the QR code, and the QR commits to the exact relayed bytes with a
+  domain-separated SHA-256 digest. The relay learns nothing from the bundle; someone who sees
+  the QR can read the (public) bundle but cannot substitute it.
+
+### Pairing flow
+
+1. Alice shows an invitation: a fresh one-time EC and Kyber pre-key, a routing tag, a random
+   mailbox ID `M` and key `K`. She uploads `E = AES-GCM_K(bundle)` to relay queue `M`; the QR
+   holds `smp-invite-v2:` + (version, `M`, `K`, digest of `E`).
+2. Bob scans, fetches `M`, keeps only a blob matching the digest, decrypts it, validates the
+   bundle strictly, and builds a session (libsignal verifies the pre-key signatures). Alice
+   becomes Bob's contact with the identity key from the QR-committed bundle. Bob sends a HELLO
+   PreKey message with his receive queue and his routing tag for Alice. Bob waits for acceptance.
+3. Alice decrypts the HELLO atomically into a pending request (not a contact). No receipts.
+4. Alice accepts: the contact is created with the existing warning-only first-use states
+   (`UNVERIFIED` / `PRIMARY_UNVERIFIED`) and an ACCEPT message is sent. Declining deletes the
+   request, its session, and its identity record.
+5. Bob receives ACCEPT; both sides are ready. Unused invitations expire (relay TTL and local
+   deletion of their pre-keys).
+
+### Threat review (relay untrusted; summary)
+
+| Attack | Outcome |
+| --- | --- |
+| Substitute the bundle | Digest mismatch; rejected. |
+| Withhold bundle, HELLO, or ACCEPT | Pairing stalls (denial of service only); show a new QR. |
+| Replay HELLO or any message | One-time pre-key already consumed / libsignal duplicate check / envelope digest; no second acceptance. |
+| QR photographed by a third party | They can read the bundle and send one HELLO first. Alice sees a request she must not accept blindly (safety number); Bob's HELLO then fails and he is told the invitation was used. At most one request per QR. |
+| Relabel or reuse message IDs | No effect: inner authenticated IDs, local storage IDs, contact-scoped receipts. |
+| Downgrade v2 → v1, cross-protocol confusion | Distinct envelope magic and per-contact protocol version; mismatches are rejected. |
+| Crash mid-decrypt, UI and worker concurrency | Transaction rollback, retained relay copy, process-wide lock. |
+| Metadata | Relay still sees queue IDs, routing tags (pseudonymous, per conversation), sizes (PreKey messages are ~1.7 KB, revealing a new session), timing, and the initiator's identity key in the PreKey header. Accepted; comparable to Signal's server. |
+
+### Residual risks
+
+- Trust on first use on the accepting side (owner-accepted, O2).
+- The identity private key is in app memory while in use (O3).
+- No independent review yet; enabling outside debug builds stays blocked (Phase 5).
+
+### Revisit when
+
+Implementation shows a libsignal contract differs from the above, QR scanning of the v2 code
+fails in practice, or Phase 3 relay authentication or Phase 4 multi-device changes routing.
+
+---
+
+## DEC-020 — Relay-supplied message IDs are never trusted as local keys or cross-contact receipt targets
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-29 (found while designing step 1e; owner chose to patch the legacy path)
+
+### Context
+
+The relay returns each blob with a `messageId` that it controls. The legacy pipeline stored an
+incoming message under that ID with `REPLACE` semantics and echoed it in the delivery receipt,
+and the sender updated any outgoing message with that ID regardless of contact. A malicious
+relay could therefore overwrite an existing local message on the receiver, or make a dropped
+message to one contact show `Delivered` by relabelling a message delivered to another contact.
+Both violate DEC-005 and DEC-006.
+
+### Decision
+
+- Incoming messages are stored under a locally generated ID, never the relay-supplied one.
+- A delivery receipt only updates an outgoing message sent to the same contact whose session
+  authenticated the receipt.
+
+### Consequences
+
+- Residual legacy risk: the legacy wire format has no authenticated sender message ID, so the
+  receipt still echoes the relay-visible ID. A relay can still swap IDs among messages to the
+  **same** contact (mark one dropped message delivered using another message's receipt). v2
+  closes this (DEC-019 T4); the legacy path is removed in 1f.
+- No schema or wire-format change; existing rows keep their IDs.
+
+### Evidence
+
+- `DeliveryPipelineTest` — incoming message stored under a local ID.
+- `SecureRoomStateInstrumentedTest.deliveryReceiptOnlyMarksMessagesSentToTheSameContact`.
 
 ---
 

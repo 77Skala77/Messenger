@@ -1,7 +1,8 @@
 # Phase 1e preparation brief — libsignal sessions in the delivery pipeline
 
-Status: PREPARATION ONLY. No 1e code exists. Written 2026-09-29 from the repository state at
-commit `a60cf66`. Everything below is derived from current code; nothing here is implemented.
+Status: sub-step 1 (design, threat review, owner approvals) DONE 2026-09-29 — see
+`DECISIONS.md` DEC-019 and DEC-020. No v2 protocol code exists yet. Written 2026-09-29 from the
+repository state at commit `a60cf66`; the coupling map below is derived from current code.
 Authoritative plan: `REWRITE_PLAN.md`. Scope of 1e there: "PQXDH prekey bundle, invitation v2,
 session setup, Double Ratchet in the delivery pipeline". Step 1f (explicit legacy reset and
 forward-secrecy / two-device tests) follows.
@@ -30,7 +31,17 @@ forward-secrecy / two-device tests) follows.
 | Invitation | `InvitationCodec` `smp-invite-v1:` (queue id, device id, EC key); experimental v2 DTO in `:core:signalstore` uses placeholders | v2 needs a real bundle (see decision D7). v1 must never be silently reinterpreted. |
 | UI | `SecureMessengerViewModel` (701 lines), `SecureMessengerApp` (1073 lines), `InvitationImportValidation`, `RelayBackgroundSync` | Only the minimum wiring in 1e; visual work is Phase 6. |
 
-## Design decisions to settle first (proposed answers; owner confirms)
+## Design decisions — RESOLVED 2026-09-29
+
+The proposals D1–D9 below were the input to the owner decision. **The accepted design is
+DEC-019** in `DECISIONS.md`; where they differ, DEC-019 wins. Main differences: D5 uses a
+recipient-assigned routing tag, not a sender device ID (DEC-019 T3); D7 chose option (c) with an
+encrypted, committed bundle (O1, T8); D8 uses one-time keys only, no last-resort key for
+invitations (T5); D9 became one-sided scanning plus an explicit contact request (O2), not
+reciprocal scanning. D2 is refined by O3: legacy code coexists temporarily behind the flag and
+is deleted in 1f; no conversation ever uses both protocols.
+
+Original proposals, kept for history:
 
 - **D1 Feature flag and approval.** `AGENTS.md` forbids enabling Signal sessions for normal chats
   without explicit approval, flag isolation, tests, migration review, threat review, and
@@ -65,19 +76,24 @@ forward-secrecy / two-device tests) follows.
   reciprocal confirmation before sending. Define who initiates the PQXDH session and keep the
   "not ready until confirmed" rule.
 
-## Proposed sub-steps inside 1e (each verified by a real build before the next)
+## Sub-steps inside 1e (each verified by a real build before the next)
 
-1. Threat review + DEC-019 (D1–D9), owner approval. No code.
-2. New session service in `:core:signal-protocol` (encrypt/decrypt through `SessionCipher`,
-   session bootstrap from a bundle), JVM + device tests, still unused by the app.
-3. Invitation v2 codec with strict validation (bounds, signature check, version separation,
-   duplicate/replay import) and malformed-input tests.
-4. Storage: vault-encrypted plaintext records, `DeliveryPersistence` changes, Room v7 +
-   migration + instrumented tests, atomic commit (D4).
-5. Pipeline integration behind the flag; ViewModel/UI wiring kept minimal; DeliveryPipelineTest
-   equivalents for the new path (authenticate-before-store, replay marker before delete,
-   fail-closed device policy, receipts).
-6. Release-variant check: app depends on `:core:signal-protocol`, desugaring and `_testing`
+1. **DONE 2026-09-29** — threat review, DEC-019, owner approvals. Legacy relay-message-ID patch
+   (DEC-020) as a separate commit.
+2. Session service in `:core:signal-protocol`: per-invitation bundle creation (one-time EC and
+   Kyber pre-keys, signed pre-key reuse), session bootstrap from a bundle, encrypt/decrypt
+   wrappers that hide libsignal's address-order difference, HELLO sender lookup by the
+   PreKey header identity. JVM + device tests; still unused by the app.
+3. Invitation v2: QR codec (`smp-invite-v2:`, mailbox ID, key, digest), sealed-bundle codec
+   (AES-256-GCM, strict bundle format), version separation; malformed and oversized input tests.
+4. Envelope v2 and inner payload codec (HELLO / TEXT / RECEIPT / ACCEPT, inner message IDs,
+   routing tag); tamper, downgrade, and cross-protocol tests.
+5. Storage: Room v7 (contact protocol version, pending requests, invitations, vault-encrypted
+   message bodies, envelope digests), migration, instrumented tests; atomic transaction plus
+   process-wide protocol lock (DEC-019 T2) with a fault-injection test.
+6. Pipeline integration behind the flag; minimal UI (show v2 invitation, scan, accept/decline
+   request); tests mirroring `DeliveryPipelineTest` for the new path.
+7. Release-variant check: app depends on `:core:signal-protocol`, desugaring and `_testing`
    exclusion applied in the app module, minified release build verified.
 
 ## Constraints that apply (from `AGENTS.md`)
