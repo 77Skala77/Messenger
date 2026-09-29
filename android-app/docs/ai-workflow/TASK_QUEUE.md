@@ -479,6 +479,12 @@ Phase 6 (UI rewrite). Owner asked (2026-09-29) that this not be forgotten.
 
 Version numbers are a 2026-09-29 snapshot; re-check before acting.
 
+Also found 2026-09-30: lint bundled with AGP 8.5.2 prints "Module was compiled with an
+incompatible version of Kotlin" for the Kotlin 2.2 modules, i.e. lint's Kotlin analysis cannot
+read their metadata and is degraded (it still reports 0 errors). The AGP upgrade in this task is
+expected to fix that; verify lint output is clean afterwards. Count on 2026-09-30: 53 warnings
+(45 `GradleDependency`, 6 AGP, 1 intentional debug cleartext, 1 `localeConfig`).
+
 ### Objective
 
 Reduce the 50 actionable warnings (the intentional debug cleartext one stays) through small,
