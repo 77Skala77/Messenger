@@ -77,7 +77,9 @@ compiler extension `1.5.14` on 2026-09-27), compile and target SDK 34, minimum S
 and Java/Kotlin JVM target 17. The Kotlin, Room, and coroutines pins were raised on
 2026-09-27 for libsignal compatibility — see `LIBSIGNAL_TOOLCHAIN_REVIEW.md`,
 "Toolchain upgrade (step 1b)". The debug build, unit tests, and storage instrumented tests
-passed on 2026-09-29; the minified release build has not been verified.
+passed on 2026-09-29; the minified release build has not been verified. `:core:signal-protocol`
+also declares `com.android.tools:desugar_jdk_libs` `2.1.5` (core library desugaring, required
+by `libsignal-android`).
 
 This table is an inventory of direct declarations. It is not a complete resolved graph and
 must not be read as a recommendation that every pin is current, safe, mutually compatible,

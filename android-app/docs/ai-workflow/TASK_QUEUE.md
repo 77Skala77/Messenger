@@ -67,6 +67,8 @@ Reverify branch, HEAD, issues, pull requests, and repository state before starti
 5. TQ-006 — Re-establish the executable verification baseline
 6. TQ-007 — Establish the release-variant baseline
 7. TQ-008 — Add dependency verification, locking, and SBOM workflow
+8. TQ-009 — Update outdated dependencies and AGP (51 lint warnings) — DEFERRED until after the
+   Phase 1 exit gate and before Phase 6 (owner request, 2026-09-29)
 
 Signal migration, production relay, and independent audit tasks remain blocked, and
 are superseded in sequencing by `docs/ai-workflow/REWRITE_PLAN.md`, which is now the
@@ -342,7 +344,11 @@ Create a fresh environment from GitHub without relying on lost local state.
 ## TQ-006 — Re-establish the executable verification baseline
 
 **Priority:** P1
-**Status:** READY AFTER TQ-005
+**Status:** PARTLY DONE (2026-09-29) — a fresh debug baseline exists on the rebuilt
+development machine (`:app:assembleDebug`, `:app:lintDebug`, 105 unit tests, storage and
+signal-protocol instrumented tests on SM-S928B, relay tests). Not yet done: instrumented
+`:core:transport` / `:core:ui`, and a run from a clean clone. Evidence:
+`LIBSIGNAL_TOOLCHAIN_REVIEW.md`.
 **Type:** Build/test/QA
 **Security-sensitive:** Yes
 
@@ -449,6 +455,57 @@ Implement remaining dependency controls as separate reviewed steps, not a broad 
 - [ ] Signing material remains outside Git.
 - [ ] Automated and human/legal responsibilities are explicit.
 - [ ] Signal licensing remains a separate gate.
+
+---
+
+## TQ-009 — Update outdated dependencies and AGP (lint warnings)
+
+**Priority:** P2
+**Status:** DEFERRED — schedule after the Phase 1 exit gate of `REWRITE_PLAN.md` and before
+Phase 6 (UI rewrite). Owner asked (2026-09-29) that this not be forgotten.
+**Type:** Build/dependency maintenance
+**Security-sensitive:** Yes (build toolchain and packaging; do not mix with protocol work)
+
+### Context
+
+`./gradlew :app:lintDebug` on 2026-09-29 reported 0 errors and 51 warnings:
+
+| Count | Lint id | Meaning |
+| --- | --- | --- |
+| 43 | `GradleDependency` | Newer library versions exist (e.g. Compose BOM `2024.06.00` → `2026.09.00`, activity-compose `1.9.0` → `1.13.0`, appcompat `1.7.0` → `1.8.0`, core-ktx `1.13.1` → `1.19.1`). The same library is counted once per build configuration. |
+| 6 | `AndroidGradlePluginVersion` | AGP `8.5.2` → `9.4.1` available. |
+| 1 | `InsecureBaseConfiguration` | Debug-only cleartext HTTP in `app/src/debug/res/xml/network_security_config.xml`. **Intentional (debug/QA relay); do not "fix".** Release and `main` deny cleartext. |
+| 1 | `UnusedAttribute` | `localeConfig` applies only on API 33+; minSdk is 31. Harmless. |
+
+Version numbers are a 2026-09-29 snapshot; re-check before acting.
+
+### Objective
+
+Reduce the 50 actionable warnings (the intentional debug cleartext one stays) through small,
+separately reviewable upgrade steps, each verified by a real build and tests.
+
+### Constraints
+
+- Upgrade in separate commits: (1) AndroidX libraries that do not raise `compileSdk`,
+  (2) Compose BOM (newer Compose may require `compileSdk` 35), (3) AGP + Gradle + KGP
+  compatibility (`docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md` records the KGP 2.2.20 support range of
+  AGP 7.3.1–8.11.1; AGP 9.x is outside it), (4) optionally KAPT→KSP for Room.
+- Do not mix with cryptographic or protocol changes. libsignal stays pinned at `0.94.1`.
+- After every step run the baseline: `:app:assembleDebug`, `:app:lintDebug`, all unit tests,
+  storage and signal-protocol instrumented tests on a device, relay tests, and — once an app
+  module depends on libsignal — the minified release build.
+- Explicitly decide, and record in `DECISIONS.md`, whether to adopt AGP 9.x or stay on 8.x.
+- Keep the intentional debug-only cleartext setting; add a lint baseline/suppression with an
+  explanatory comment only if it is agreed to silence that one warning.
+- Mind the 3.9 GB RAM development machine (see `LIBSIGNAL_TOOLCHAIN_REVIEW.md`).
+
+### Acceptance criteria
+
+- [ ] Each upgrade step has its own commit and recorded build/test evidence.
+- [ ] `lintDebug` reports 0 errors and only documented, intentional warnings remain.
+- [ ] `compileSdk`/`targetSdk` changes, if any, are explained and tested on a device.
+- [ ] No behavior change to crypto, storage schema, wire formats, or the relay.
+- [ ] Documentation (`DEPENDENCY_REVIEW.md`, `LIBSIGNAL_TOOLCHAIN_REVIEW.md`) is updated.
 
 ---
 

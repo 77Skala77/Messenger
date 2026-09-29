@@ -85,8 +85,14 @@ Progress:
   Gradle, compileSdk, and Compose BOM unchanged. `:app:assembleDebug`, lint (0 errors),
   and 105 unit tests pass. The minified release (R8) build is **not** verified. Details:
   `docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`, "Toolchain upgrade (step 1b)".
-- 1c — **next** (toolchain now exists): native `.so` for 4 ABIs, resource exclusions, R8 keep
-  rules; inspect a built APK and run a release build.
+- 1c — **PARTLY DONE** (2026-09-29): libsignal's JNI library verified on a physical device
+  (7 instrumented tests, real PQXDH/Double Ratchet); 4 ABIs packaged, `_testing` libraries
+  excluded, core library desugaring enabled (required by the AAR). **Open:** R8 keep rules in
+  `core/signal-protocol/consumer-rules.pro` are unverified — needs a minified release build
+  that actually contains libsignal, which requires an app module to depend on
+  `:core:signal-protocol` (not done; falls under 1e when the pipeline is wired) plus the same
+  desugaring and `_testing` exclusion in that app module. Details:
+  `docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`.
 - 1d — **DONE, verified** (2026-09-29): `EncryptedSignalProtocolStore` (libsignal store
   interfaces over the encrypted repository), `LocalSignalIdentityProvisioner`, blocking store
   boundaries, Room v6 + `MIGRATION_5_6`. JVM tests with real PQXDH sessions (10 tests
@@ -217,6 +223,15 @@ message within a minute of opening it, no explanation needed.
 This phase is explicitly out of scope until you decide you want this to be a real
 shipped product rather than a serious personal/portfolio project. No need to plan
 it in detail now.
+
+## Tracked side tasks (do not lose)
+
+- **TQ-009 — dependency / AGP updates (51 lint warnings)** — owner request 2026-09-29.
+  Schedule: after the Phase 1 exit gate, before Phase 6 (newer Compose is what the UI
+  rewrite will build on). Full description and constraints: `TASK_QUEUE.md` TQ-009. Do not
+  mix it into protocol work.
+- Minified release build with libsignal (R8 keep rules, desugaring, `_testing` exclusion in
+  the app module) — verify as part of 1e, see step 1c above.
 
 ## Decisions (answered by the owner 2026-09-27)
 

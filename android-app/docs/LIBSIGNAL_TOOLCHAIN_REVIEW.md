@@ -63,8 +63,31 @@ remained unverified until step 1a was completed.
 - `./gradlew :core:storage:connectedDebugAndroidTest` on the device above — 12 tests passed.
 - `node --test server/relay/test/*.test.mjs` — 3 tests passed (Node.js v24.19.0).
 
-**Still NOT verified:** the minified release build (`assembleRelease`, R8), instrumented tests
-for `:core:transport` and `:core:ui`, and libsignal native-library packaging (step 1c).
+**Step 1c (2026-09-29, partly verified):**
+
+- `:core:signal-protocol:connectedDebugAndroidTest` on SM-S928B (Android 16, arm64-v8a) —
+  7 tests passed: the same libsignal PQXDH/Double Ratchet tests as the JVM suite (the
+  `src/test` sources are shared with `androidTest`), so the Android JNI library
+  `libsignal_jni.so` loads and works on a physical device.
+- `libsignal-android:0.94.1` **requires core library desugaring**; without it
+  `checkDebugAndroidTestAarMetadata` fails even at minSdk 31. Enabled with
+  `desugar_jdk_libs` 2.1.5 in `:core:signal-protocol`. Any app module that depends on it
+  must enable desugaring too. (This resolves the earlier "likely irrelevant" assumption.)
+- The AAR ships `libsignal_jni.so` and `libsignal_jni_testing.so` for arm64-v8a,
+  armeabi-v7a, x86, x86_64 (each 84–104 MB). The `_testing` library is excluded via
+  `packaging.jniLibs.excludes`; the built test APK (408 MB, debug) contains only the four
+  `libsignal_jni.so` files. Owner decision: keep all 4 ABIs.
+- Build note: the development machine has ~3.9 GB RAM; the Gradle daemon crashed with an
+  out-of-memory error on the default `-Xmx2048m`. Building succeeded with
+  `-Dorg.gradle.jvmargs=-Xmx1280m -Pkotlin.compiler.execution.strategy=in-process
+  --max-workers=1`.
+- `core/signal-protocol/consumer-rules.pro` adds conservative R8 keep rules for
+  `org.signal.libsignal.**` and native methods. **UNVERIFIED**: no app currently depends on
+  `:core:signal-protocol`, so no minified build contains libsignal yet.
+
+**Still NOT verified:** a minified release build (`assembleRelease`, R8) that actually
+contains libsignal, resulting release APK size/ABI splits, and instrumented tests for
+`:core:transport` and `:core:ui`.
 
 The risk analysis sections below were written against the pre-upgrade versions; the
 checklist below records which items the debug build has now answered.
@@ -93,8 +116,9 @@ Known risks and their status after the 2026-09-29 debug build:
   **UNVERIFIED** (release build not run).
 - K2 compiler stricter diagnostics in existing Kotlin source — **passed** (debug build and
   all unit-test compilation succeeded).
-- libsignal's `coreLibraryDesugaringEnabled = true`: likely irrelevant at our minSdk 31,
-  but it must be confirmed — **UNVERIFIED**.
+- libsignal's `coreLibraryDesugaringEnabled = true`: assumed likely irrelevant at minSdk 31 —
+  **WRONG**: the AAR metadata check fails the build without desugaring; now enabled
+  (see step 1c above).
 
 ## Current Official Artifact Gate
 
