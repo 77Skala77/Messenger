@@ -99,6 +99,9 @@ Progress:
   across signal-protocol and signalstore) and 12 storage instrumented tests on a physical
   device (including the 5→6 migration) pass. Semantics recorded in `DECISIONS.md` DEC-018.
   Still disabled: nothing in the app uses the adapter.
+- 1e — **preparation done, not started** (2026-09-29): coupling map, open design decisions
+  D1–D9 (notably invitation QR size with a Kyber-1024 key, plaintext-at-rest, atomic ratchet
+  persistence), and proposed sub-steps are in `PHASE_1E_PREP.md`.
 
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.
   Legacy prototype conversations are reset explicitly when the new protocol ships
