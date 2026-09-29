@@ -869,6 +869,11 @@ addresses but `SessionCipher` takes `(local, remote)` — the wrapper must hide 
   P-256 identity key was hardware-backed and non-exportable.
 - **O4 Legacy vulnerability.** The relay-supplied message ID issue is patched in the legacy path
   now (DEC-020) and closed by design in v2 (T4).
+- **O3 amendment (owner, 2026-09-30).** To build and verify the UI (sub-step 6b) and to pass the
+  step 1f gate, v2 may be enabled **before** 1f only through a hidden QA switch in the existing
+  debug QA tools: off by default, present only in debug builds (release cannot enable it), and
+  turned on explicitly by the owner on test phones. Manual two-device tests use the S24 Ultra
+  and a second Android phone. Default enablement in debug still waits for the 1f gate.
 
 ### Technical decisions
 
