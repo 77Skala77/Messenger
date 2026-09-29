@@ -213,8 +213,11 @@ class IncomingDeliveryProcessor(
         binding: ReceiveBinding,
         wireMessage: EncryptedSessionMessage,
     ): IncomingProcessResult {
+        // The relay chooses blob.messageId, so it never becomes a local key: reusing the ID of an
+        // existing local message would overwrite it (DEC-020). The legacy wire format carries no
+        // authenticated sender ID, so the receipt below still has to echo the relay-visible one.
         val accepted = persistence.acceptIncoming(
-            messageId = blob.messageId,
+            messageId = messageIdGenerator(),
             contactId = binding.contactId,
             session = binding.session,
             message = wireMessage,

@@ -181,6 +181,7 @@ class SecureLocalRepository(
                 acceptedAtEpochMillis = System.currentTimeMillis(),
             ),
             originalMessageId = if (receiptMatchesSession) receipt.originalMessageId else "",
+            contactId = contactId,
             deliveredStatus = MessageStatus.DELIVERED.name,
         )
     }

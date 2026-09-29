@@ -79,6 +79,12 @@ See [Device Trust Policy](ai-workflow/DEVICE_TRUST_POLICY.md) and
   the message and the sender authenticated the resulting receipt. It does not mean the
   human user opened or read the message.
 - User read receipts are not implemented.
+- Legacy path only (DEC-020): the legacy wire format has no authenticated sender message ID,
+  so a delivery receipt echoes the relay-visible ID. Since 2026-09-29 incoming messages are
+  stored under local IDs and receipts only update messages sent to the same contact, but a
+  malicious relay can still swap IDs among messages to the **same** contact and make one
+  dropped message show `DELIVERED`. The v2 protocol (DEC-019 T4) removes this; the legacy
+  path is deleted in step 1f.
 
 ## Relay And Network Metadata
 

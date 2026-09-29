@@ -239,6 +239,18 @@ interface SecureMessengerDao {
     )
     suspend fun updateOutgoingStatus(messageId: String, status: String): Int
 
+    @Query(
+        """
+        UPDATE encrypted_messages
+        SET status = :status,
+            nextRetryAtEpochMillis = NULL
+        WHERE messageId = :messageId
+          AND contactId = :contactId
+          AND outgoing = 1
+        """,
+    )
+    suspend fun updateOutgoingStatusForContact(messageId: String, contactId: String, status: String): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun acceptIncomingNumber(replay: AcceptedReplayEntity): Long
 
@@ -253,10 +265,13 @@ interface SecureMessengerDao {
     suspend fun acceptDeliveryReceiptAndMarkDelivered(
         replay: AcceptedReplayEntity,
         originalMessageId: String,
+        contactId: String,
         deliveredStatus: String,
     ): DeliveryReceiptAcceptance {
         if (acceptIncomingNumber(replay) == -1L) return DeliveryReceiptAcceptance.DUPLICATE_SUPPRESSED
-        val updated = updateOutgoingStatus(originalMessageId, deliveredStatus)
+        // A receipt is authenticated by one contact's session, so it may only mark a message that
+        // was sent to that contact (DEC-020).
+        val updated = updateOutgoingStatusForContact(originalMessageId, contactId, deliveredStatus)
         return if (updated > 0) {
             DeliveryReceiptAcceptance.STATUS_UPDATED
         } else {

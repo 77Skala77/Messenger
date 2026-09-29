@@ -6,6 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.securemessenger.crypto.SimplifiedSessionManager
 import app.securemessenger.crypto.StandardAead
+import app.securemessenger.delivery.DeliveryReceipt
+import app.securemessenger.delivery.DeliveryReceiptAcceptance
+import app.securemessenger.delivery.MessagePayloadCodec
 import app.securemessenger.domain.Contact
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.MessageStatus
@@ -89,6 +92,66 @@ class SecureRoomStateInstrumentedTest {
         repository.revokeDevice("remote", remote.publicIdentity)
         repository.storeContact(contact)
         assertEquals(DeviceApprovalStatus.REVOKED, repository.observeDevices("remote").first().single().approvalStatus)
+    }
+
+    @Test
+    fun deliveryReceiptOnlyMarksMessagesSentToTheSameContact() = runBlocking {
+        val localManager = SimplifiedSessionManager(StandardAead())
+        val bobManager = SimplifiedSessionManager(StandardAead())
+        val local = localManager.createIdentity()
+        val bob = bobManager.createIdentity()
+        val carol = SimplifiedSessionManager(StandardAead()).createIdentity()
+        repository.storeContact(Contact("bob", "Bob", "bob-queue", bob.publicIdentity, VerificationStatus.UNVERIFIED))
+        repository.storeContact(Contact("carol", "Carol", "carol-queue", carol.publicIdentity, VerificationStatus.UNVERIFIED))
+        val toBob = localManager.createSession(local, bob.publicIdentity)
+        val toCarol = localManager.createSession(local, carol.publicIdentity)
+        repository.storeEncryptedMessage(
+            "to-carol",
+            "carol",
+            localManager.encryptMessage(toCarol, "for-carol".toByteArray(), 1),
+            outgoing = true,
+            status = MessageStatus.SENT.name,
+        )
+        repository.storeEncryptedMessage(
+            "to-bob",
+            "bob",
+            localManager.encryptMessage(toBob, "for-bob".toByteArray(), 1),
+            outgoing = true,
+            status = MessageStatus.SENT.name,
+        )
+        val bobSession = bobManager.createSession(bob, local.publicIdentity)
+
+        // An authenticated receipt from Bob that names a message sent to Carol, as produced when
+        // a relay relabels Bob's incoming message with the ID of Carol's message.
+        val crossContact = DeliveryReceipt(
+            originalMessageId = "to-carol",
+            conversationId = toBob.conversationId,
+            originalSenderDeviceId = toBob.localDeviceId,
+            originalRecipientDeviceId = toBob.remoteDeviceId,
+            timestampEpochMillis = 1L,
+        )
+        val crossContactMessage = bobManager.encryptMessage(
+            bobSession,
+            MessagePayloadCodec.encodeDeliveryReceipt(crossContact),
+            2,
+        )
+        assertEquals(
+            DeliveryReceiptAcceptance.UNKNOWN_MESSAGE,
+            repository.acceptDeliveryReceipt("bob", toBob, crossContactMessage, crossContact),
+        )
+        assertEquals(MessageStatus.SENT.name, database.dao().getOutgoingMessage("to-carol")!!.status)
+
+        val sameContact = crossContact.copy(originalMessageId = "to-bob")
+        val sameContactMessage = bobManager.encryptMessage(
+            bobSession,
+            MessagePayloadCodec.encodeDeliveryReceipt(sameContact),
+            2,
+        )
+        assertEquals(
+            DeliveryReceiptAcceptance.STATUS_UPDATED,
+            repository.acceptDeliveryReceipt("bob", toBob, sameContactMessage, sameContact),
+        )
+        assertEquals(MessageStatus.DELIVERED.name, database.dao().getOutgoingMessage("to-bob")!!.status)
     }
 
     @Test

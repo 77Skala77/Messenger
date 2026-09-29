@@ -96,6 +96,31 @@ class DeliveryPipelineTest {
     }
 
     @Test
+    fun `incoming message is stored under a local id, never under the relay supplied id`() = runBlocking {
+        val fixture = PairedPeers()
+        val encrypted = fixture.aliceManager.encryptMessage(
+            fixture.aliceSession,
+            MessagePayloadCodec.encodeText("relabel-check"),
+            41,
+        )
+        fixture.aliceStore.enqueue("message-to-relabel", fixture.bobContact, encrypted)
+        assertEquals(OutgoingAttemptResult.SENT, fixture.outgoing.attemptMessage("message-to-relabel"))
+        // The relay controls the message ID it returns. Reusing the ID of an existing local
+        // message must not let it address (and overwrite) that message on the receiver.
+        val relabeled = fixture.relay.fetchMessages(BOB_QUEUE).single().copy(messageId = "existing-local-message")
+
+        val result = fixture.incoming.processFetchedDetailed(
+            relabeled,
+            listOf(ReceiveBinding("alice", fixture.bobSession)),
+        )
+
+        assertEquals(IncomingResult.ACCEPTED, result.result)
+        val storedId = fixture.bobStore.acceptedIds.single()
+        assertFalse(storedId == "existing-local-message")
+        assertFalse(storedId == "message-to-relabel")
+    }
+
+    @Test
     fun `duplicate delivery receipt is suppressed and unknown receipt is ignored safely`() = runBlocking {
         val fixture = PairedPeers()
         val encrypted = fixture.aliceManager.encryptMessage(
@@ -402,6 +427,7 @@ class DeliveryPipelineTest {
         val contacts = mutableMapOf<String, Contact>()
         val devices = mutableMapOf<String, List<ContactDevice>>()
         val acceptedMessages = mutableListOf<EncryptedSessionMessage>()
+        val acceptedIds = mutableListOf<String>()
         private val replayNumbers = mutableSetOf<Triple<String, String, Long>>()
 
         fun enqueue(id: String, contact: Contact, message: EncryptedSessionMessage) {
@@ -450,6 +476,7 @@ class DeliveryPipelineTest {
             val key = Triple(session.conversationId, session.remoteDeviceId, message.messageNumber)
             if (!replayNumbers.add(key)) return false
             acceptedMessages += message
+            acceptedIds += messageId
             return true
         }
 
@@ -467,7 +494,10 @@ class DeliveryPipelineTest {
             ) {
                 return DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
             }
-            val existing = outgoing[receipt.originalMessageId] ?: return DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
+            // Mirrors SecureLocalRepository: a receipt only marks messages sent to the same contact.
+            val existing = outgoing[receipt.originalMessageId]
+                ?.takeIf { it.record.contact.contactId == contactId }
+                ?: return DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
             outgoing[receipt.originalMessageId] = existing.copy(status = MessageStatus.DELIVERED)
             return DeliveryReceiptAcceptance.STATUS_UPDATED
         }
