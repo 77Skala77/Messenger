@@ -68,21 +68,31 @@ starts with a toolchain upgrade, in this order:
 | 1e | PQXDH prekey bundle, invitation v2, session setup, Double Ratchet in the delivery pipeline | Opus 5.5 · Extra |
 | 1f | Explicit legacy-conversation reset + tests (forward secrecy, two-device) | Opus 5.5 · High |
 
-Owner chose to defer 1a (toolchain install). Steps 1b onward proceed "blind": every
-change is marked unverified until 1a is done, and the Phase 1 exit gate cannot pass
-without it.
+Owner initially deferred 1a (toolchain install), so 1b and 1d were written "blind" and
+marked unverified. 1a was completed on 2026-09-29 and 1b/1d were then verified (below).
+The Phase 1 exit gate still requires the remaining steps to pass on a real build and test
+run.
+
+Note: model recommendations in the table above were written for "Sonnet 5"; the owner now
+uses Sonnet 5.5 for the "Sonnet" rows. Re-evaluate the "Opus" rows before each step.
 
 Progress:
-- 1b — **written, UNVERIFIED** (2026-09-27): Kotlin 2.2.20, Compose compiler plugin,
+- 1a — **DONE** (2026-09-29): JDK 17 (Temurin 17.0.20), Android SDK (platform 34,
+  build-tools 34.0.0), Node.js v24.19.0 installed; physical device SM-S928B (Android 16,
+  arm64-v8a) available for instrumented tests. Baseline is the 1b build below.
+- 1b — **DONE, debug build verified** (2026-09-29): Kotlin 2.2.20, Compose compiler plugin,
   coroutines 1.10.2, Room 2.7.2 (KAPT kept), `kotlinOptions`→`compilerOptions`. AGP,
-  Gradle, compileSdk, and Compose BOM unchanged. Details, sources, and first things to
-  check: `docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`, "Toolchain upgrade (step 1b)".
-- 1c — **deferred** until the toolchain exists (it is about inspecting a built APK).
-- 1d — **written, UNVERIFIED** (2026-09-27): `EncryptedSignalProtocolStore` (libsignal store
+  Gradle, compileSdk, and Compose BOM unchanged. `:app:assembleDebug`, lint (0 errors),
+  and 105 unit tests pass. The minified release (R8) build is **not** verified. Details:
+  `docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`, "Toolchain upgrade (step 1b)".
+- 1c — **next** (toolchain now exists): native `.so` for 4 ABIs, resource exclusions, R8 keep
+  rules; inspect a built APK and run a release build.
+- 1d — **DONE, verified** (2026-09-29): `EncryptedSignalProtocolStore` (libsignal store
   interfaces over the encrypted repository), `LocalSignalIdentityProvisioner`, blocking store
-  boundaries, Room v6 + `MIGRATION_5_6`, JVM tests with real PQXDH sessions, and
-  instrumented storage/migration tests. Semantics recorded in `DECISIONS.md` DEC-018. Still
-  disabled: nothing in the app uses the adapter.
+  boundaries, Room v6 + `MIGRATION_5_6`. JVM tests with real PQXDH sessions (10 tests
+  across signal-protocol and signalstore) and 12 storage instrumented tests on a physical
+  device (including the 5→6 migration) pass. Semantics recorded in `DECISIONS.md` DEC-018.
+  Still disabled: nothing in the app uses the adapter.
 
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.
   Legacy prototype conversations are reset explicitly when the new protocol ships
@@ -221,11 +231,10 @@ it in detail now.
    blocker listed in `OfficialSignalDoubleRatchetGate.BLOCKERS`; the other blockers
    (durable encrypted store, prekey/PQXDH exchange, independent audit) remain.
 3. **PQXDH from day one** (not objected to; `libsignal` 0.94.1 supports Kyber prekeys).
-4. **JDK/Android SDK installation: LATER.** Phase 1 code is written before a local
-   toolchain exists. Consequence: nothing in Phase 1 may be reported as compiled or
-   tested until the toolchain is installed; every such claim stays "unverified".
-   Install before the Phase 1 exit gate at the latest — the gate cannot pass without
-   a real build and test run.
+4. **JDK/Android SDK installation: LATER** (superseded 2026-09-29: installed, step 1a
+   done). Phase 1 code was written before a local toolchain existed, so nothing was
+   reported as compiled or tested until then. The Phase 1 exit gate still requires a real
+   build and test run for every remaining step.
 5. Timeline expectation: this is genuinely months of focused work for a solo
    effort done carefully, not weeks — no date estimate is given.
 

@@ -45,12 +45,29 @@ The current repository version catalog and Android configuration specify:
 These are repository declarations, not proof that every build variant currently passes.
 Fresh results belong to TQ-006 and TQ-007.
 
-## Toolchain upgrade (step 1b, 2026-09-27) — UNVERIFIED BY BUILD
+## Toolchain upgrade (step 1b, 2026-09-27) — DEBUG BUILD VERIFIED 2026-09-29
 
-Performed as step 1b of `ai-workflow/REWRITE_PLAN.md` Phase 1. The owner deferred
-installing JDK/Android SDK, so **no build, lint, or test has been run against these
-changes.** The risk analysis sections below were written against the pre-upgrade
-versions and remain the checklist for verification.
+Performed as step 1b of `ai-workflow/REWRITE_PLAN.md` Phase 1. It was written on
+2026-09-27 without a local toolchain (JDK/Android SDK install was deferred), so it
+remained unverified until step 1a was completed.
+
+**Verified 2026-09-29** (JDK 17 Temurin 17.0.20, Android SDK platform 34 / build-tools
+34.0.0, Gradle 8.7 wrapper, physical device SM-S928B, Android 16, arm64-v8a):
+
+- `./gradlew :app:assembleDebug` — BUILD SUCCESSFUL (Kotlin 2.2.20, Compose compiler plugin,
+  Room 2.7.2 with KAPT).
+- `./gradlew :app:lintDebug :core:signal-protocol:testDebugUnitTest :core:signalstore:test test`
+  — BUILD SUCCESSFUL; 105 unit tests, 0 failures, 0 skipped; lint 0 errors, 51 warnings
+  (dependency/AGP update notices, the debug-only cleartext network config, and one
+  `localeConfig` API-level notice).
+- `./gradlew :core:storage:connectedDebugAndroidTest` on the device above — 12 tests passed.
+- `node --test server/relay/test/*.test.mjs` — 3 tests passed (Node.js v24.19.0).
+
+**Still NOT verified:** the minified release build (`assembleRelease`, R8), instrumented tests
+for `:core:transport` and `:core:ui`, and libsignal native-library packaging (step 1c).
+
+The risk analysis sections below were written against the pre-upgrade versions; the
+checklist below records which items the debug build has now answered.
 
 | Area | Before | After | Evidence (checked 2026-09-27) |
 | --- | --- | --- | --- |
@@ -66,14 +83,18 @@ versions and remain the checklist for verification.
 Deliberately not done in this step (separate, later changes): KAPT→KSP, AGP/Gradle
 upgrade, Compose BOM upgrade.
 
-Known risks to check first once a toolchain exists:
+Known risks and their status after the 2026-09-29 debug build:
 
-- Room 2.7.2's KAPT processor reading Kotlin 2.2 class metadata.
-- Compose compiler plugin 2.2.20 against the older Compose runtime from BOM `2024.06.00`.
-- R8 bundled with AGP 8.5.2 processing Kotlin 2.2 metadata in the minified release build.
-- K2 compiler stricter diagnostics in existing Kotlin source.
+- Room 2.7.2's KAPT processor reading Kotlin 2.2 class metadata — **passed** (debug build,
+  `kaptDebugKotlin` succeeded; schema v6 was exported).
+- Compose compiler plugin 2.2.20 against the older Compose runtime from BOM `2024.06.00` —
+  **passed at compile time** (debug build). Runtime behavior of the UI was not exercised.
+- R8 bundled with AGP 8.5.2 processing Kotlin 2.2 metadata in the minified release build —
+  **UNVERIFIED** (release build not run).
+- K2 compiler stricter diagnostics in existing Kotlin source — **passed** (debug build and
+  all unit-test compilation succeeded).
 - libsignal's `coreLibraryDesugaringEnabled = true`: likely irrelevant at our minSdk 31,
-  but it must be confirmed.
+  but it must be confirmed — **UNVERIFIED**.
 
 ## Current Official Artifact Gate
 

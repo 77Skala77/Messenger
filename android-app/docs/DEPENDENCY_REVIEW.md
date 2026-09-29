@@ -76,7 +76,8 @@ Application configuration additionally declares the Kotlin Compose compiler plug
 compiler extension `1.5.14` on 2026-09-27), compile and target SDK 34, minimum SDK 31,
 and Java/Kotlin JVM target 17. The Kotlin, Room, and coroutines pins were raised on
 2026-09-27 for libsignal compatibility — see `LIBSIGNAL_TOOLCHAIN_REVIEW.md`,
-"Toolchain upgrade (step 1b)". That upgrade has not yet been verified by a build.
+"Toolchain upgrade (step 1b)". The debug build, unit tests, and storage instrumented tests
+passed on 2026-09-29; the minified release build has not been verified.
 
 This table is an inventory of direct declarations. It is not a complete resolved graph and
 must not be read as a recommendation that every pin is current, safe, mutually compatible,

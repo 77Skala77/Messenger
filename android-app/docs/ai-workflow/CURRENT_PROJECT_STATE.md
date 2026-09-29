@@ -116,10 +116,11 @@ The debug reset is for disposable QA state and is not a secure-erasure guarantee
 - **ACTIVE:** profile name and prototype session state are documented as encrypted with a Keystore-backed local vault key.
 - **ACTIVE:** session send counters survive restart.
 - **IMPLEMENTED/DISABLED:** encrypted opaque Signal-like record tables exist as part of the SignalStore migration spike.
-- Room schema version 6 (2026-09-27, step 1d, **unverified by build**): adds
-  `signal_local_identity`, `signal_kyber_base_key_uses`, and the `isLastResort` Kyber
-  column via `MIGRATION_5_6`. The exported `schemas/.../6.json` does not exist yet; Room
-  generates it on the first build.
+- Room schema version 6 (step 1d): adds `signal_local_identity`,
+  `signal_kyber_base_key_uses`, and the `isLastResort` Kyber column via `MIGRATION_5_6`.
+  The exported `schemas/.../6.json` is committed. **Verified 2026-09-29:** the storage
+  instrumented tests, including the 5→6 migration test, passed on a physical device
+  (SM-S928B, Android 16).
 - `:core:signal-protocol` now contains `EncryptedSignalProtocolStore`, which implements
   libsignal's identity/session/prekey/signed-prekey/Kyber store interfaces over the encrypted
   store, plus `LocalSignalIdentityProvisioner`. **IMPLEMENTED/DISABLED:** nothing in the app

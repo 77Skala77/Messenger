@@ -776,7 +776,9 @@ Phase 1 implementation reveals the existing interfaces don't actually fit real
 ## DEC-018 — libsignal store adapter semantics
 
 **Status:** ACCEPTED
-**Recorded:** 2026-09-27 (REWRITE_PLAN.md step 1d; implementation unverified by build)
+**Recorded:** 2026-09-27 (REWRITE_PLAN.md step 1d). Implementation verified 2026-09-29:
+JVM tests (`EncryptedSignalProtocolStoreTest`, real PQXDH sessions) and storage instrumented
+tests passed on a real build.
 
 ### Context
 
