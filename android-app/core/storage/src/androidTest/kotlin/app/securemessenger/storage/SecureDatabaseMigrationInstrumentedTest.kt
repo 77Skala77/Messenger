@@ -65,6 +65,40 @@ class SecureDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrationSixToSevenAddsV2TablesAndKeepsExistingRows() {
+        migrationHelper.createDatabase(TEST_DATABASE, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO contacts (contactId, encryptedLocalDisplayName, queueId, deviceId, encodedPublicKey, " +
+                    "fingerprint, verificationStatus) VALUES ('legacy', X'01', 'legacy-queue', 'device', X'02', 'FP', 'UNVERIFIED')",
+            )
+            db.execSQL(
+                "INSERT INTO signal_session_records (recipientId, deviceId, encryptedRecord) VALUES ('someone', 1, X'0304')",
+            )
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            7,
+            true,
+            SecureMessengerDatabase.MIGRATION_6_7,
+        )
+        migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'v2_%'",
+        ).use { cursor ->
+            assertEquals(5, cursor.count)
+        }
+        migrated.query("SELECT COUNT(*) FROM contacts WHERE contactId = 'legacy'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM signal_session_records").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE = "signal-store-migration-test"
     }

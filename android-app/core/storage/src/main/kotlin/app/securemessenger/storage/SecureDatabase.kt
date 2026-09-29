@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -128,6 +129,88 @@ data class SignalKyberBaseKeyUseEntity(
     val kyberPreKeyId: Int,
     val signedPreKeyId: Int,
     val baseKeyDigestHex: String,
+)
+
+// --- v2 conversations (DEC-019). Separate tables: legacy rows are never reinterpreted as v2. ---
+
+@Entity(
+    tableName = "v2_invitations",
+    primaryKeys = ["invitationId"],
+    indices = [Index(value = ["localRoutingTagHex"], unique = true)],
+)
+data class V2InvitationEntity(
+    val invitationId: String,
+    val localRoutingTagHex: String,
+    val signedPreKeyId: Int,
+    val oneTimePreKeyId: Int,
+    val kyberPreKeyId: Int,
+    val mailboxQueueId: String,
+    /** Vault-encrypted QR text: it contains the bundle seal key. */
+    val encryptedCodeText: ByteArray,
+    val sealedBundle: ByteArray,
+    val createdAtEpochMillis: Long,
+    val expiresAtEpochMillis: Long,
+    val usedByRequestId: String?,
+)
+
+@Entity(
+    tableName = "v2_contact_requests",
+    primaryKeys = ["requestId"],
+    indices = [Index(value = ["localRoutingTagHex"], unique = true)],
+)
+data class V2ContactRequestEntity(
+    val requestId: String,
+    val invitationId: String,
+    val identityKey: ByteArray,
+    val peerQueueId: String,
+    val peerRoutingTagHex: String,
+    val localRoutingTagHex: String,
+    val encryptedClaimedName: ByteArray,
+    val receivedAtEpochMillis: Long,
+)
+
+@Entity(
+    tableName = "v2_contacts",
+    primaryKeys = ["contactId"],
+    indices = [Index(value = ["localRoutingTagHex"], unique = true)],
+)
+data class V2ContactEntity(
+    val contactId: String,
+    val encryptedDisplayName: ByteArray,
+    val identityKey: ByteArray,
+    val peerQueueId: String,
+    val peerRoutingTagHex: String,
+    val localRoutingTagHex: String,
+    val state: String,
+    val createdAtEpochMillis: Long,
+)
+
+/** Message bodies are vault-encrypted (DEC-019 T1); queued ciphertext is dropped once sent. */
+@Entity(
+    tableName = "v2_messages",
+    primaryKeys = ["messageId"],
+    indices = [Index(value = ["contactId", "outgoing", "innerMessageIdHex"], unique = true)],
+)
+data class V2MessageEntity(
+    val messageId: String,
+    val contactId: String,
+    val outgoing: Boolean,
+    val kind: String,
+    val innerMessageIdHex: String,
+    val encryptedBody: ByteArray?,
+    val status: String,
+    val createdAtEpochMillis: Long,
+    val peerQueueId: String?,
+    val envelope: ByteArray?,
+    val deliveryAttemptCount: Int,
+    val nextRetryAtEpochMillis: Long?,
+)
+
+/** Digests of accepted v2 envelopes: a byte-identical re-delivery is deleted without decryption. */
+@Entity(tableName = "v2_accepted_envelopes", primaryKeys = ["digestHex"])
+data class V2AcceptedEnvelopeEntity(
+    val digestHex: String,
+    val acceptedAtEpochMillis: Long,
 )
 
 @Dao
@@ -397,6 +480,147 @@ interface SecureMessengerDao {
 
     @Query("DELETE FROM signal_local_identity")
     suspend fun deleteSignalLocalIdentity()
+
+    // v2 methods are blocking: they run inside ProtocolTransactionRunner transactions together with
+    // the libsignal store writes of the same operation. Room refuses them on the main thread.
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertV2Invitation(invitation: V2InvitationEntity)
+
+    @Query("SELECT * FROM v2_invitations WHERE invitationId = :invitationId LIMIT 1")
+    fun getV2Invitation(invitationId: String): V2InvitationEntity?
+
+    @Query("SELECT * FROM v2_invitations WHERE localRoutingTagHex = :tag AND usedByRequestId IS NULL LIMIT 1")
+    fun getUnusedV2InvitationByTag(tag: String): V2InvitationEntity?
+
+    @Query(
+        """
+        SELECT * FROM v2_invitations
+        WHERE usedByRequestId IS NULL AND expiresAtEpochMillis > :nowEpochMillis
+        ORDER BY createdAtEpochMillis DESC
+        LIMIT 1
+        """,
+    )
+    fun getLatestUsableV2Invitation(nowEpochMillis: Long): V2InvitationEntity?
+
+    /** Single atomic statement: returns 1 only for the first request that uses the invitation. */
+    @Query(
+        """
+        UPDATE v2_invitations SET usedByRequestId = :requestId
+        WHERE invitationId = :invitationId AND usedByRequestId IS NULL
+        """,
+    )
+    fun markV2InvitationUsed(invitationId: String, requestId: String): Int
+
+    @Query("SELECT * FROM v2_invitations WHERE usedByRequestId IS NULL AND expiresAtEpochMillis <= :nowEpochMillis")
+    fun getExpiredUnusedV2Invitations(nowEpochMillis: Long): List<V2InvitationEntity>
+
+    @Query("DELETE FROM v2_invitations WHERE invitationId = :invitationId")
+    fun deleteV2Invitation(invitationId: String)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertV2ContactRequest(request: V2ContactRequestEntity)
+
+    @Query("SELECT * FROM v2_contact_requests WHERE requestId = :requestId LIMIT 1")
+    fun getV2ContactRequest(requestId: String): V2ContactRequestEntity?
+
+    @Query("SELECT * FROM v2_contact_requests WHERE localRoutingTagHex = :tag LIMIT 1")
+    fun getV2ContactRequestByTag(tag: String): V2ContactRequestEntity?
+
+    @Query("SELECT * FROM v2_contact_requests ORDER BY receivedAtEpochMillis")
+    fun getV2ContactRequests(): List<V2ContactRequestEntity>
+
+    @Query("DELETE FROM v2_contact_requests WHERE requestId = :requestId")
+    fun deleteV2ContactRequest(requestId: String)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertV2Contact(contact: V2ContactEntity)
+
+    @Query("SELECT * FROM v2_contacts WHERE contactId = :contactId LIMIT 1")
+    fun getV2Contact(contactId: String): V2ContactEntity?
+
+    @Query("SELECT * FROM v2_contacts WHERE localRoutingTagHex = :tag LIMIT 1")
+    fun getV2ContactByTag(tag: String): V2ContactEntity?
+
+    @Query("SELECT * FROM v2_contacts WHERE identityKey = :identityKey LIMIT 1")
+    fun getV2ContactByIdentity(identityKey: ByteArray): V2ContactEntity?
+
+    @Query("UPDATE v2_contacts SET state = :state WHERE contactId = :contactId")
+    fun updateV2ContactState(contactId: String, state: String): Int
+
+    /** Returns -1 when the message ID, or this contact's inner message ID, already exists. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertV2Message(message: V2MessageEntity): Long
+
+    @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 ORDER BY createdAtEpochMillis")
+    fun getV2IncomingMessages(contactId: String): List<V2MessageEntity>
+
+    @Query("SELECT * FROM v2_messages WHERE messageId = :messageId AND outgoing = 1 LIMIT 1")
+    fun getV2OutgoingMessage(messageId: String): V2MessageEntity?
+
+    @Query(
+        """
+        SELECT * FROM v2_messages
+        WHERE outgoing = 1
+          AND status IN ('PENDING', 'FAILED')
+          AND envelope IS NOT NULL
+          AND (nextRetryAtEpochMillis IS NULL OR nextRetryAtEpochMillis <= :nowEpochMillis)
+        ORDER BY createdAtEpochMillis
+        """,
+    )
+    fun getDueV2OutgoingMessages(nowEpochMillis: Long): List<V2MessageEntity>
+
+    @Query(
+        """
+        UPDATE v2_messages
+        SET status = 'SENT', deliveryAttemptCount = :attemptCount, nextRetryAtEpochMillis = NULL, envelope = NULL
+        WHERE messageId = :messageId AND outgoing = 1 AND status IN ('PENDING', 'FAILED')
+        """,
+    )
+    fun markV2MessageSent(messageId: String, attemptCount: Int)
+
+    @Query(
+        """
+        UPDATE v2_messages
+        SET status = 'FAILED', deliveryAttemptCount = :attemptCount, nextRetryAtEpochMillis = :nextAttemptAtEpochMillis
+        WHERE messageId = :messageId AND outgoing = 1 AND status IN ('PENDING', 'FAILED')
+        """,
+    )
+    fun markV2MessageFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long)
+
+    /** A receipt only reaches TEXT messages sent to the contact whose session authenticated it. */
+    @Query(
+        """
+        UPDATE v2_messages
+        SET status = 'DELIVERED', nextRetryAtEpochMillis = NULL, envelope = NULL
+        WHERE contactId = :contactId AND outgoing = 1 AND kind = 'TEXT' AND innerMessageIdHex = :innerMessageIdHex
+        """,
+    )
+    fun markV2MessageDelivered(contactId: String, innerMessageIdHex: String): Int
+
+    @Query("DELETE FROM v2_messages WHERE contactId = :contactId")
+    fun deleteV2MessagesFor(contactId: String)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertV2AcceptedEnvelope(envelope: V2AcceptedEnvelopeEntity): Long
+
+    @Query("SELECT COUNT(*) FROM v2_accepted_envelopes WHERE digestHex = :digestHex")
+    fun countV2AcceptedEnvelope(digestHex: String): Int
+
+    @Query("DELETE FROM v2_invitations")
+    suspend fun deleteV2Invitations()
+
+    @Query("DELETE FROM v2_contact_requests")
+    suspend fun deleteV2ContactRequests()
+
+    @Query("DELETE FROM v2_contacts")
+    suspend fun deleteV2Contacts()
+
+    @Query("DELETE FROM v2_messages")
+    suspend fun deleteV2Messages()
+
+    @Query("DELETE FROM v2_accepted_envelopes")
+    suspend fun deleteV2AcceptedEnvelopes()
 }
 
 @Database(
@@ -414,8 +638,13 @@ interface SecureMessengerDao {
         EncryptedSignalKyberPreKeyRecordEntity::class,
         EncryptedSignalLocalIdentityEntity::class,
         SignalKyberBaseKeyUseEntity::class,
+        V2InvitationEntity::class,
+        V2ContactRequestEntity::class,
+        V2ContactEntity::class,
+        V2MessageEntity::class,
+        V2AcceptedEnvelopeEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -424,7 +653,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
     companion object {
         fun create(context: Context): SecureMessengerDatabase =
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
                 .build()
@@ -575,6 +804,107 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
                         `signedPreKeyId` INTEGER NOT NULL,
                         `baseKeyDigestHex` TEXT NOT NULL,
                         PRIMARY KEY(`kyberPreKeyId`, `signedPreKeyId`, `baseKeyDigestHex`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * Adds the v2 conversation tables (DEC-019). Purely additive: no existing row is changed or
+         * reinterpreted; legacy conversations keep working until the explicit reset of step 1f.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `v2_invitations` (
+                        `invitationId` TEXT NOT NULL,
+                        `localRoutingTagHex` TEXT NOT NULL,
+                        `signedPreKeyId` INTEGER NOT NULL,
+                        `oneTimePreKeyId` INTEGER NOT NULL,
+                        `kyberPreKeyId` INTEGER NOT NULL,
+                        `mailboxQueueId` TEXT NOT NULL,
+                        `encryptedCodeText` BLOB NOT NULL,
+                        `sealedBundle` BLOB NOT NULL,
+                        `createdAtEpochMillis` INTEGER NOT NULL,
+                        `expiresAtEpochMillis` INTEGER NOT NULL,
+                        `usedByRequestId` TEXT,
+                        PRIMARY KEY(`invitationId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_invitations_localRoutingTagHex` " +
+                        "ON `v2_invitations` (`localRoutingTagHex`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `v2_contact_requests` (
+                        `requestId` TEXT NOT NULL,
+                        `invitationId` TEXT NOT NULL,
+                        `identityKey` BLOB NOT NULL,
+                        `peerQueueId` TEXT NOT NULL,
+                        `peerRoutingTagHex` TEXT NOT NULL,
+                        `localRoutingTagHex` TEXT NOT NULL,
+                        `encryptedClaimedName` BLOB NOT NULL,
+                        `receivedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`requestId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_contact_requests_localRoutingTagHex` " +
+                        "ON `v2_contact_requests` (`localRoutingTagHex`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `v2_contacts` (
+                        `contactId` TEXT NOT NULL,
+                        `encryptedDisplayName` BLOB NOT NULL,
+                        `identityKey` BLOB NOT NULL,
+                        `peerQueueId` TEXT NOT NULL,
+                        `peerRoutingTagHex` TEXT NOT NULL,
+                        `localRoutingTagHex` TEXT NOT NULL,
+                        `state` TEXT NOT NULL,
+                        `createdAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`contactId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_contacts_localRoutingTagHex` " +
+                        "ON `v2_contacts` (`localRoutingTagHex`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `v2_messages` (
+                        `messageId` TEXT NOT NULL,
+                        `contactId` TEXT NOT NULL,
+                        `outgoing` INTEGER NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `innerMessageIdHex` TEXT NOT NULL,
+                        `encryptedBody` BLOB,
+                        `status` TEXT NOT NULL,
+                        `createdAtEpochMillis` INTEGER NOT NULL,
+                        `peerQueueId` TEXT,
+                        `envelope` BLOB,
+                        `deliveryAttemptCount` INTEGER NOT NULL,
+                        `nextRetryAtEpochMillis` INTEGER,
+                        PRIMARY KEY(`messageId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_messages_contactId_outgoing_innerMessageIdHex` " +
+                        "ON `v2_messages` (`contactId`, `outgoing`, `innerMessageIdHex`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `v2_accepted_envelopes` (
+                        `digestHex` TEXT NOT NULL,
+                        `acceptedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`digestHex`)
                     )
                     """.trimIndent(),
                 )
