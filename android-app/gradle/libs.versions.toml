@@ -16,6 +16,7 @@ androidxJunit = "1.2.1"
 androidxTestRunner = "1.6.2"
 espresso = "3.6.1"
 libsignal = "0.94.1"
+desugarJdkLibs = "2.1.5"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -45,6 +46,7 @@ androidx-test-runner = { module = "androidx.test:runner", version.ref = "android
 espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 libsignal-client = { module = "org.signal:libsignal-client", version.ref = "libsignal" }
 libsignal-android = { module = "org.signal:libsignal-android", version.ref = "libsignal" }
+desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
