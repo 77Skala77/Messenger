@@ -894,10 +894,21 @@ addresses but `SessionCipher` takes `(local, remote)` — the wrapper must hide 
   first session; the whole set is deleted when the invitation expires unused, and the signed
   pre-key of a used invitation after a grace period. (Refined during sub-step 2; the first
   draft of this decision shared one rotated signed pre-key.)
-- **T6 Addressing.** libsignal address = (local contact ID, device 1) until Phase 4. Contact
-  rows gain an explicit protocol version so v1 and v2 contacts are never confused.
-- **T7 Identity change** stays strict (DEC-018): it surfaces as `KEY_CHANGED`, blocks sending
-  and receiving, and requires re-pairing.
+- **T6 Addressing.** libsignal address = (local contact ID, device 1) until Phase 4; address
+  names are local-only (verified with libsignal 0.94.1: each side may name the other
+  differently). v2 state lives in separate `v2_*` tables (Room v7), so legacy rows are never
+  reinterpreted as v2 rows. (Refined during sub-step 5; the first draft added a protocol-version
+  column to the legacy contact table instead.)
+- **T7 Identity change** stays strict (DEC-018) and fails closed. Refined during sub-step 6: on
+  **receive**, libsignal checks the identity a PreKey message *claims* before authenticating
+  anything, so an untrusted-identity result is attacker-controlled (the relay sees every routing
+  tag). It is treated as an unauthenticated message and **never** changes contact state;
+  otherwise a relay could block any contact with one forged envelope. A genuinely new identity
+  cannot reach an existing conversation anyway (it lacks the routing tags) and must re-pair.
+- **T9 Placement (no new module).** Neutral v2 persistence and transaction boundaries live in
+  `:core:signalstore`; their Room implementation in `:core:storage` (which stays libsignal-free);
+  the pipeline (`ConversationV2Service`) in `:core:signal-protocol`, which now also depends on
+  `:core:domain` for `TransportClient`; UI wiring in `:core:ui` behind the flag.
 - **T8 Bundle confidentiality.** The relayed bundle is encrypted with a random single-use
   AES-256-GCM key taken from the QR code, and the QR commits to the exact relayed bytes with a
   domain-separated SHA-256 digest. The relay learns nothing from the bundle; someone who sees

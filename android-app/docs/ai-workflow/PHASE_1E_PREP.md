@@ -80,19 +80,25 @@ Original proposals, kept for history:
 
 1. **DONE 2026-09-29** — threat review, DEC-019, owner approvals. Legacy relay-message-ID patch
    (DEC-020) as a separate commit.
-2. Session service in `:core:signal-protocol`: per-invitation bundle creation (one-time EC and
-   Kyber pre-keys, signed pre-key reuse), session bootstrap from a bundle, encrypt/decrypt
-   wrappers that hide libsignal's address-order difference, HELLO sender lookup by the
-   PreKey header identity. JVM + device tests; still unused by the app.
-3. Invitation v2: QR codec (`smp-invite-v2:`, mailbox ID, key, digest), sealed-bundle codec
-   (AES-256-GCM, strict bundle format), version separation; malformed and oversized input tests.
-4. Envelope v2 and inner payload codec (HELLO / TEXT / RECEIPT / ACCEPT, inner message IDs,
-   routing tag); tamper, downgrade, and cross-protocol tests.
-5. Storage: Room v7 (contact protocol version, pending requests, invitations, vault-encrypted
-   message bodies, envelope digests), migration, instrumented tests; atomic transaction plus
-   process-wide protocol lock (DEC-019 T2) with a fault-injection test.
-6. Pipeline integration behind the flag; minimal UI (show v2 invitation, scan, accept/decline
-   request); tests mirroring `DeliveryPipelineTest` for the new path.
+2. **DONE 2026-09-30** — `InvitationPreKeyFactory` (per-invitation signed, one-time EC and
+   one-time Kyber pre-keys) and `SignalSessions` (start/encrypt/decrypt by local contact ID,
+   typed failures, PreKey header reading). 10 tests, JVM and SM-S928B.
+3. **DONE 2026-09-30** — `InvitationV2`: 122-character QR text (mailbox ID, seal key, digest),
+   sealed bundle (AES-256-GCM), strict bundle codec with early signature checks. 6 tests.
+4. **DONE 2026-09-30** — `EnvelopeV2Codec` (routing tag, libsignal type, digest) and
+   `InnerPayloadV2Codec` (HELLO / ACCEPT / TEXT / RECEIPT, inner message IDs, 160-byte padding,
+   safe display names). 6 tests.
+5. **DONE 2026-09-30** — `ConversationV2Store` / `ProtocolTransactionRunner` boundaries, Room v7
+   (`v2_*` tables, `MIGRATION_6_7`), `EncryptedConversationV2Repository`,
+   `RoomProtocolTransactionRunner`. 9 new instrumented tests (22 storage tests in total) on
+   SM-S928B, including rollback of libsignal and v2 rows together and migration 6→7.
+6. Pipeline and UI:
+   - 6a **written 2026-09-30** — `ConversationV2Service` (invitation, scan, request,
+     accept/decline, text, receipts, retries, expiry) under a process-wide lock and one
+     transaction per step. 12 end-to-end JVM tests with real libsignal and an attacking relay
+     double (duplicates, relabelling, forged identity claims, second scanner, crash rollback).
+   - 6b **next** — minimal UI wiring behind the flag (show v2 invitation, scan, accept/decline
+     request, chat), WorkManager sync, flag default OFF.
 7. Release-variant check: app depends on `:core:signal-protocol`, desugaring and `_testing`
    exclusion applied in the app module, minified release build verified.
 

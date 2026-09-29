@@ -121,6 +121,9 @@ The debug reset is for disposable QA state and is not a secure-erasure guarantee
   The exported `schemas/.../6.json` is committed. **Verified 2026-09-29:** the storage
   instrumented tests, including the 5→6 migration test, passed on a physical device
   (SM-S928B, Android 16).
+- Room schema version 7 (step 1e, 2026-09-30): adds the `v2_*` conversation tables via the
+  purely additive `MIGRATION_6_7` (verified on SM-S928B). **IMPLEMENTED/DISABLED:** the v2
+  tables are written only by the v2 pipeline, which the app does not use yet (DEC-019).
 - `:core:signal-protocol` now contains `EncryptedSignalProtocolStore`, which implements
   libsignal's identity/session/prekey/signed-prekey/Kyber store interfaces over the encrypted
   store, plus `LocalSignalIdentityProvisioner`. **IMPLEMENTED/DISABLED:** nothing in the app

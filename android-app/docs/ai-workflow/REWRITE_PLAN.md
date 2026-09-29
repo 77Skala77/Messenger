@@ -99,9 +99,12 @@ Progress:
   across signal-protocol and signalstore) and 12 storage instrumented tests on a physical
   device (including the 5→6 migration) pass. Semantics recorded in `DECISIONS.md` DEC-018.
   Still disabled: nothing in the app uses the adapter.
-- 1e — **preparation done, not started** (2026-09-29): coupling map, open design decisions
-  D1–D9 (notably invitation QR size with a Kyber-1024 key, plaintext-at-rest, atomic ratchet
-  persistence), and proposed sub-steps are in `PHASE_1E_PREP.md`.
+- 1e — **IN PROGRESS**: design approved (DEC-019, 2026-09-29); legacy relay message-ID fix
+  (DEC-020); sub-steps 2–5 done and verified on JVM and SM-S928B (session wrapper, invitation
+  v2, envelope/payload v2, Room v7 storage with atomic transactions); sub-step 6a pipeline
+  written with 12 end-to-end JVM tests. Next: 6b UI wiring behind the flag (default OFF), then
+  the release-variant check. Nothing is enabled in the app. Status per sub-step:
+  `PHASE_1E_PREP.md`.
 
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.
   Legacy prototype conversations are reset explicitly when the new protocol ships
