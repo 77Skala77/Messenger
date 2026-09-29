@@ -86,6 +86,9 @@ class EncryptedSignalProtocolStore(
     override fun getIdentity(address: SignalProtocolAddress): IdentityKey? =
         identities.loadIdentityRecord(address.toStore())?.let { IdentityKey(it) }
 
+    /** Not part of libsignal's interface: forgets a remote identity, e.g. for a declined request. */
+    fun deleteIdentity(address: SignalProtocolAddress) = identities.deleteIdentityRecord(address.toStore())
+
     // --- SessionStore ---
 
     /** Returns null when no session exists, matching libsignal's reference store. */
@@ -185,6 +188,9 @@ class EncryptedSignalProtocolStore(
 
     fun storeLastResortKyberPreKey(kyberPreKeyId: Int, record: KyberPreKeyRecord) =
         saveKyber(kyberPreKeyId, record, lastResort = true)
+
+    /** Not part of libsignal's interface: deletes an unused key, e.g. of an expired invitation. */
+    fun removeKyberPreKey(kyberPreKeyId: Int) = kyberPreKeys.deleteKyberPreKeyRecord(kyberPreKeyId)
 
     override fun containsKyberPreKey(kyberPreKeyId: Int): Boolean =
         kyberPreKeys.loadKyberPreKeyRecord(kyberPreKeyId)?.also { it.serializedRecord.fill(0) } != null
