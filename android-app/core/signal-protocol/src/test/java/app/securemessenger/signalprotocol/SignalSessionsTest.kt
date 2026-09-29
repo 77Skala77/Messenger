@@ -15,17 +15,10 @@ import org.signal.libsignal.protocol.state.PreKeyBundle
  * Each side names its peer by its own local contact ID, as the app will.
  */
 class SignalSessionsTest {
-    private class Device {
-        private val records = InMemorySignalRecords().also { LocalSignalIdentityProvisioner(it).provisionIfAbsent() }
-        val store = EncryptedSignalProtocolStore(records, records, records, records, records, records)
-        val sessions = SignalSessions(store)
-        val invitations = InvitationPreKeyFactory(store)
-    }
-
     @Test
     fun invitationSessionRoundTripsBetweenLocallyNamedContacts() {
-        val alice = Device()
-        val bob = Device()
+        val alice = TestSignalDevice()
+        val bob = TestSignalDevice()
         val invitation = alice.invitations.create()
 
         bob.sessions.startSession(ALICE_ON_BOB, invitation.toPreKeyBundle())
@@ -55,8 +48,8 @@ class SignalSessionsTest {
 
     @Test
     fun preKeyMessagesSentBeforeTheFirstReplyDecryptInAnyOrder() {
-        val alice = Device()
-        val bob = Device()
+        val alice = TestSignalDevice()
+        val bob = TestSignalDevice()
         bob.sessions.startSession(ALICE_ON_BOB, alice.invitations.create().toPreKeyBundle())
         val first = bob.sessions.encrypt(ALICE_ON_BOB, "first".toByteArray())
         val second = bob.sessions.encrypt(ALICE_ON_BOB, "second".toByteArray())
@@ -68,9 +61,9 @@ class SignalSessionsTest {
 
     @Test
     fun oneInvitationStartsAtMostOneSession() {
-        val alice = Device()
-        val bob = Device()
-        val carol = Device()
+        val alice = TestSignalDevice()
+        val bob = TestSignalDevice()
+        val carol = TestSignalDevice()
         val bundle = alice.invitations.create().toPreKeyBundle()
         // Carol saw the same QR code and got her request in first.
         carol.sessions.startSession(ALICE_ON_CAROL, bundle)
@@ -89,8 +82,8 @@ class SignalSessionsTest {
 
     @Test
     fun tamperedPreKeySignaturesAreRejectedBeforeAnySessionExists() {
-        val alice = Device()
-        val bob = Device()
+        val alice = TestSignalDevice()
+        val bob = TestSignalDevice()
         val invitation = alice.invitations.create()
         val badSignedPreKey = invitation.withSignatures(
             signed = invitation.signedPreKeySignature.flipFirstBit(),
@@ -133,7 +126,7 @@ class SignalSessionsTest {
     @Test
     fun aDifferentIdentityForAKnownContactIsUntrustedAndLeavesTheSessionIntact() {
         val (alice, bob) = establishedPair()
-        val mallory = Device()
+        val mallory = TestSignalDevice()
         // Mallory answers a second invitation, but routing attributes the message to Bob's contact.
         mallory.sessions.startSession(ALICE_ON_MALLORY, alice.invitations.create().toPreKeyBundle())
         val impostor = mallory.sessions.encrypt(ALICE_ON_MALLORY, "i am bob".toByteArray())
@@ -162,7 +155,7 @@ class SignalSessionsTest {
     @Test
     fun startingASecondSessionForTheSameContactIsRefused() {
         val (_, bob) = establishedPair()
-        val other = Device()
+        val other = TestSignalDevice()
         assertThrows(IllegalStateException::class.java) {
             bob.sessions.startSession(ALICE_ON_BOB, other.invitations.create().toPreKeyBundle())
         }
@@ -183,8 +176,8 @@ class SignalSessionsTest {
 
     @Test
     fun expiredInvitationKeysAreDeletedAndCannotStartASession() {
-        val alice = Device()
-        val bob = Device()
+        val alice = TestSignalDevice()
+        val bob = TestSignalDevice()
         val invitation = alice.invitations.create()
         alice.invitations.delete(invitation.signedPreKeyId, invitation.oneTimePreKeyId, invitation.kyberPreKeyId)
         assertFalse(alice.store.containsSignedPreKey(invitation.signedPreKeyId))
@@ -201,9 +194,9 @@ class SignalSessionsTest {
     }
 
     /** Bob scanned Alice's invitation, Alice answered once: both sides now use ordinary messages. */
-    private fun establishedPair(): Pair<Device, Device> {
-        val alice = Device()
-        val bob = Device()
+    private fun establishedPair(): Pair<TestSignalDevice, TestSignalDevice> {
+        val alice = TestSignalDevice()
+        val bob = TestSignalDevice()
         bob.sessions.startSession(ALICE_ON_BOB, alice.invitations.create().toPreKeyBundle())
         alice.sessions.decrypt(BOB_ON_ALICE, bob.sessions.encrypt(ALICE_ON_BOB, "hello".toByteArray()))
         bob.sessions.decrypt(ALICE_ON_BOB, alice.sessions.encrypt(BOB_ON_ALICE, "accepted".toByteArray()))
