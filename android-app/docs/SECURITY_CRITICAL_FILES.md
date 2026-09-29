@@ -16,6 +16,7 @@ results as evidence.
 | Android transport policy | `app/src/main/res/xml/network_security_config.xml`, `app/src/debug/res/xml/network_security_config.xml`, `core/ui/src/*/res/values/transport_policy.xml` | Cleartext allowed only in debug paths |
 | Relay service | `server/relay/src/` | Opaque storage, TTL, health endpoint and log policy |
 | Disabled migrations | `core/signalstore/`, `core/signal-protocol/` | Must remain disabled until separately reviewed |
+| libsignal store adapter | `core/signal-protocol/.../EncryptedSignalProtocolStore.kt`, `LocalSignalIdentityProvisioner.kt`, `core/storage/.../EncryptedSignalStoreRepository.kt` | Holds private identity, prekey, and ratchet state; identity trust policy; Kyber one-time deletion and last-resort base-key reuse rejection |
 
 Related review documents: `CRYPTO_DESIGN.md`, `THREAT_MODEL.md`,
 `SECURITY_WARNINGS.md`, `LIBSIGNAL_TOOLCHAIN_REVIEW.md` and `AUDIT_CHECKLIST.md`.

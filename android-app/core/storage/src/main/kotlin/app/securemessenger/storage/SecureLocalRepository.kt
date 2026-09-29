@@ -264,6 +264,8 @@ class SecureLocalRepository(
         )
 
     suspend fun wipeLocalData() {
+        dao.deleteSignalKyberBaseKeyUses()
+        dao.deleteSignalLocalIdentity()
         dao.deleteSignalKyberPreKeyRecords()
         dao.deleteSignalSignedPreKeyRecords()
         dao.deleteSignalPreKeyRecords()

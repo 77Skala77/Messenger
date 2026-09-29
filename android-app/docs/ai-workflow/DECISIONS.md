@@ -55,6 +55,7 @@ When changing an accepted decision:
 | DEC-015 | Workflow documents have separate, non-overlapping roles | ACCEPTED |
 | DEC-016 | `PARANOIA_C4_AEAD` removed entirely rather than kept disabled | ACCEPTED |
 | DEC-017 | Keep and finish `:core:signal-protocol`/`:core:signalstore` rather than rebuild clean | ACCEPTED |
+| DEC-018 | libsignal store adapter semantics: blocking, strict identity trust, fail-closed Kyber handling | ACCEPTED |
 
 ---
 
@@ -769,6 +770,59 @@ rather than starting a new module pair from scratch.
 
 Phase 1 implementation reveals the existing interfaces don't actually fit real
 `libsignal` store contracts and need a structural redesign rather than filling in.
+
+---
+
+## DEC-018 — libsignal store adapter semantics
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-27 (REWRITE_PLAN.md step 1d; implementation unverified by build)
+
+### Context
+
+libsignal 0.94.1 calls its store interfaces synchronously, including from native code, and
+leaves several policies to the store owner: identity trust, which Kyber pre-keys are
+one-time versus last-resort, and how local identity is created.
+
+### Decision
+
+- **Blocking storage.** The neutral `Signal*StoreBoundary` interfaces and their per-record DAO
+  methods are blocking, not `suspend`. Room's main-thread check is the guard against misuse.
+  One protocol operation per remote address must run at a time; the caller (step 1e) owns
+  that serialization.
+- **Strict identity trust.** A remote identity is trusted only if none is stored or it matches
+  the stored key, in **both** directions. libsignal's reference store accepts changed keys when
+  receiving; this project rejects them, consistent with the fail-closed `KEY_CHANGED` policy.
+- **Local identity is created once, explicitly.** `LocalSignalIdentityProvisioner` creates it
+  through an atomic insert that never overwrites. Reading a missing identity throws rather than
+  generating one.
+- **Kyber pre-keys.** libsignal's `storeKyberPreKey` stores a *one-time* key (deleted on use);
+  a last-resort key must be stored explicitly. The last-resort flag is bound into the record's
+  vault AAD, so changing it in the database makes the record undecryptable. One-time use is a
+  single atomic `DELETE`; last-resort reuse detection is a single atomic `INSERT ... IGNORE` of
+  `(kyberPreKeyId, signedPreKeyId, SHA-256(domain || baseKey))`. Unknown keys count as reuse.
+- **Buffers holding private material** are wiped after libsignal parses them; libsignal copies
+  them into native state (verified in the v0.94.1 constructors).
+
+### Consequences
+
+- Room schema v6 (`MIGRATION_5_6`) adds the local identity and base-key tables and the Kyber
+  flag. It deletes pre-existing Kyber spike rows, whose AAD format changed.
+- `wipeLocalData` also clears the local Signal identity and base-key tracking.
+- A contact whose key changed cannot even deliver an incoming message until the app-level
+  re-verification flow (later step) explicitly replaces the stored identity.
+
+### Evidence
+
+- `core/signal-protocol/src/main/java/app/securemessenger/signalprotocol/EncryptedSignalProtocolStore.kt`
+- `core/storage/src/main/kotlin/app/securemessenger/storage/EncryptedSignalStoreRepository.kt`
+- Tests: `EncryptedSignalProtocolStoreTest` (JVM, real PQXDH sessions), `SecureRoomStateInstrumentedTest`,
+  `SecureDatabaseMigrationInstrumentedTest` — **none have been run yet** (no toolchain).
+
+### Revisit when
+
+The step 1e pipeline integration or an independent review shows a store contract was
+misread, or when multi-device (Phase 4) needs per-device identity handling.
 
 ---
 

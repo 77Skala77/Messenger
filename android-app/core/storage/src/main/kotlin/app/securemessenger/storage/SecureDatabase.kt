@@ -108,6 +108,26 @@ data class EncryptedSignalSignedPreKeyRecordEntity(
 data class EncryptedSignalKyberPreKeyRecordEntity(
     val kyberPreKeyId: Int,
     val encryptedRecord: ByteArray,
+    // Also bound into the record's vault AAD, so flipping this column makes decryption fail.
+    val isLastResort: Boolean = false,
+)
+
+/** Singleton row holding the local libsignal identity key pair and registration ID. */
+@Entity(tableName = "signal_local_identity", primaryKeys = ["singletonId"])
+data class EncryptedSignalLocalIdentityEntity(
+    val singletonId: Int,
+    val encryptedRecord: ByteArray,
+)
+
+/** Seen `(kyberPreKeyId, signedPreKeyId, baseKey)` tuples for last-resort Kyber pre-keys. */
+@Entity(
+    tableName = "signal_kyber_base_key_uses",
+    primaryKeys = ["kyberPreKeyId", "signedPreKeyId", "baseKeyDigestHex"],
+)
+data class SignalKyberBaseKeyUseEntity(
+    val kyberPreKeyId: Int,
+    val signedPreKeyId: Int,
+    val baseKeyDigestHex: String,
 )
 
 @Dao
@@ -244,50 +264,85 @@ interface SecureMessengerDao {
         }
     }
 
+    // Per-record Signal store methods are deliberately blocking (not suspend): libsignal calls its
+    // stores synchronously. Room refuses them on the main thread.
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertSignalLocalIdentityIfAbsent(record: EncryptedSignalLocalIdentityEntity): Long
+
+    @Query("SELECT * FROM signal_local_identity WHERE singletonId = :singletonId LIMIT 1")
+    fun getSignalLocalIdentity(singletonId: Int): EncryptedSignalLocalIdentityEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putSignalIdentityRecord(record: EncryptedSignalIdentityRecordEntity)
+    fun putSignalIdentityRecord(record: EncryptedSignalIdentityRecordEntity)
 
     @Query("SELECT * FROM signal_identity_records WHERE recipientId = :recipientId AND deviceId = :deviceId LIMIT 1")
-    suspend fun getSignalIdentityRecord(recipientId: String, deviceId: Int): EncryptedSignalIdentityRecordEntity?
+    fun getSignalIdentityRecord(recipientId: String, deviceId: Int): EncryptedSignalIdentityRecordEntity?
 
     @Query("DELETE FROM signal_identity_records WHERE recipientId = :recipientId AND deviceId = :deviceId")
-    suspend fun deleteSignalIdentityRecord(recipientId: String, deviceId: Int)
+    fun deleteSignalIdentityRecord(recipientId: String, deviceId: Int)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putSignalSessionRecord(record: EncryptedSignalSessionRecordEntity)
+    fun putSignalSessionRecord(record: EncryptedSignalSessionRecordEntity)
 
     @Query("SELECT * FROM signal_session_records WHERE recipientId = :recipientId AND deviceId = :deviceId LIMIT 1")
-    suspend fun getSignalSessionRecord(recipientId: String, deviceId: Int): EncryptedSignalSessionRecordEntity?
+    fun getSignalSessionRecord(recipientId: String, deviceId: Int): EncryptedSignalSessionRecordEntity?
 
     @Query("DELETE FROM signal_session_records WHERE recipientId = :recipientId AND deviceId = :deviceId")
-    suspend fun deleteSignalSessionRecord(recipientId: String, deviceId: Int)
+    fun deleteSignalSessionRecord(recipientId: String, deviceId: Int)
+
+    @Query("SELECT deviceId FROM signal_session_records WHERE recipientId = :recipientId")
+    fun getSignalSessionDeviceIds(recipientId: String): List<Int>
+
+    @Query("DELETE FROM signal_session_records WHERE recipientId = :recipientId")
+    fun deleteSignalSessionRecordsFor(recipientId: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putSignalPreKeyRecord(record: EncryptedSignalPreKeyRecordEntity)
+    fun putSignalPreKeyRecord(record: EncryptedSignalPreKeyRecordEntity)
 
     @Query("SELECT * FROM signal_prekey_records WHERE preKeyId = :preKeyId LIMIT 1")
-    suspend fun getSignalPreKeyRecord(preKeyId: Int): EncryptedSignalPreKeyRecordEntity?
+    fun getSignalPreKeyRecord(preKeyId: Int): EncryptedSignalPreKeyRecordEntity?
 
     @Query("DELETE FROM signal_prekey_records WHERE preKeyId = :preKeyId")
-    suspend fun deleteSignalPreKeyRecord(preKeyId: Int)
+    fun deleteSignalPreKeyRecord(preKeyId: Int)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putSignalSignedPreKeyRecord(record: EncryptedSignalSignedPreKeyRecordEntity)
+    fun putSignalSignedPreKeyRecord(record: EncryptedSignalSignedPreKeyRecordEntity)
 
     @Query("SELECT * FROM signal_signed_prekey_records WHERE signedPreKeyId = :signedPreKeyId LIMIT 1")
-    suspend fun getSignalSignedPreKeyRecord(signedPreKeyId: Int): EncryptedSignalSignedPreKeyRecordEntity?
+    fun getSignalSignedPreKeyRecord(signedPreKeyId: Int): EncryptedSignalSignedPreKeyRecordEntity?
+
+    @Query("SELECT * FROM signal_signed_prekey_records")
+    fun getAllSignalSignedPreKeyRecords(): List<EncryptedSignalSignedPreKeyRecordEntity>
 
     @Query("DELETE FROM signal_signed_prekey_records WHERE signedPreKeyId = :signedPreKeyId")
-    suspend fun deleteSignalSignedPreKeyRecord(signedPreKeyId: Int)
+    fun deleteSignalSignedPreKeyRecord(signedPreKeyId: Int)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putSignalKyberPreKeyRecord(record: EncryptedSignalKyberPreKeyRecordEntity)
+    fun putSignalKyberPreKeyRecord(record: EncryptedSignalKyberPreKeyRecordEntity)
 
     @Query("SELECT * FROM signal_kyber_prekey_records WHERE kyberPreKeyId = :kyberPreKeyId LIMIT 1")
-    suspend fun getSignalKyberPreKeyRecord(kyberPreKeyId: Int): EncryptedSignalKyberPreKeyRecordEntity?
+    fun getSignalKyberPreKeyRecord(kyberPreKeyId: Int): EncryptedSignalKyberPreKeyRecordEntity?
+
+    @Query("SELECT * FROM signal_kyber_prekey_records")
+    fun getAllSignalKyberPreKeyRecords(): List<EncryptedSignalKyberPreKeyRecordEntity>
 
     @Query("DELETE FROM signal_kyber_prekey_records WHERE kyberPreKeyId = :kyberPreKeyId")
-    suspend fun deleteSignalKyberPreKeyRecord(kyberPreKeyId: Int)
+    fun deleteSignalKyberPreKeyRecord(kyberPreKeyId: Int)
+
+    /** Single atomic statement: returns 1 only for the first consumer of a one-time key. */
+    @Query("DELETE FROM signal_kyber_prekey_records WHERE kyberPreKeyId = :kyberPreKeyId AND isLastResort = 0")
+    fun deleteOneTimeSignalKyberPreKey(kyberPreKeyId: Int): Int
+
+    /** Single atomic statement: returns -1 when the tuple was already recorded. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertSignalKyberBaseKeyUse(use: SignalKyberBaseKeyUseEntity): Long
+
+    @Query("DELETE FROM signal_kyber_base_key_uses WHERE kyberPreKeyId = :kyberPreKeyId")
+    fun deleteSignalKyberBaseKeyUsesForKyberKey(kyberPreKeyId: Int)
+
+    @Query("DELETE FROM signal_kyber_base_key_uses WHERE signedPreKeyId = :signedPreKeyId")
+    fun deleteSignalKyberBaseKeyUsesForSignedKey(signedPreKeyId: Int)
 
     @Query("DELETE FROM local_profile")
     suspend fun deleteProfile()
@@ -321,6 +376,12 @@ interface SecureMessengerDao {
 
     @Query("DELETE FROM signal_kyber_prekey_records")
     suspend fun deleteSignalKyberPreKeyRecords()
+
+    @Query("DELETE FROM signal_kyber_base_key_uses")
+    suspend fun deleteSignalKyberBaseKeyUses()
+
+    @Query("DELETE FROM signal_local_identity")
+    suspend fun deleteSignalLocalIdentity()
 }
 
 @Database(
@@ -336,8 +397,10 @@ interface SecureMessengerDao {
         EncryptedSignalPreKeyRecordEntity::class,
         EncryptedSignalSignedPreKeyRecordEntity::class,
         EncryptedSignalKyberPreKeyRecordEntity::class,
+        EncryptedSignalLocalIdentityEntity::class,
+        SignalKyberBaseKeyUseEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -346,7 +409,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
     companion object {
         fun create(context: Context): SecureMessengerDatabase =
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
                 .build()
@@ -462,6 +525,41 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
                         `kyberPreKeyId` INTEGER NOT NULL,
                         `encryptedRecord` BLOB NOT NULL,
                         PRIMARY KEY(`kyberPreKeyId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * Adds the libsignal local identity, the Kyber last-resort flag, and Kyber base-key reuse
+         * tracking. Existing Kyber rows are deleted: their vault AAD format changed to bind the
+         * last-resort flag, and the store was a disabled spike, so no runtime conversation ever
+         * depended on them. Deleting fails closed; keeping them would only produce rows that can
+         * no longer be decrypted.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DELETE FROM `signal_kyber_prekey_records`")
+                db.execSQL(
+                    "ALTER TABLE `signal_kyber_prekey_records` ADD COLUMN `isLastResort` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_local_identity` (
+                        `singletonId` INTEGER NOT NULL,
+                        `encryptedRecord` BLOB NOT NULL,
+                        PRIMARY KEY(`singletonId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `signal_kyber_base_key_uses` (
+                        `kyberPreKeyId` INTEGER NOT NULL,
+                        `signedPreKeyId` INTEGER NOT NULL,
+                        `baseKeyDigestHex` TEXT NOT NULL,
+                        PRIMARY KEY(`kyberPreKeyId`, `signedPreKeyId`, `baseKeyDigestHex`)
                     )
                     """.trimIndent(),
                 )

@@ -37,6 +37,34 @@ class SecureDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrationFiveToSixAddsLibsignalTablesAndDropsOldKyberRows() {
+        migrationHelper.createDatabase(TEST_DATABASE, 5).use { db ->
+            db.execSQL(
+                "INSERT INTO signal_kyber_prekey_records (kyberPreKeyId, encryptedRecord) VALUES (7, X'0102')",
+            )
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            6,
+            true,
+            SecureMessengerDatabase.MIGRATION_5_6,
+        )
+        migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' " +
+                "AND name IN ('signal_local_identity', 'signal_kyber_base_key_uses')",
+        ).use { cursor ->
+            assertEquals(2, cursor.count)
+        }
+        // Old rows used the v1 AAD without the last-resort flag, so they must not survive.
+        migrated.query("SELECT COUNT(*) FROM signal_kyber_prekey_records").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE = "signal-store-migration-test"
     }

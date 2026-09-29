@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
@@ -12,7 +13,12 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+}
+
 dependencies {
+    api(project(":core:signalstore"))
     implementation(libs.libsignal.client)
     implementation(libs.libsignal.android)
     testImplementation(libs.junit)

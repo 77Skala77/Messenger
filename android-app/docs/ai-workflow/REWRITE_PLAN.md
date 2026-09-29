@@ -53,6 +53,37 @@ old prototype path frozen and marked legacy in code comments.
 
 Goal: replace `SimplifiedSessionManager` with actual `libsignal` sessions.
 
+**Blocker found at Phase 1 start (2026-09-27):** `libsignal-client` 0.94.1 declares
+Kotlin stdlib 2.2.20, while the project compiles with Kotlin 1.9.24. Kotlin 1.9 cannot
+read Kotlin 2.2 class metadata, so no Kotlin code can call libsignal types until the
+toolchain is upgraded (see `docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`). Phase 1 therefore
+starts with a toolchain upgrade, in this order:
+
+| Step | Work | Recommended model / effort |
+| --- | --- | --- |
+| 1a | Install JDK 17 + Android SDK; record a passing baseline build of the current code | Sonnet 5 · Medium |
+| 1b | Toolchain upgrade: Kotlin 2.2, Compose compiler plugin, AGP/Gradle, coroutines, Room KAPT→KSP — separate commits | Opus 5.5 · High while blind; Sonnet 5 · High once a build loop exists |
+| 1c | libsignal packaging: native `.so` for 4 ABIs, resource exclusions, R8 keep rules | Sonnet 5 · High |
+| 1d | Signal stores backed by real libsignal record types, encrypted in Room | Opus 5.5 · High |
+| 1e | PQXDH prekey bundle, invitation v2, session setup, Double Ratchet in the delivery pipeline | Opus 5.5 · Extra |
+| 1f | Explicit legacy-conversation reset + tests (forward secrecy, two-device) | Opus 5.5 · High |
+
+Owner chose to defer 1a (toolchain install). Steps 1b onward proceed "blind": every
+change is marked unverified until 1a is done, and the Phase 1 exit gate cannot pass
+without it.
+
+Progress:
+- 1b — **written, UNVERIFIED** (2026-09-27): Kotlin 2.2.20, Compose compiler plugin,
+  coroutines 1.10.2, Room 2.7.2 (KAPT kept), `kotlinOptions`→`compilerOptions`. AGP,
+  Gradle, compileSdk, and Compose BOM unchanged. Details, sources, and first things to
+  check: `docs/LIBSIGNAL_TOOLCHAIN_REVIEW.md`, "Toolchain upgrade (step 1b)".
+- 1c — **deferred** until the toolchain exists (it is about inspecting a built APK).
+- 1d — **written, UNVERIFIED** (2026-09-27): `EncryptedSignalProtocolStore` (libsignal store
+  interfaces over the encrypted repository), `LocalSignalIdentityProvisioner`, blocking store
+  boundaries, Room v6 + `MIGRATION_5_6`, JVM tests with real PQXDH sessions, and
+  instrumented storage/migration tests. Semantics recorded in `DECISIONS.md` DEC-018. Still
+  disabled: nothing in the app uses the adapter.
+
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.
   Legacy prototype conversations are reset explicitly when the new protocol ships
   (owner decision, see "Decisions") — never silently reinterpreted as new sessions,

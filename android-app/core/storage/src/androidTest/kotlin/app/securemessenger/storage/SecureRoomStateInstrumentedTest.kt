@@ -10,6 +10,7 @@ import app.securemessenger.domain.Contact
 import app.securemessenger.domain.DeviceApprovalStatus
 import app.securemessenger.domain.MessageStatus
 import app.securemessenger.domain.VerificationStatus
+import app.securemessenger.signalstore.SignalLocalIdentityRecord
 import app.securemessenger.signalstore.SignalProtocolAddress
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -18,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -102,7 +104,7 @@ class SecureRoomStateInstrumentedTest {
         signalStore.saveSessionRecord(address, sessionRecord)
         signalStore.savePreKeyRecord(11, preKeyRecord)
         signalStore.saveSignedPreKeyRecord(12, signedPreKeyRecord)
-        signalStore.saveKyberPreKeyRecord(13, kyberPreKeyRecord)
+        signalStore.saveKyberPreKeyRecord(13, kyberPreKeyRecord, lastResort = false)
 
         val encryptedRecords = listOf(
             database.dao().getSignalIdentityRecord(address.recipientId, address.deviceId)!!.encryptedRecord,
@@ -121,7 +123,7 @@ class SecureRoomStateInstrumentedTest {
         assertArrayEquals(sessionRecord, signalStore.loadSessionRecord(address))
         assertArrayEquals(preKeyRecord, signalStore.loadPreKeyRecord(11))
         assertArrayEquals(signedPreKeyRecord, signalStore.loadSignedPreKeyRecord(12))
-        assertArrayEquals(kyberPreKeyRecord, signalStore.loadKyberPreKeyRecord(13))
+        assertArrayEquals(kyberPreKeyRecord, signalStore.loadKyberPreKeyRecord(13)!!.serializedRecord)
 
         signalStore.deleteIdentityRecord(address)
         signalStore.deleteSessionRecord(address)
@@ -135,6 +137,52 @@ class SecureRoomStateInstrumentedTest {
         assertNull(signalStore.loadSignedPreKeyRecord(12))
         assertNull(signalStore.loadKyberPreKeyRecord(13))
     }
+
+    @Test
+    fun oneTimeKyberPreKeyIsConsumedExactlyOnce() {
+        signalStore.saveKyberPreKeyRecord(21, "one-time-kyber".toByteArray(), lastResort = false)
+
+        assertTrue(signalStore.consumeKyberPreKey(21, 5, digest(1)))
+        assertNull(signalStore.loadKyberPreKeyRecord(21))
+        assertFalse(signalStore.consumeKyberPreKey(21, 5, digest(2)))
+    }
+
+    @Test
+    fun lastResortKyberPreKeyRejectsRepeatedBaseKeyButStaysAvailable() {
+        signalStore.saveKyberPreKeyRecord(22, "last-resort-kyber".toByteArray(), lastResort = true)
+
+        assertTrue(signalStore.consumeKyberPreKey(22, 5, digest(1)))
+        assertFalse(signalStore.consumeKyberPreKey(22, 5, digest(1)))
+        assertTrue(signalStore.consumeKyberPreKey(22, 5, digest(2)))
+        assertTrue(signalStore.consumeKyberPreKey(22, 6, digest(1)))
+        assertTrue(signalStore.loadKyberPreKeyRecord(22)!!.lastResort)
+    }
+
+    @Test
+    fun tamperedKyberLastResortFlagFailsClosed() {
+        signalStore.saveKyberPreKeyRecord(23, "one-time-kyber".toByteArray(), lastResort = false)
+        val stored = database.dao().getSignalKyberPreKeyRecord(23)!!
+        database.dao().putSignalKyberPreKeyRecord(stored.copy(isLastResort = true))
+
+        assertThrows(Exception::class.java) { signalStore.loadKyberPreKeyRecord(23) }
+        assertThrows(Exception::class.java) { signalStore.consumeKyberPreKey(23, 5, digest(1)) }
+    }
+
+    @Test
+    fun localSignalIdentityIsEncryptedAndNeverOverwritten() {
+        val keyPair = "local-identity-private-material".toByteArray()
+
+        assertTrue(signalStore.createLocalIdentity(SignalLocalIdentityRecord(4242, keyPair)))
+        assertFalse(signalStore.createLocalIdentity(SignalLocalIdentityRecord(7, "replacement".toByteArray())))
+
+        val stored = database.dao().getSignalLocalIdentity(1)!!.encryptedRecord
+        assertFalse(stored.toString(Charsets.UTF_8).contains("local-identity-private-material"))
+        val loaded = signalStore.loadLocalIdentity()!!
+        assertEquals(4242, loaded.registrationId)
+        assertArrayEquals(keyPair, loaded.serializedIdentityKeyPair)
+    }
+
+    private fun digest(seed: Int) = ByteArray(32) { seed.toByte() }
 
     @Test
     fun localWipeClearsTestDeliveryReplayAndDisabledSignalState() = runBlocking {
@@ -153,6 +201,9 @@ class SecureRoomStateInstrumentedTest {
         repository.storeEncryptedMessage("pending-reset", contact.contactId, message, true, MessageStatus.PENDING.name)
         assertTrue(repository.acceptIncoming("incoming-reset", contact.contactId, session, message))
         signalStore.saveIdentityRecord(signalAddress, "disabled-record".toByteArray())
+        signalStore.createLocalIdentity(SignalLocalIdentityRecord(99, "local-identity".toByteArray()))
+        signalStore.saveKyberPreKeyRecord(31, "last-resort".toByteArray(), lastResort = true)
+        signalStore.consumeKyberPreKey(31, 1, ByteArray(32) { 3 })
 
         repository.wipeLocalData()
 
@@ -161,6 +212,10 @@ class SecureRoomStateInstrumentedTest {
         assertNull(repository.loadSession(contact.contactId))
         assertTrue(database.dao().getDueOutgoingMessages(Long.MAX_VALUE).isEmpty())
         assertNull(signalStore.loadIdentityRecord(signalAddress))
+        assertNull(signalStore.loadLocalIdentity())
+        // Reuse tracking was wiped too: a fresh key under the same IDs starts clean.
+        signalStore.saveKyberPreKeyRecord(31, "last-resort".toByteArray(), lastResort = true)
+        assertTrue(signalStore.consumeKyberPreKey(31, 1, ByteArray(32) { 3 }))
         assertTrue(repository.acceptIncoming("incoming-after-reset", contact.contactId, session, message))
     }
 }

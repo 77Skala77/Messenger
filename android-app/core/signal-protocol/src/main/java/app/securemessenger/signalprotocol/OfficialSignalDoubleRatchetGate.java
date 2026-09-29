@@ -16,9 +16,9 @@ public final class OfficialSignalDoubleRatchetGate {
     public static final boolean MIGRATION_ENABLED = false;
 
     public static final List<String> BLOCKERS = List.of(
-            "Encrypted durable SignalProtocolStore is not implemented",
+            "Encrypted durable store adapter is written but not yet verified by a build or tests",
             "PreKey/PQXDH invitation exchange is not implemented",
-            "AGPL-3.0 and unsupported-external-use review is not complete",
+            "AGPL-3.0 accepted by the owner; distribution notice obligations are not yet fulfilled",
             "Independent protocol integration audit is not complete");
 
     private OfficialSignalDoubleRatchetGate() {}
