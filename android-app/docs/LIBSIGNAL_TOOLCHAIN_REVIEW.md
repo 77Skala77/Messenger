@@ -29,11 +29,11 @@ The current repository version catalog and Android configuration specify:
 | Area | Repository value |
 | --- | --- |
 | Android Gradle Plugin | `8.5.2` |
-| Kotlin Gradle plugin | `1.9.24` |
-| Compose compiler extension | `1.5.14` |
+| Kotlin Gradle plugin | `2.2.20` |
+| Compose compiler | Kotlin Compose compiler plugin `2.2.20` (was extension `1.5.14`) |
 | Compose BOM | `2024.06.00` |
-| Room | `2.6.1` |
-| Kotlin Coroutines | `1.8.1` |
+| Room | `2.7.2` (KAPT) |
+| Kotlin Coroutines | `1.10.2` |
 | WorkManager | `2.9.1` |
 | Application compile SDK | `34` |
 | Application target SDK | `34` |
@@ -44,6 +44,36 @@ The current repository version catalog and Android configuration specify:
 
 These are repository declarations, not proof that every build variant currently passes.
 Fresh results belong to TQ-006 and TQ-007.
+
+## Toolchain upgrade (step 1b, 2026-09-27) — UNVERIFIED BY BUILD
+
+Performed as step 1b of `ai-workflow/REWRITE_PLAN.md` Phase 1. The owner deferred
+installing JDK/Android SDK, so **no build, lint, or test has been run against these
+changes.** The risk analysis sections below were written against the pre-upgrade
+versions and remain the checklist for verification.
+
+| Area | Before | After | Evidence (checked 2026-09-27) |
+| --- | --- | --- | --- |
+| Kotlin (KGP, stdlib) | `1.9.24` | `2.2.20` | `libsignal-client-0.94.1.pom` declares `kotlin-stdlib 2.2.20`; libsignal `java/build.gradle` at tag `v0.94.1` uses KGP `2.2.20` |
+| Compose compiler | extension `1.5.14` | plugin `org.jetbrains.kotlin.plugin.compose` `2.2.20` | Kotlin 2.x ships the Compose compiler as a Kotlin plugin |
+| Kotlin Coroutines | `1.8.1` | `1.10.2` | both libsignal POMs declare `1.10.2` |
+| Room | `2.6.1` (KAPT) | `2.7.2` (KAPT kept) | Room 2.7.0 release notes: targets Kotlin 2.0 and requires projects to compile with Kotlin 2.0+; KAPT still supported. `room-runtime-android-2.7.2.aar` and `sqlite(-framework)-android-2.5.1.aar` declare `minCompileSdk=34` |
+| `kotlinOptions {}` DSL | used in app, ui, storage, transport | `kotlin { compilerOptions { jvmTarget = JVM_17 } }` | Kotlin 2.2.0 raises `kotlinOptions{}` deprecation to error |
+| AGP / Gradle | `8.5.2` / `8.7` | unchanged | KGP 2.2.20 supports AGP 7.3.1–8.11.1 and Gradle 7.6.3–8.14 (kotlinlang.org compatibility table) |
+| compileSdk / minSdk | 34 / 31 | unchanged | libsignal-android `v0.94.1` builds with `compileSdk 34`, `minSdkVersion 23` |
+| Compose BOM | `2024.06.00` | unchanged | kept to avoid a compileSdk 35 requirement from newer Compose |
+
+Deliberately not done in this step (separate, later changes): KAPT→KSP, AGP/Gradle
+upgrade, Compose BOM upgrade.
+
+Known risks to check first once a toolchain exists:
+
+- Room 2.7.2's KAPT processor reading Kotlin 2.2 class metadata.
+- Compose compiler plugin 2.2.20 against the older Compose runtime from BOM `2024.06.00`.
+- R8 bundled with AGP 8.5.2 processing Kotlin 2.2 metadata in the minified release build.
+- K2 compiler stricter diagnostics in existing Kotlin source.
+- libsignal's `coreLibraryDesugaringEnabled = true`: likely irrelevant at our minSdk 31,
+  but it must be confirmed.
 
 ## Current Official Artifact Gate
 

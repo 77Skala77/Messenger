@@ -54,15 +54,15 @@ The version catalog currently declares:
 | --- | ---: |
 | Gradle wrapper | `8.7` |
 | Android Gradle Plugin | `8.5.2` |
-| Kotlin | `1.9.24` |
+| Kotlin | `2.2.20` |
 | Compose BOM | `2024.06.00` |
 | Activity Compose | `1.9.0` |
 | AppCompat | `1.7.0` |
 | AndroidX Core KTX | `1.13.1` |
 | Lifecycle | `2.8.2` |
 | Navigation Compose | `2.7.7` |
-| Room | `2.6.1` |
-| Kotlin Coroutines | `1.8.1` |
+| Room | `2.7.2` |
+| Kotlin Coroutines | `1.10.2` |
 | WorkManager | `2.9.1` |
 | ZXing Embedded | `4.3.0` |
 | JUnit | `4.13.2` |
@@ -71,8 +71,12 @@ The version catalog currently declares:
 | Espresso | `3.6.1` |
 | Official libsignal gate | `0.94.1` |
 
-Application configuration additionally declares Compose compiler extension `1.5.14`,
-compile and target SDK 34, minimum SDK 31, and Java/Kotlin JVM target 17.
+Application configuration additionally declares the Kotlin Compose compiler plugin
+(`org.jetbrains.kotlin.plugin.compose`, same version as Kotlin; replaced the old Compose
+compiler extension `1.5.14` on 2026-09-27), compile and target SDK 34, minimum SDK 31,
+and Java/Kotlin JVM target 17. The Kotlin, Room, and coroutines pins were raised on
+2026-09-27 for libsignal compatibility — see `LIBSIGNAL_TOOLCHAIN_REVIEW.md`,
+"Toolchain upgrade (step 1b)". That upgrade has not yet been verified by a build.
 
 This table is an inventory of direct declarations. It is not a complete resolved graph and
 must not be read as a recommendation that every pin is current, safe, mutually compatible,
