@@ -90,6 +90,8 @@ class SignalSessions(private val store: EncryptedSignalProtocolStore) {
 
     fun identityOf(contactId: String): IdentityKey? = store.getIdentity(address(contactId))
 
+    fun localIdentityKey(): IdentityKey = store.getIdentityKeyPair().publicKey
+
     /** Removes the session and the stored identity, e.g. when a request is declined. */
     fun forget(contactId: String) {
         val remote = address(contactId)

@@ -38,6 +38,9 @@ kotlin {
 
 dependencies {
     api(project(":core:signalstore"))
+    // TransportClient / RelayEncryptedBlob for the v2 conversation pipeline.
+    api(project(":core:domain"))
+    implementation(libs.coroutines.core)
     implementation(libs.libsignal.client)
     implementation(libs.libsignal.android)
     coreLibraryDesugaring(libs.desugar.jdk.libs)

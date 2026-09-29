@@ -127,6 +127,29 @@ class InMemorySignalRecords :
         kyberBaseKeyUses.removeAll { it.first == kyberPreKeyId }
     }
 
+    /** Copy of every map, for a test transaction runner that must roll back like Room does. */
+    @Synchronized
+    fun snapshot(): () -> Unit {
+        val savedIdentity = localIdentity
+        val savedIdentities = identities.toMap()
+        val savedSessions = sessions.toMap()
+        val savedPreKeys = preKeys.toMap()
+        val savedSignedPreKeys = signedPreKeys.toMap()
+        val savedKyberPreKeys = kyberPreKeys.toMap()
+        val savedKyberBaseKeyUses = kyberBaseKeyUses.toSet()
+        return {
+            synchronized(this) {
+                localIdentity = savedIdentity
+                identities.clear(); identities.putAll(savedIdentities)
+                sessions.clear(); sessions.putAll(savedSessions)
+                preKeys.clear(); preKeys.putAll(savedPreKeys)
+                signedPreKeys.clear(); signedPreKeys.putAll(savedSignedPreKeys)
+                kyberPreKeys.clear(); kyberPreKeys.putAll(savedKyberPreKeys)
+                kyberBaseKeyUses.clear(); kyberBaseKeyUses.addAll(savedKyberBaseKeyUses)
+            }
+        }
+    }
+
     @Synchronized
     override fun consumeKyberPreKey(kyberPreKeyId: Int, signedPreKeyId: Int, baseKeyDigest: ByteArray): Boolean {
         val (_, lastResort) = kyberPreKeys[kyberPreKeyId] ?: return false

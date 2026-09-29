@@ -145,6 +145,8 @@ internal object V2Text {
     const val MAX_QUEUE_ID = 128
 }
 
+internal fun hexOf(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+
 internal fun sha256(domain: ByteArray, data: ByteArray): ByteArray =
     MessageDigest.getInstance("SHA-256").run {
         update(domain)
