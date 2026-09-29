@@ -153,6 +153,10 @@ class EncryptedConversationV2Repository(
     override fun incomingTexts(contactId: String): List<V2StoredMessage> =
         dao.getV2IncomingMessages(contactId).filter { it.kind == V2MessageKind.TEXT.name }.map(::readMessage)
 
+    override fun texts(contactId: String): List<V2StoredMessage> = dao.getV2Texts(contactId).map(::readMessage)
+
+    override fun contacts(): List<V2Contact> = dao.getV2Contacts().map(::readContact)
+
     override fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long) {
         require((envelope.kind == V2MessageKind.TEXT) == (visibleText != null)) { "Only TEXT carries visible text" }
         val inserted = dao.insertV2Message(

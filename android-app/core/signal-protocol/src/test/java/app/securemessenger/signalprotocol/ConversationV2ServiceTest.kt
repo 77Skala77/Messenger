@@ -62,6 +62,26 @@ class ConversationV2ServiceTest {
     }
 
     @Test
+    fun bothSidesSeeTheSameSafetyNumberAndASubstitutedKeyChangesIt() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val onBob = bob.service.safetyNumber(aliceOnBob)!!
+        val onAlice = alice.service.safetyNumber(bobOnAlice)!!
+        assertEquals(onBob, onAlice)
+        assertEquals(60, onBob.length)
+        assertTrue(onBob.all(Char::isDigit))
+
+        // A third party paired with Alice has a different number: the digits commit to both keys.
+        val carol = V2TestDevice("Carol", relay) { clock }
+        val aliceOnCarol = carol.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        alice.service.synchronize()
+        val carolOnAlice = alice.store.requests().single().requestId
+        assertFalse(alice.service.safetyNumber(carolOnAlice) == onAlice)
+        assertFalse(carol.service.safetyNumber(aliceOnCarol) == onBob)
+        // Unknown contacts have none.
+        assertNull(alice.service.safetyNumber("unknown-contact"))
+    }
+
+    @Test
     fun messagesBeforeAcceptanceAreHeldWithoutReceiptsThenReceipted() = runBlocking {
         val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
         val early = bob.service.sendText(aliceOnBob, "are you there?")

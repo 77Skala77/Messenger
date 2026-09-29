@@ -158,6 +158,12 @@ interface ConversationV2Store {
     /** Incoming texts of a contact or request, oldest first. */
     fun incomingTexts(contactId: String): List<V2StoredMessage>
 
+    /** Visible texts of a contact in both directions, oldest first (control messages excluded). */
+    fun texts(contactId: String): List<V2StoredMessage>
+
+    /** Every contact, oldest first. */
+    fun contacts(): List<V2Contact>
+
     /** [visibleText] is stored (encrypted) for TEXT only; control messages have none. */
     fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long)
 

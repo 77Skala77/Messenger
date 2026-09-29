@@ -80,6 +80,9 @@ private enum class Screen {
 @Composable
 fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
+    val appContext = LocalContext.current
+    // Hidden debug QA switch (DEC-019): always false in release builds.
+    val v2Enabled by V2QaSwitch.flow(appContext, state.debugQaToolsEnabled).collectAsState()
     var screen by remember { mutableStateOf(Screen.ONBOARDING) }
     val snackbarHostState = remember { SnackbarHostState() }
     val emptyContactName = stringResource(R.string.empty_contact_name)
@@ -117,7 +120,14 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     MaterialTheme {
         Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
             Box(Modifier.padding(padding)) {
-                when (screen) {
+                val showV2 = v2Enabled && state.profileCreated &&
+                    screen != Screen.SETTINGS && screen != Screen.DIAGNOSTICS && screen != Screen.ONBOARDING
+                if (showV2) {
+                    ConversationV2Root(
+                        onOpenSettings = { screen = Screen.SETTINGS },
+                        onTurnOff = { V2QaSwitch.set(appContext, state.debugQaToolsEnabled, false) },
+                    )
+                } else when (screen) {
                     Screen.ONBOARDING -> OnboardingScreen(onCreateProfile = viewModel::createProfile)
                     Screen.HOME -> HomeScreen(
                         contacts = state.contacts,
@@ -729,6 +739,7 @@ private fun SettingsScreen(
                         Text(stringResource(R.string.reset_test_data))
                     }
                 }
+                item { V2QaSwitchRow(debugQaToolsEnabled) }
             }
             item {
                 Text(stringResource(R.string.export_diagnostics), fontWeight = FontWeight.Bold)
@@ -947,7 +958,7 @@ private fun deviceApprovalLabel(status: DeviceApprovalStatus): String = when (st
 }
 
 @Composable
-private fun QrCode(value: String, contentDescription: String) {
+internal fun QrCode(value: String, contentDescription: String) {
     if (value.isBlank()) return
     val bitmap = remember(value) {
         val matrix = MultiFormatWriter().encode(value, BarcodeFormat.QR_CODE, 512, 512)
@@ -967,7 +978,7 @@ private fun QrCode(value: String, contentDescription: String) {
 }
 
 @Composable
-private fun SecurityWarning(text: String) {
+internal fun SecurityWarning(text: String) {
     Box(
         Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.errorContainer)
@@ -979,7 +990,7 @@ private fun SecurityWarning(text: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NavigationTopBar(title: String, onBack: () -> Unit, actions: @Composable () -> Unit = {}) {
+internal fun NavigationTopBar(title: String, onBack: () -> Unit, actions: @Composable () -> Unit = {}) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = { TextButton(onClick = onBack) { Text(stringResource(R.string.back)) } },

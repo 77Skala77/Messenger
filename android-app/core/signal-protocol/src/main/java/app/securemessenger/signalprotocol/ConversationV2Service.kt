@@ -11,6 +11,7 @@ import app.securemessenger.signalstore.V2Invitation
 import app.securemessenger.signalstore.V2MessageKind
 import app.securemessenger.signalstore.V2OutgoingEnvelope
 import app.securemessenger.signalstore.V2Route
+import app.securemessenger.signalstore.V2StoredMessage
 import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
@@ -69,6 +70,23 @@ class ConversationV2Service(
     init {
         require(V2Text.isValidQueueId(localReceiveQueueId)) { "Invalid local queue ID" }
     }
+
+    // --- Read models for the UI. Blocking; take the same lock so they never see half a step. ---
+
+    fun contacts(): List<V2Contact> = atomically { store.contacts() }
+
+    fun requests(): List<V2ContactRequest> = atomically { store.requests() }
+
+    fun texts(contactId: String): List<V2StoredMessage> = atomically { store.texts(contactId) }
+
+    /** Texts held for a pending request (never receipted before acceptance). */
+    fun heldTexts(requestId: String): List<V2StoredMessage> = atomically { store.incomingTexts(requestId) }
+
+    /** The newest unused, unexpired invitation's QR text, or null. */
+    fun currentInvitationCode(): String? = atomically { store.latestUsableInvitation(now())?.codeText }
+
+    /** 60-digit safety number for a contact or a pending request, or null if unknown. */
+    fun safetyNumber(contactOrRequestId: String): String? = atomically { sessions.safetyNumber(contactOrRequestId) }
 
     /** Creates and uploads a fresh invitation; returns the text for the QR code. */
     suspend fun createInvitation(): String {

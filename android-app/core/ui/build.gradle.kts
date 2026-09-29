@@ -28,6 +28,9 @@ dependencies {
     implementation(project(":core:storage"))
     implementation(project(":core:transport"))
     implementation(project(":core:delivery"))
+    implementation(project(":core:signalstore"))
+    // The v2 protocol pipeline (DEC-019). Reached only through the debug QA switch until step 1f.
+    implementation(project(":core:signal-protocol"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.compose)

@@ -446,6 +446,8 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             identityProvider.deleteIdentity()
             vault.deleteKey()
             queueIdStore.clear()
+            V2QueueIdStore(getApplication()).clear()
+            V2QaSwitch.clear(getApplication())
             diagnosticsStore.clearForLocalWipe()
             getApplication<Application>().getSharedPreferences("secure_messenger_nonce_state", Application.MODE_PRIVATE)
                 .edit()

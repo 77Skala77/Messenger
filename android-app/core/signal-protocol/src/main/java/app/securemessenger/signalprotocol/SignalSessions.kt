@@ -13,6 +13,7 @@ import org.signal.libsignal.protocol.SessionBuilder
 import org.signal.libsignal.protocol.SessionCipher
 import org.signal.libsignal.protocol.SignalProtocolAddress
 import org.signal.libsignal.protocol.UntrustedIdentityException
+import org.signal.libsignal.protocol.fingerprint.NumericFingerprintGenerator
 import org.signal.libsignal.protocol.message.CiphertextMessage
 import org.signal.libsignal.protocol.message.PreKeySignalMessage
 import org.signal.libsignal.protocol.message.SignalMessage
@@ -92,6 +93,19 @@ class SignalSessions(private val store: EncryptedSignalProtocolStore) {
 
     fun localIdentityKey(): IdentityKey = store.getIdentityKeyPair().publicKey
 
+    /**
+     * 60 digits both sides can compare out loud or by reading (libsignal's numeric fingerprint,
+     * identical on both devices). It commits to both identity keys, so a substituted key on
+     * either side gives a different number. Null while no identity is stored for the contact.
+     */
+    fun safetyNumber(contactId: String): String? {
+        val remote = identityOf(contactId) ?: return null
+        val local = localIdentityKey()
+        return NumericFingerprintGenerator(SAFETY_NUMBER_ITERATIONS)
+            .createFor(SAFETY_NUMBER_VERSION, local.serialize(), local, remote.serialize(), remote)
+            .displayableFingerprint.displayText
+    }
+
     /** Removes the session and the stored identity, e.g. when a request is declined. */
     fun forget(contactId: String) {
         val remote = address(contactId)
@@ -110,6 +124,8 @@ class SignalSessions(private val store: EncryptedSignalProtocolStore) {
     companion object {
         /** Single device per contact until Phase 4. */
         const val DEVICE_ID = 1
+        private const val SAFETY_NUMBER_VERSION = 2
+        private const val SAFETY_NUMBER_ITERATIONS = 5200
         private val LOCAL_ADDRESS = SignalProtocolAddress("self", DEVICE_ID)
 
         fun readPreKeyHeader(bytes: ByteArray): PreKeyMessageHeader = mapFailures {

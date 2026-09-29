@@ -555,6 +555,12 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 ORDER BY createdAtEpochMillis")
     fun getV2IncomingMessages(contactId: String): List<V2MessageEntity>
 
+    @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' ORDER BY createdAtEpochMillis, messageId")
+    fun getV2Texts(contactId: String): List<V2MessageEntity>
+
+    @Query("SELECT * FROM v2_contacts ORDER BY createdAtEpochMillis, contactId")
+    fun getV2Contacts(): List<V2ContactEntity>
+
     @Query("SELECT * FROM v2_messages WHERE messageId = :messageId AND outgoing = 1 LIMIT 1")
     fun getV2OutgoingMessage(messageId: String): V2MessageEntity?
 

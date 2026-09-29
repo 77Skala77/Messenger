@@ -170,6 +170,18 @@ class InMemoryConversationV2Store : ConversationV2Store {
         messages.values.filter { !it.stored.outgoing && it.stored.contactId == contactId }.map { it.stored }
 
     @Synchronized
+    override fun texts(contactId: String) =
+        messages.values.filter { it.stored.contactId == contactId && it.kind == V2MessageKind.TEXT }.map {
+            V2StoredMessage(
+                it.stored.messageId, it.stored.contactId, it.stored.outgoing, it.stored.innerMessageIdHex,
+                it.stored.text, it.status, it.stored.createdAtEpochMillis,
+            )
+        }
+
+    @Synchronized
+    override fun contacts() = contacts.values.toList()
+
+    @Synchronized
     override fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long) {
         require((envelope.kind == V2MessageKind.TEXT) == (visibleText != null))
         check(envelope.messageId !in messages)

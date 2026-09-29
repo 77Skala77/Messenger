@@ -28,6 +28,10 @@ class SecureLocalRepository(
         dao.putProfile(EncryptedProfileEntity("local", encryptedName, deviceId))
     }
 
+    /** The local display name, or null before a profile exists. */
+    suspend fun readProfileName(): String? =
+        dao.getProfile()?.let { vault.decrypt(it.encryptedDisplayName, PROFILE_AAD).toString(Charsets.UTF_8) }
+
     suspend fun storeContact(contact: Contact) {
         val encryptedName = vault.encrypt(contact.localDisplayName.toByteArray(), contact.contactId.toByteArray())
         dao.putContact(
