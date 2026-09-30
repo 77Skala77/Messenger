@@ -62,6 +62,7 @@ When changing an accepted decision:
 | DEC-022 | TQ-009: stay on AGP 8.13.2 and compileSdk 36; Kotlin and libsignal pinned | ACCEPTED |
 | DEC-023 | Phase 2: vault key never replaced silently; a lost key fails closed; the user decides | ACCEPTED |
 | DEC-024 | Phase 3: self-certifying relay queues, server message IDs, invitation v3, reset of v2 test chats | ACCEPTED |
+| DEC-025 | Phase 4 (multi-device) deferred; version 1 is one device per person | ACCEPTED |
 
 ---
 
@@ -1119,6 +1120,30 @@ Closes: contacts reading or deleting my queue (P1), cross-queue deletion (P2), m
 overwrite (P3), trivial flooding (P4). No backward compatibility on the wire: old apps and the new
 relay do not interoperate (test data only). A leaked read secret exposes pending ciphertext and
 lets it be deleted, never decrypted.
+
+---
+
+## DEC-025 — Phase 4 (multi-device) deferred; version 1 is one device per person
+
+**Status:** ACCEPTED
+**Recorded:** 2026-10-01. Owner decision in chat after the draft design
+(`../PHASE4_MULTIDEVICE_DESIGN.md`) and a plain-language explanation of the trade-off.
+
+### Decision
+
+- Phase 4 is **deferred**. The first version supports one device per person (as today; comparable
+  to Telegram's secret chats). The plan continues with Phase 5 (security test pass), then Phase 6
+  (Telegram-style UI).
+- Answers already given, to be used when the phase resumes: own identity key per device with a
+  device list signed by the primary device (option A); a contact's new device gets nothing until
+  the user confirms it; "Delivered" once at least one of the contact's devices confirmed.
+
+### Consequences
+
+- Single device per contact stays a documented limitation (`KNOWN_LIMITATIONS.md`,
+  `PROTOCOL_V2.md`). No revocation protocol is needed while only one device exists.
+- Adding multi-device later changes the protocol again and needs its own security review; the
+  Phase 5 review does not cover it.
 
 ---
 

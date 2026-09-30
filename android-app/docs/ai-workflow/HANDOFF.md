@@ -53,13 +53,16 @@ once with a notice). Design: `../PHASE3_RELAY_DESIGN.md`; results: `REWRITE_PLAN
 **Model check first (owner rule, `CLAUDE.md`):** on the owner's "go", compare the active model
 with the recommendation below; if it differs, warn and ask before starting.
 
-**Phase 4 — multi-device and revocation** (`REWRITE_PLAN.md`; TQ-104): real fan-out with one
-Double Ratchet session per contact device, revocation as an authenticated message, replacing the
-single-device-per-contact model. This is the largest protocol change left (new identity and device
-model, storage, UI for device approval, migration of contacts), so begin with a written design,
-threat review and owner decisions before any code. Recommended model: **Opus 5.5 · High** (Extra is
-reasonable for the design document itself). Commit policy: one commit at the end of each phase,
-step or task (owner, 2026-09-30).
+Phase 4 (multi-device) was **deferred** by the owner (2026-10-01, DEC-025): version 1 is one device
+per person; draft design with the owner's answers in `../PHASE4_MULTIDEVICE_DESIGN.md`.
+
+**Phase 5 — security test pass** (`REWRITE_PLAN.md`): fuzz tests for every decoder that reads
+untrusted bytes (invitation code and bundle, envelope, inner payload, relay responses, stored vault
+blobs), and a replay / tamper / downgrade test matrix for the v2 path (malformed input must reject
+cleanly, never crash, never partially trust). Optionally an external review of the libsignal
+integration layer. Start by listing every untrusted input and the property each test must prove.
+Recommended model: **Opus 5.5 · High** (Sonnet 5.5 · High is enough later for writing routine
+cases). Commit policy: one commit at the end of each phase, step or task (owner, 2026-09-30).
 
 ## Operational constraints
 

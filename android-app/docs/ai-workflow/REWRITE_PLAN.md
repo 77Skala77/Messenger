@@ -259,6 +259,12 @@ Exit gate: a contact with two approved devices receives on both; revoking one
 device stops delivery to it without needing the other side to also revoke first
 (still local-trust-model correct, but multi-device correct too).
 
+**Status 2026-10-01: DEFERRED by the owner (DEC-025).** Version 1 is one device per person. The
+draft design with the owner's answers (own key per device + primary-signed list, confirmation for
+a contact's new device, "Delivered" from any device) is in `../PHASE4_MULTIDEVICE_DESIGN.md`. The
+plan continues with Phase 5. Note: the text above was written for the removed prototype; the
+draft design describes the v2 starting point.
+
 ## Phase 5 — Security test pass
 
 Goal: earn the right to call this "reviewed", not just "written".

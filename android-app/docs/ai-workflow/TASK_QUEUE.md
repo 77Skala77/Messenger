@@ -633,7 +633,7 @@ Do not reinterpret `INVITE_V2_SIGNAL_PQXDH_EXPERIMENTAL` as a verified bundle.
 ## TQ-104 — Define per-device session and revocation semantics
 
 **Priority:** P1
-**Status:** BLOCKED — Phase 4 of REWRITE_PLAN (multi-device and revocation). v2 is single-device per contact until then.
+**Status:** DEFERRED (owner, 2026-10-01, DEC-025) — version 1 is one device per person; draft design with the owner's answers: `../PHASE4_MULTIDEVICE_DESIGN.md`.
 **Blockers:** TQ-003 and reviewed Signal design.
 
 ### Objective

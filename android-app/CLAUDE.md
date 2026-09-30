@@ -24,9 +24,8 @@ mutable against the code before relying on it.
   number varies per message and has no known mapping to Low/Medium/High/Extra/Max): never claim
   the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
-  Current recommendations: Phase 4 (multi-device; the largest protocol change, design and owner
-  decisions first): **Opus 5.5 · High**. Node relay plumbing, docs, dependency updates:
-  Sonnet 5.5 · High.
+  Current recommendations: Phase 5 (security test pass: list untrusted inputs, fuzz and attack
+  matrix): **Opus 5.5 · High**. Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -136,7 +135,7 @@ mutable against the code before relying on it.
 
 - Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done;
   Phase 2 storage hardening done (DEC-023); Phase 3 relay hardening done (DEC-024: self-certifying
-  queues, invitation v3, Room v9). Next: Phase 4 multi-device and revocation (Opus 5.5 · High;
-  written design and owner decisions before code), then Phase 5 independent audit (gate for
-  release chat).
+  queues, invitation v3, Room v9). Phase 4 multi-device DEFERRED by the owner (DEC-025; version 1
+  is one device per person; draft design kept). Next: Phase 5 security test pass (fuzzing, replay /
+  tamper / downgrade matrix; Opus 5.5 · High), then Phase 6 Telegram-style UI.
 - Not production-ready; no independent audit; do not claim otherwise.
