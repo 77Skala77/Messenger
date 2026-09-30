@@ -58,6 +58,7 @@ When changing an accepted decision:
 | DEC-018 | libsignal store adapter semantics: blocking, strict identity trust, fail-closed Kyber handling | ACCEPTED |
 | DEC-019 | Step 1e design: relayed committed invitation, one-sided pairing with explicit request, flag-gated enablement | ACCEPTED |
 | DEC-020 | Relay-supplied message IDs are never trusted as local keys or cross-contact receipt targets | ACCEPTED |
+| DEC-021 | Step 1f: automatic explicit legacy reset, legacy code and modules removed, v2 only in debug, release without chat until Phase 5 | ACCEPTED |
 
 ---
 
@@ -958,6 +959,40 @@ addresses but `SessionCipher` takes `(local, remote)` — the wrapper must hide 
 
 Implementation shows a libsignal contract differs from the above, QR scanning of the v2 code
 fails in practice, or Phase 3 relay authentication or Phase 4 multi-device changes routing.
+
+---
+
+## DEC-021 — Step 1f: explicit legacy reset and removal; v2 only in debug until Phase 5
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-30. Owner decisions given in chat on 2026-09-30 (all as recommended).
+
+### Decision
+
+- **Release builds have no chat until the independent review of Phase 5.** The legacy
+  prototype is removed entirely; v2 may not serve release builds before independent review
+  (`AGENTS.md`), so a release build shows a "not for messaging" screen. Release is not
+  distributed (Phase 7 is out of scope).
+- **Debug builds use v2 only, on by default,** once the step 1f proofs pass (DEC-019 O3). They
+  remain isolated test conversations in the sense of TQ-105.
+- **Automatic explicit reset with a one-time notice.** On the first start of the new version,
+  legacy contacts, devices, sessions, messages, replay markers, the legacy Keystore P-256
+  identity, nonce counters, and the legacy queue ID are deleted on purpose, once. A legacy
+  session can never be read, migrated, or accepted as a v2 session. No real users exist; all
+  data is test data.
+- **v2 background sync (WorkManager) is part of 1f,** replacing the legacy worker.
+- **Legacy code is deleted, including the then-empty `:core:crypto` and `:core:delivery`
+  modules and the spikes** (`OfficialSignalDoubleRatchetGate`, the experimental v2 invitation
+  DTO, `DisabledSignalSessionManagerAdapter`). `MIGRATION_ENABLED` and
+  `SIGNAL_BACKED_SESSIONS_ENABLED` are replaced by one explicit build-type switch. Git history
+  keeps the removed code.
+
+### Order
+
+1f-A proofs first (no behavior change): forward secrecy, post-compromise security and their
+honest boundary (skipped message keys), on in-memory and Room-backed stores, JVM and device;
+a Room-backed two-device integration test; a minified debug-signed build checked by hand on two
+phones. Then 1f-B: v2 background sync, the reset (Room v8), legacy removal, flags, docs.
 
 ---
 

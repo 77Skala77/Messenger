@@ -118,10 +118,12 @@ Original proposals, kept for history:
    In `mapping.txt` the libsignal keep rules are applied (`-keep class org.signal.libsignal.**`
    from `consumer-rules.pro`, plus libsignal's own JAR rules) and only D8/R8 synthetic classes
    (lambdas, `-IA`) are renamed or removed. R8 prints "error occurred when parsing kotlin
-   metadata" warnings (AGP 8.5.2 predates Kotlin 2.2; tracked in TQ-009). **Not verified:**
-   that libsignal actually runs inside a minified build — release builds cannot enable v2, so
-   the JNI callbacks under R8 have not been exercised. Plan: build a minified debug variant
-   locally for the step 1f manual run.
+   metadata" warnings (AGP 8.5.2 predates Kotlin 2.2; tracked in TQ-009). **Runtime under R8
+   verified in step 1f (2026-09-30):** the `qaMinified` build type (same R8 rules as release,
+   not debuggable, debug-signed, `.qa` suffix, arm64 only, 96 MB) was installed on both
+   phones; pairing, safety numbers, messages in both directions, and `Delivered` receipts
+   worked by hand. `mapping.txt`: no non-synthetic libsignal class renamed; app classes are
+   obfuscated, so R8 really ran.
 
 ## Constraints that apply (from `AGENTS.md`)
 

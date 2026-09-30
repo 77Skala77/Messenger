@@ -87,9 +87,11 @@ remained unverified until step 1a was completed.
   succeeds; `mapping.txt` shows the rules applied and no real libsignal class renamed. The
   first release APK also contained ~153 MB of desktop natives (`*.dll`, `*.dylib`, including
   `*_testing`) from libsignal-client's jar resources, now excluded in `:app`
-  (`packaging.resources.excludes`). **Still UNVERIFIED:** libsignal running inside a minified
-  build (release cannot enable v2), and R8 warns it cannot parse Kotlin 2.2 metadata under
-  AGP 8.5.2 (TQ-009). Release APK: unsigned, 357.5 MB, 4 ABIs.
+  (`packaging.resources.excludes`). R8 warns it cannot parse Kotlin 2.2 metadata under AGP
+  8.5.2 (TQ-009). Release APK: unsigned, 357.5 MB, 4 ABIs. **libsignal under R8 verified at
+  runtime (2026-09-30):** the `qaMinified` build type uses the release R8 configuration with
+  debug signing and debug QA resources; installed on SM-S928B and Redmi A3x, v2 pairing,
+  messaging, and receipts worked by hand.
 
 **Still NOT verified:** a minified release build (`assembleRelease`, R8) that actually
 contains libsignal, resulting release APK size/ABI splits, and instrumented tests for

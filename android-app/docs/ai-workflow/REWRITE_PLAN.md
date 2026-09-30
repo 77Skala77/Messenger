@@ -103,8 +103,13 @@ Progress:
   (DEC-020); sub-steps 2–5 done and verified on JVM and SM-S928B (session wrapper, invitation
   v2, envelope/payload v2, Room v7 storage with atomic transactions); sub-step 6a pipeline
   written with 12 end-to-end JVM tests; 6b UI behind a hidden debug QA switch (default OFF,
-  impossible in release) verified by hand on two physical phones. Next: the release-variant
-  check (sub-step 7). Nothing is enabled in the app. Status per sub-step:
+  impossible in release) verified by hand on two physical phones; sub-step 7 release build
+  with R8 succeeds.
+- 1f — **IN PROGRESS** (owner decisions DEC-021): 1f-A proofs — forward secrecy,
+  post-compromise security and the skipped-key boundary (`ForwardSecrecyTest`, JVM and device),
+  Room-backed two-device and plaintext-at-rest tests (`ConversationV2RoomProofInstrumentedTest`),
+  and libsignal under R8 verified by hand with the `qaMinified` build. Next, 1f-B: v2
+  background sync, automatic explicit legacy reset (Room v8), legacy code removal, flags, docs. Nothing is enabled in the app. Status per sub-step:
   `PHASE_1E_PREP.md`.
 
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.
