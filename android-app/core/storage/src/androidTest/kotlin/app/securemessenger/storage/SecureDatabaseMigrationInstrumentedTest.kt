@@ -197,6 +197,44 @@ class SecureDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    /**
+     * DEC-024: the v2 test conversations are reset once for the relay-queue change. The profile and
+     * the local libsignal identity survive byte for byte; everything tied to old contacts is gone.
+     */
+    @Test
+    fun migrationEightToNineResetsV2ConversationsAndKeepsProfileAndLocalIdentity() {
+        migrationHelper.createDatabase(TEST_DATABASE, 8).use { db ->
+            db.execSQL("INSERT INTO local_profile (profileId, encryptedDisplayName, deviceId) VALUES ('local', X'0A0B', '')")
+            db.execSQL("INSERT INTO signal_local_identity (singletonId, encryptedRecord) VALUES (1, X'0C0D')")
+            db.execSQL("INSERT INTO signal_session_records (recipientId, deviceId, encryptedRecord) VALUES ('c', 1, X'01')")
+            db.execSQL("INSERT INTO signal_identity_records (recipientId, deviceId, encryptedRecord) VALUES ('c', 1, X'02')")
+            db.execSQL("INSERT INTO signal_prekey_records (preKeyId, encryptedRecord) VALUES (5, X'03')")
+            db.execSQL(
+                "INSERT INTO v2_contacts (contactId, encryptedDisplayName, identityKey, peerQueueId, peerRoutingTagHex, " +
+                    "localRoutingTagHex, state, createdAtEpochMillis) VALUES ('c', X'01', X'05', 'v2-old-queue-1', 'aa', 'bb', 'ACTIVE', 1)",
+            )
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(TEST_DATABASE, 9, true, SecureMessengerDatabase.MIGRATION_8_9)
+        SecureMessengerDatabase.RELAY_V3_RESET_TABLES.forEach { table ->
+            migrated.query("SELECT COUNT(*) FROM $table").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("$table kept rows", 0, cursor.getInt(0))
+            }
+        }
+        migrated.query("SELECT hex(encryptedDisplayName) FROM local_profile").use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("0A0B", cursor.getString(0))
+        }
+        migrated.query("SELECT hex(encryptedRecord) FROM signal_local_identity").use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("0C0D", cursor.getString(0))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE = "signal-store-migration-test"
     }

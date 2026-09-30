@@ -122,6 +122,18 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         }
                     },
                 )
+            } else if (state.relayResetNotice) {
+                // DEC-024: the v2 test conversations were deleted once for the relay-queue change.
+                AlertDialog(
+                    onDismissRequest = viewModel::dismissRelayResetNotice,
+                    title = { Text(stringResource(R.string.relay_reset_title)) },
+                    text = { Text(stringResource(R.string.relay_reset_body)) },
+                    confirmButton = {
+                        TextButton(onClick = viewModel::dismissRelayResetNotice) {
+                            Text(stringResource(R.string.legacy_reset_ok))
+                        }
+                    },
+                )
             }
         }
     }

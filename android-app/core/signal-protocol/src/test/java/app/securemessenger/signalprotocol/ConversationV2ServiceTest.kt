@@ -162,7 +162,7 @@ class ConversationV2ServiceTest {
 
         // The relay re-delivers the same bytes, also under a different relay message ID.
         relay.inject(original)
-        relay.inject(original.copy(messageId = "relabelled-by-relay"))
+        relay.inject(RelayEncryptedBlob("relabelled-by-relay", original.queueId, original.opaqueCiphertext, original.expiresAtEpochMillis))
         assertEquals(listOf(IncomingV2Result.DUPLICATE, IncomingV2Result.DUPLICATE), alice.service.synchronize())
         assertTrue(relay.queued(alice.queueId).isEmpty())
         assertEquals(listOf("once"), alice.store.incomingTexts(bobOnAlice).map { it.text })

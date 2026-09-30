@@ -1,5 +1,6 @@
 package app.securemessenger.signalprotocol
 
+import app.securemessenger.domain.RelayQueueCredentials
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.nio.ByteBuffer
@@ -125,10 +126,8 @@ internal object V2Text {
             throw MalformedV2Exception("Invalid UTF-8")
         }
 
-    /** Relay queue IDs: 8..128 characters from the URL-safe set, so they never need escaping. */
-    fun isValidQueueId(value: String): Boolean =
-        value.length in MIN_QUEUE_ID..MAX_QUEUE_ID &&
-            value.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }
+    /** Only self-certifying relay queue IDs (`q3-...`, DEC-024); older forms are rejected. */
+    fun isValidQueueId(value: String): Boolean = RelayQueueCredentials.isValidQueueId(value)
 
     fun queueIdBytes(value: String): ByteArray {
         require(isValidQueueId(value)) { "Invalid queue ID" }

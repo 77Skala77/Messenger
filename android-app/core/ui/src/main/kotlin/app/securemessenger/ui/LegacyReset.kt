@@ -5,18 +5,25 @@ import androidx.work.WorkManager
 import java.security.KeyStore
 
 /**
- * The explicit, one-time legacy reset (DEC-021), for everything outside the database: the legacy
- * P-256 identity key in Android Keystore, the legacy nonce counters, device ID, queue ID and
- * diagnostics preferences, and the legacy WorkManager jobs. The database side is `MIGRATION_7_8`.
- * Nothing is migrated: a legacy conversation can never be read or accepted as a v2 conversation.
+ * Explicit one-time resets outside the database, run from `Application.onCreate` before any screen
+ * or worker. Nothing is ever migrated: an old conversation can never be read or accepted as a new
+ * one.
  *
- * Runs once per install; afterwards [isNoticePending] tells the UI to show a one-time notice if
- * legacy data actually existed. The vault key is kept: v2 records and the profile use it.
+ * 1. Legacy prototype (DEC-021): the legacy P-256 identity key in Android Keystore, the legacy nonce
+ *    counters, device ID, queue ID and diagnostics preferences, and the legacy WorkManager jobs. The
+ *    database side is `MIGRATION_7_8`.
+ * 2. Relay queues v3 (DEC-024): the old plain v2 queue ID. The database side is `MIGRATION_8_9`,
+ *    which deletes the v2 test conversations.
+ *
+ * Each stage runs once per install and remembers whether old data existed, so the UI can show a
+ * one-time notice. The vault key is kept: the profile and new records use it.
  */
 object LegacyReset {
     private const val STATE = "secure_messenger_legacy_reset"
     private const val DONE = "done_v1"
     private const val NOTICE_PENDING = "notice_pending"
+    private const val DONE_RELAY_V3 = "done_relay_v3"
+    private const val RELAY_NOTICE_PENDING = "relay_notice_pending"
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
 
     /** Keystore alias of the removed legacy P-256 device identity. */
@@ -38,8 +45,11 @@ object LegacyReset {
     fun runOnce(context: Context) {
         val application = context.applicationContext
         val state = application.getSharedPreferences(STATE, Context.MODE_PRIVATE)
-        if (state.getBoolean(DONE, false)) return
+        if (!state.getBoolean(DONE, false)) resetLegacyPrototype(application)
+        if (!state.getBoolean(DONE_RELAY_V3, false)) resetRelayQueueV2(application)
+    }
 
+    private fun resetLegacyPrototype(application: Context) {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val hadLegacyKey = keyStore.containsAlias(LEGACY_IDENTITY_ALIAS)
         val hadLegacyPreferences = LEGACY_PREFERENCES.any { name ->
@@ -54,10 +64,21 @@ object LegacyReset {
         val workManager = WorkManager.getInstance(application)
         LEGACY_WORK.forEach(workManager::cancelUniqueWork)
 
-        state.edit()
+        application.getSharedPreferences(STATE, Context.MODE_PRIVATE).edit()
             .putBoolean(DONE, true)
             .putBoolean(NOTICE_PENDING, hadLegacyKey || hadLegacyPreferences)
             .commit()
+    }
+
+    /** A plain pre-v3 queue ID means v2 conversations existed; `MIGRATION_8_9` deletes them. */
+    private fun resetRelayQueueV2(application: Context) {
+        val queue = application.getSharedPreferences(V2QueueCredentialStore.PREFERENCES, Context.MODE_PRIVATE)
+        val hadOldQueue = queue.contains(V2QueueCredentialStore.OLD_QUEUE_ID)
+        queue.edit().remove(V2QueueCredentialStore.OLD_QUEUE_ID).commit()
+        val state = application.getSharedPreferences(STATE, Context.MODE_PRIVATE)
+        // One notice is enough when the legacy reset already explained a reset.
+        val notice = hadOldQueue && !state.getBoolean(NOTICE_PENDING, false)
+        state.edit().putBoolean(DONE_RELAY_V3, true).putBoolean(RELAY_NOTICE_PENDING, notice).commit()
     }
 
     fun isNoticePending(context: Context): Boolean =
@@ -66,5 +87,13 @@ object LegacyReset {
     fun dismissNotice(context: Context) {
         context.applicationContext.getSharedPreferences(STATE, Context.MODE_PRIVATE)
             .edit().putBoolean(NOTICE_PENDING, false).apply()
+    }
+
+    fun isRelayNoticePending(context: Context): Boolean =
+        context.applicationContext.getSharedPreferences(STATE, Context.MODE_PRIVATE).getBoolean(RELAY_NOTICE_PENDING, false)
+
+    fun dismissRelayNotice(context: Context) {
+        context.applicationContext.getSharedPreferences(STATE, Context.MODE_PRIVATE)
+            .edit().putBoolean(RELAY_NOTICE_PENDING, false).apply()
     }
 }

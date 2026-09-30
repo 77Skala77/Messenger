@@ -1,0 +1,586 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 9,
+    "identityHash": "d11beb74927e885603e413cad4ad935c",
+    "entities": [
+      {
+        "tableName": "local_profile",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `encryptedDisplayName` BLOB NOT NULL, `deviceId` TEXT NOT NULL, PRIMARY KEY(`profileId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedDisplayName",
+            "columnName": "encryptedDisplayName",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_identity_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recipientId` TEXT NOT NULL, `deviceId` INTEGER NOT NULL, `encryptedRecord` BLOB NOT NULL, PRIMARY KEY(`recipientId`, `deviceId`))",
+        "fields": [
+          {
+            "fieldPath": "recipientId",
+            "columnName": "recipientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedRecord",
+            "columnName": "encryptedRecord",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recipientId",
+            "deviceId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_session_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recipientId` TEXT NOT NULL, `deviceId` INTEGER NOT NULL, `encryptedRecord` BLOB NOT NULL, PRIMARY KEY(`recipientId`, `deviceId`))",
+        "fields": [
+          {
+            "fieldPath": "recipientId",
+            "columnName": "recipientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedRecord",
+            "columnName": "encryptedRecord",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recipientId",
+            "deviceId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_prekey_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`preKeyId` INTEGER NOT NULL, `encryptedRecord` BLOB NOT NULL, PRIMARY KEY(`preKeyId`))",
+        "fields": [
+          {
+            "fieldPath": "preKeyId",
+            "columnName": "preKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedRecord",
+            "columnName": "encryptedRecord",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "preKeyId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_signed_prekey_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`signedPreKeyId` INTEGER NOT NULL, `encryptedRecord` BLOB NOT NULL, PRIMARY KEY(`signedPreKeyId`))",
+        "fields": [
+          {
+            "fieldPath": "signedPreKeyId",
+            "columnName": "signedPreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedRecord",
+            "columnName": "encryptedRecord",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "signedPreKeyId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_kyber_prekey_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kyberPreKeyId` INTEGER NOT NULL, `encryptedRecord` BLOB NOT NULL, `isLastResort` INTEGER NOT NULL, PRIMARY KEY(`kyberPreKeyId`))",
+        "fields": [
+          {
+            "fieldPath": "kyberPreKeyId",
+            "columnName": "kyberPreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedRecord",
+            "columnName": "encryptedRecord",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLastResort",
+            "columnName": "isLastResort",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kyberPreKeyId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_local_identity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singletonId` INTEGER NOT NULL, `encryptedRecord` BLOB NOT NULL, PRIMARY KEY(`singletonId`))",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singletonId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedRecord",
+            "columnName": "encryptedRecord",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singletonId"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_kyber_base_key_uses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kyberPreKeyId` INTEGER NOT NULL, `signedPreKeyId` INTEGER NOT NULL, `baseKeyDigestHex` TEXT NOT NULL, PRIMARY KEY(`kyberPreKeyId`, `signedPreKeyId`, `baseKeyDigestHex`))",
+        "fields": [
+          {
+            "fieldPath": "kyberPreKeyId",
+            "columnName": "kyberPreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "signedPreKeyId",
+            "columnName": "signedPreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseKeyDigestHex",
+            "columnName": "baseKeyDigestHex",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kyberPreKeyId",
+            "signedPreKeyId",
+            "baseKeyDigestHex"
+          ]
+        }
+      },
+      {
+        "tableName": "v2_invitations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`invitationId` TEXT NOT NULL, `localRoutingTagHex` TEXT NOT NULL, `signedPreKeyId` INTEGER NOT NULL, `oneTimePreKeyId` INTEGER NOT NULL, `kyberPreKeyId` INTEGER NOT NULL, `mailboxQueueId` TEXT NOT NULL, `encryptedCodeText` BLOB NOT NULL, `sealedBundle` BLOB NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `expiresAtEpochMillis` INTEGER NOT NULL, `usedByRequestId` TEXT, PRIMARY KEY(`invitationId`))",
+        "fields": [
+          {
+            "fieldPath": "invitationId",
+            "columnName": "invitationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localRoutingTagHex",
+            "columnName": "localRoutingTagHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "signedPreKeyId",
+            "columnName": "signedPreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "oneTimePreKeyId",
+            "columnName": "oneTimePreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kyberPreKeyId",
+            "columnName": "kyberPreKeyId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mailboxQueueId",
+            "columnName": "mailboxQueueId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedCodeText",
+            "columnName": "encryptedCodeText",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sealedBundle",
+            "columnName": "sealedBundle",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAtEpochMillis",
+            "columnName": "expiresAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "usedByRequestId",
+            "columnName": "usedByRequestId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "invitationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_v2_invitations_localRoutingTagHex",
+            "unique": true,
+            "columnNames": [
+              "localRoutingTagHex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_invitations_localRoutingTagHex` ON `${TABLE_NAME}` (`localRoutingTagHex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v2_contact_requests",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`requestId` TEXT NOT NULL, `invitationId` TEXT NOT NULL, `identityKey` BLOB NOT NULL, `peerQueueId` TEXT NOT NULL, `peerRoutingTagHex` TEXT NOT NULL, `localRoutingTagHex` TEXT NOT NULL, `encryptedClaimedName` BLOB NOT NULL, `receivedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`requestId`))",
+        "fields": [
+          {
+            "fieldPath": "requestId",
+            "columnName": "requestId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "invitationId",
+            "columnName": "invitationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerQueueId",
+            "columnName": "peerQueueId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerRoutingTagHex",
+            "columnName": "peerRoutingTagHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localRoutingTagHex",
+            "columnName": "localRoutingTagHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedClaimedName",
+            "columnName": "encryptedClaimedName",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedAtEpochMillis",
+            "columnName": "receivedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "requestId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_v2_contact_requests_localRoutingTagHex",
+            "unique": true,
+            "columnNames": [
+              "localRoutingTagHex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_contact_requests_localRoutingTagHex` ON `${TABLE_NAME}` (`localRoutingTagHex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v2_contacts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`contactId` TEXT NOT NULL, `encryptedDisplayName` BLOB NOT NULL, `identityKey` BLOB NOT NULL, `peerQueueId` TEXT NOT NULL, `peerRoutingTagHex` TEXT NOT NULL, `localRoutingTagHex` TEXT NOT NULL, `state` TEXT NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`contactId`))",
+        "fields": [
+          {
+            "fieldPath": "contactId",
+            "columnName": "contactId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedDisplayName",
+            "columnName": "encryptedDisplayName",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerQueueId",
+            "columnName": "peerQueueId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerRoutingTagHex",
+            "columnName": "peerRoutingTagHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localRoutingTagHex",
+            "columnName": "localRoutingTagHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "contactId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_v2_contacts_localRoutingTagHex",
+            "unique": true,
+            "columnNames": [
+              "localRoutingTagHex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_contacts_localRoutingTagHex` ON `${TABLE_NAME}` (`localRoutingTagHex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v2_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`messageId` TEXT NOT NULL, `contactId` TEXT NOT NULL, `outgoing` INTEGER NOT NULL, `kind` TEXT NOT NULL, `innerMessageIdHex` TEXT NOT NULL, `encryptedBody` BLOB, `status` TEXT NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `peerQueueId` TEXT, `envelope` BLOB, `deliveryAttemptCount` INTEGER NOT NULL, `nextRetryAtEpochMillis` INTEGER, PRIMARY KEY(`messageId`))",
+        "fields": [
+          {
+            "fieldPath": "messageId",
+            "columnName": "messageId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contactId",
+            "columnName": "contactId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outgoing",
+            "columnName": "outgoing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "innerMessageIdHex",
+            "columnName": "innerMessageIdHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedBody",
+            "columnName": "encryptedBody",
+            "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerQueueId",
+            "columnName": "peerQueueId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "envelope",
+            "columnName": "envelope",
+            "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "deliveryAttemptCount",
+            "columnName": "deliveryAttemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextRetryAtEpochMillis",
+            "columnName": "nextRetryAtEpochMillis",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "messageId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_v2_messages_contactId_outgoing_innerMessageIdHex",
+            "unique": true,
+            "columnNames": [
+              "contactId",
+              "outgoing",
+              "innerMessageIdHex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_v2_messages_contactId_outgoing_innerMessageIdHex` ON `${TABLE_NAME}` (`contactId`, `outgoing`, `innerMessageIdHex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v2_accepted_envelopes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`digestHex` TEXT NOT NULL, `acceptedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`digestHex`))",
+        "fields": [
+          {
+            "fieldPath": "digestHex",
+            "columnName": "digestHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "acceptedAtEpochMillis",
+            "columnName": "acceptedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "digestHex"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd11beb74927e885603e413cad4ad935c')"
+    ]
+  }
+}

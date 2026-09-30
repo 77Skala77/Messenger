@@ -3,6 +3,7 @@ package app.securemessenger.ui
 import android.content.Context
 import androidx.room.Room
 import app.securemessenger.domain.RelayEncryptedBlob
+import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalprotocol.ConversationV2Service
 import app.securemessenger.signalprotocol.ConversationV2Wiring
@@ -13,33 +14,35 @@ import app.securemessenger.storage.EncryptedSignalStoreRepository
 import app.securemessenger.storage.JcaLocalVaultCipher
 import app.securemessenger.storage.RoomProtocolTransactionRunner
 import app.securemessenger.storage.SecureMessengerDatabase
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.state.KyberPreKeyRecord
 import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
 import app.securemessenger.signalstore.SignalProtocolAddress as StoreAddress
 
-/** An in-memory relay that also keeps every blob it ever received, as an eavesdropping relay would. */
+/**
+ * An in-memory relay with the v3 API (DEC-024) that also keeps every blob it ever received, as an
+ * eavesdropping relay would.
+ */
 class MemoryRelay : TransportClient {
     private val queued = linkedMapOf<String, RelayEncryptedBlob>()
+    private var nextId = 0
     val history = mutableListOf<RelayEncryptedBlob>()
 
-    override suspend fun sendMessage(blob: RelayEncryptedBlob) = synchronized(this) {
-        queued[blob.messageId] = blob
-        history += blob
-        Unit
+    override suspend fun sendMessage(queueId: String, opaqueCiphertext: ByteArray, expiresAtEpochMillis: Long): String =
+        synchronized(this) {
+            val blob = RelayEncryptedBlob("relay-${nextId++}", queueId, opaqueCiphertext, expiresAtEpochMillis)
+            queued[blob.messageId] = blob
+            history += blob
+            blob.messageId
+        }
+
+    override suspend fun fetchMessages(queue: RelayQueueCredentials): List<RelayEncryptedBlob> =
+        synchronized(this) { queued.values.filter { it.queueId == queue.queueId } }
+
+    override suspend fun deleteMessage(queue: RelayQueueCredentials, messageId: String) {
+        synchronized(this) { if (queued[messageId]?.queueId == queue.queueId) queued.remove(messageId) }
     }
-
-    override suspend fun fetchMessages(queueId: String): List<RelayEncryptedBlob> =
-        synchronized(this) { queued.values.filter { it.queueId == queueId } }
-
-    override suspend fun deleteMessage(messageId: String) {
-        synchronized(this) { queued.remove(messageId) }
-    }
-
-    override fun observeIncomingMessages(queueId: String): Flow<RelayEncryptedBlob> = emptyFlow()
 }
 
 /**
@@ -54,7 +57,8 @@ class RoomV2TestDevice(
     private val databaseName: String = "v2-proof-${name.lowercase()}.db",
 ) {
     private val vaultKey = ByteArray(32) { (it * 7 + name.length).toByte() }
-    val queueId = "v2-proof-${name.lowercase()}-queue"
+    private val queue = RelayQueueCredentials.generate()
+    val queueId = queue.queueId
     private var database = open(databaseName)
     lateinit var service: ConversationV2Service
         private set
@@ -191,7 +195,7 @@ class RoomV2TestDevice(
             conversations = EncryptedConversationV2Repository(dao, vault),
             transactions = RoomProtocolTransactionRunner(database),
             transport = relay,
-            localReceiveQueueId = queueId,
+            localReceiveQueue = queue,
             localDisplayName = { name },
         )
     }

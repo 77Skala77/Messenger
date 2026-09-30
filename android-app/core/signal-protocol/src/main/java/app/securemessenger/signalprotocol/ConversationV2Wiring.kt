@@ -1,5 +1,6 @@
 package app.securemessenger.signalprotocol
 
+import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalstore.ConversationV2Store
 import app.securemessenger.signalstore.ProtocolTransactionRunner
@@ -26,7 +27,7 @@ object ConversationV2Wiring {
         conversations: ConversationV2Store,
         transactions: ProtocolTransactionRunner,
         transport: TransportClient,
-        localReceiveQueueId: String,
+        localReceiveQueue: RelayQueueCredentials,
         localDisplayName: () -> String,
     ): ConversationV2Service {
         LocalSignalIdentityProvisioner(localIdentity).provisionIfAbsent()
@@ -37,7 +38,7 @@ object ConversationV2Wiring {
             store = conversations,
             transactions = transactions,
             transport = transport,
-            localReceiveQueueId = localReceiveQueueId,
+            localReceiveQueue = localReceiveQueue,
             localDisplayName = localDisplayName,
         )
     }

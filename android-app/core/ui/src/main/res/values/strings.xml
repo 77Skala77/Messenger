@@ -96,4 +96,6 @@
     <string name="local_data_temporary_body">The secure key storage of the phone or the local database did not respond. Nothing was deleted. Check again; if this keeps happening, restart the phone.</string>
     <string name="local_data_check_again">Check again</string>
     <string name="local_data_delete_and_restart">Delete local data and start over</string>
+    <string name="relay_reset_title">Test chats were reset</string>
+    <string name="relay_reset_body">The delivery server now protects each inbox with a secret, so only its owner can read or delete waiting messages. Old test chats could not move to the new inboxes and were deleted on purpose; your profile stays. Pair with your contacts again using a new invitation.</string>
 </resources>

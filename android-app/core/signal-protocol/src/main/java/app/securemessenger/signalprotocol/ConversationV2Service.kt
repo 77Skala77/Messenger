@@ -1,6 +1,7 @@
 package app.securemessenger.signalprotocol
 
 import app.securemessenger.domain.RelayEncryptedBlob
+import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalstore.ConversationV2Store
 import app.securemessenger.signalstore.ProtocolTransactionRunner
@@ -62,16 +63,13 @@ class ConversationV2Service(
     private val store: ConversationV2Store,
     private val transactions: ProtocolTransactionRunner,
     private val transport: TransportClient,
-    private val localReceiveQueueId: String,
+    /** This device's receive queue; contacts only ever learn its ID (DEC-024). */
+    private val localReceiveQueue: RelayQueueCredentials,
     private val localDisplayName: () -> String,
     private val random: SecureRandom = SecureRandom(),
     private val now: () -> Long = System::currentTimeMillis,
     private val newLocalId: () -> String = { UUID.randomUUID().toString() },
 ) {
-    init {
-        require(V2Text.isValidQueueId(localReceiveQueueId)) { "Invalid local queue ID" }
-    }
-
     // --- Read models for the UI. Blocking; take the same lock so they never see half a step. ---
 
     fun contacts(): List<V2Contact> = atomically { store.contacts() }
@@ -97,7 +95,7 @@ class ConversationV2Service(
             val createdAt = now()
             val bundle = InvitationBundle(
                 preKeys = preKeys,
-                receiveQueueId = localReceiveQueueId,
+                receiveQueueId = localReceiveQueue.queueId,
                 routingTag = routingTag,
                 expiresAtEpochMillis = createdAt + InvitationV2.DEFAULT_LIFETIME_MILLIS,
             )
@@ -133,7 +131,7 @@ class ConversationV2Service(
      */
     suspend fun acceptInvitation(codeText: String, localName: String): String {
         val code = InvitationV2.decodeCode(codeText.trim())
-        val candidates = transport.fetchMessages(code.mailboxQueueId).map { it.opaqueCiphertext }
+        val candidates = transport.fetchMessages(code.mailbox).map { it.opaqueCiphertext }
         val bundle = InvitationV2.open(code, candidates, now())
         val identity = bundle.preKeys.identityKey
         val contactId = atomically {
@@ -154,7 +152,7 @@ class ConversationV2Service(
             )
             store.saveContact(contact)
             val displayName = localDisplayName().takeIf(InnerPayloadV2Codec::isAcceptableDisplayName).orEmpty()
-            enqueue(contact, InnerPayloadV2.Hello(RandomId.random(random), now(), localReceiveQueueId, localTag, displayName))
+            enqueue(contact, InnerPayloadV2.Hello(RandomId.random(random), now(), localReceiveQueue.queueId, localTag, displayName))
             contactId
         }
         sendDue()
@@ -206,7 +204,7 @@ class ConversationV2Service(
 
     /** Fetches this device's queue, processes every envelope, then sends what is due (receipts too). */
     suspend fun synchronize(): List<IncomingV2Result> {
-        val results = transport.fetchMessages(localReceiveQueueId).map { processIncoming(it) }
+        val results = transport.fetchMessages(localReceiveQueue).map { processIncoming(it) }
         sendDue()
         return results
     }
@@ -230,7 +228,7 @@ class ConversationV2Service(
             if (outcome.authenticated) store.recordAcceptedEnvelope(digestHex, now())
             outcome
         }
-        if (result.authenticated) transport.deleteMessage(blob.messageId)
+        if (result.authenticated) transport.deleteMessage(localReceiveQueue, blob.messageId)
         return result
     }
 
@@ -240,14 +238,8 @@ class ConversationV2Service(
         atomically { store.dueOutgoing(now()) }.forEach { outgoing ->
             val attempt = outgoing.attemptCount + 1
             try {
-                transport.sendMessage(
-                    RelayEncryptedBlob(
-                        messageId = outgoing.messageId,
-                        queueId = outgoing.peerQueueId,
-                        opaqueCiphertext = outgoing.envelope,
-                        expiresAtEpochMillis = now() + RELAY_TTL_MILLIS,
-                    ),
-                )
+                // The relay assigns its own message ID; it is never used as a local key (DEC-020).
+                transport.sendMessage(outgoing.peerQueueId, outgoing.envelope, now() + RELAY_TTL_MILLIS)
                 atomically { store.recordSent(outgoing.messageId, attempt) }
                 sent++
             } catch (cancelled: CancellationException) {
@@ -270,14 +262,7 @@ class ConversationV2Service(
     }
 
     private suspend fun uploadInvitation(invitation: V2Invitation) {
-        transport.sendMessage(
-            RelayEncryptedBlob(
-                messageId = newLocalId(),
-                queueId = invitation.mailboxQueueId,
-                opaqueCiphertext = invitation.sealedBundle,
-                expiresAtEpochMillis = invitation.expiresAtEpochMillis,
-            ),
-        )
+        transport.sendMessage(invitation.mailboxQueueId, invitation.sealedBundle, invitation.expiresAtEpochMillis)
     }
 
     private fun fromContact(contact: V2Contact, envelope: EnvelopeV2): IncomingV2Result {

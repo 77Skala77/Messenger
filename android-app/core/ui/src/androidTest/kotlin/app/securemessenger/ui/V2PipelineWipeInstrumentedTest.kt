@@ -41,7 +41,7 @@ class V2PipelineWipeInstrumentedTest {
     fun cleanUp() {
         database.close()
         vault.deleteKey()
-        V2QueueIdStore(context).clear()
+        V2QueueCredentialStore(context, vault).clear()
     }
 
     @Test

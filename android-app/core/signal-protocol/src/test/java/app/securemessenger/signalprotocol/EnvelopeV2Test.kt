@@ -39,8 +39,8 @@ class EnvelopeV2Test {
     @Test
     fun everyPayloadTypeRoundTripsAndIsPaddedToWholeBlocks() {
         val payloads = listOf(
-            InnerPayloadV2.Hello(RandomId.random(random), NOW, "bob-receive-queue-01", RandomId.random(random), "Bob"),
-            InnerPayloadV2.Hello(RandomId.random(random), NOW, "bob-receive-queue-01", RandomId.random(random), ""),
+            InnerPayloadV2.Hello(RandomId.random(random), NOW, BOB_QUEUE, RandomId.random(random), "Bob"),
+            InnerPayloadV2.Hello(RandomId.random(random), NOW, BOB_QUEUE, RandomId.random(random), ""),
             InnerPayloadV2.Accept(RandomId.random(random), NOW),
             InnerPayloadV2.Text(RandomId.random(random), NOW, "x"),
             InnerPayloadV2.Text(RandomId.random(random), NOW, "y".repeat(InnerPayloadV2Codec.MAX_TEXT_BYTES)),
@@ -90,7 +90,7 @@ class EnvelopeV2Test {
                 assertFalse(InnerPayloadV2Codec.isAcceptableDisplayName(name))
                 assertThrows(IllegalArgumentException::class.java) {
                     InnerPayloadV2Codec.encode(
-                        InnerPayloadV2.Hello(RandomId.random(random), NOW, "bob-receive-queue-01", RandomId.random(random), name),
+                        InnerPayloadV2.Hello(RandomId.random(random), NOW, BOB_QUEUE, RandomId.random(random), name),
                     )
                 }
             }
@@ -158,6 +158,8 @@ class EnvelopeV2Test {
     }
 
     private companion object {
+        /** A self-certifying queue ID (DEC-024); HELLO refuses any other form. */
+        val BOB_QUEUE = app.securemessenger.domain.RelayQueueCredentials.generate().queueId
         const val NOW = 1_800_000_000_000L
         const val ALICE_ON_BOB = "contact-alice-on-bob"
         const val BOB_ON_ALICE = "contact-bob-on-alice"

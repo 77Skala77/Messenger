@@ -12,6 +12,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.securemessenger.domain.RelayEncryptedBlob
+import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalprotocol.ConversationV2Service
 import app.securemessenger.signalprotocol.ConversationV2Wiring
@@ -27,7 +28,6 @@ import app.securemessenger.transport.RelayHttpTransportClient
 import app.securemessenger.transport.RelayServerSettings
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.Flow
 
 /** Builds the v2 pipeline over the app database. Shared by the UI and the background worker. */
 internal object V2Pipeline {
@@ -59,7 +59,7 @@ internal object V2Pipeline {
             RoomProtocolTransactionRunner(database).inTransaction {
                 LocalProfileRepository(database.dao(), vault).wipeLocalData()
             }
-            V2QueueIdStore(context.applicationContext).clear()
+            V2QueueCredentialStore(context.applicationContext, vault).clear()
         }
     }
 
@@ -80,7 +80,7 @@ internal object V2Pipeline {
             transport = CurrentRelayTransport(
                 RelayServerSettings(application, application.resources.getBoolean(R.bool.allow_insecure_relay_http)),
             ),
-            localReceiveQueueId = V2QueueIdStore(application).getOrCreateQueueId(),
+            localReceiveQueue = V2QueueCredentialStore(application, vault).getOrCreate(),
             localDisplayName = { displayName },
         )
     }
@@ -171,11 +171,10 @@ internal class CurrentRelayTransport(private val settings: RelayServerSettings) 
         }
     }
 
-    override suspend fun sendMessage(blob: RelayEncryptedBlob) = client().sendMessage(blob)
+    override suspend fun sendMessage(queueId: String, opaqueCiphertext: ByteArray, expiresAtEpochMillis: Long): String =
+        client().sendMessage(queueId, opaqueCiphertext, expiresAtEpochMillis)
 
-    override suspend fun fetchMessages(queueId: String): List<RelayEncryptedBlob> = client().fetchMessages(queueId)
+    override suspend fun fetchMessages(queue: RelayQueueCredentials): List<RelayEncryptedBlob> = client().fetchMessages(queue)
 
-    override suspend fun deleteMessage(messageId: String) = client().deleteMessage(messageId)
-
-    override fun observeIncomingMessages(queueId: String): Flow<RelayEncryptedBlob> = client().observeIncomingMessages(queueId)
+    override suspend fun deleteMessage(queue: RelayQueueCredentials, messageId: String) = client().deleteMessage(queue, messageId)
 }

@@ -39,6 +39,7 @@ data class SecureMessengerUiState(
     val v2Available: Boolean = false,
     val isPhysicalDevice: Boolean = true,
     val legacyResetNotice: Boolean = false,
+    val relayResetNotice: Boolean = false,
 )
 
 /**
@@ -60,6 +61,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             v2Available = V2Availability.isAvailable(application),
             isPhysicalDevice = isProbablyPhysicalDevice(),
             legacyResetNotice = LegacyReset.isNoticePending(application),
+            relayResetNotice = LegacyReset.isRelayNoticePending(application),
         ),
     )
     val state: StateFlow<SecureMessengerUiState> = mutableState.asStateFlow()
@@ -148,6 +150,11 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     fun dismissLegacyResetNotice() {
         LegacyReset.dismissNotice(getApplication())
         mutableState.value = mutableState.value.copy(legacyResetNotice = false)
+    }
+
+    fun dismissRelayResetNotice() {
+        LegacyReset.dismissRelayNotice(getApplication())
+        mutableState.value = mutableState.value.copy(relayResetNotice = false)
     }
 
     /**

@@ -1,6 +1,7 @@
 package app.securemessenger.signalprotocol
 
 import app.securemessenger.domain.RelayEncryptedBlob
+import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalstore.ConversationV2Store
 import app.securemessenger.signalstore.ProtocolTransactionRunner
@@ -13,8 +14,6 @@ import app.securemessenger.signalstore.V2MessageStatus
 import app.securemessenger.signalstore.V2OutgoingEnvelope
 import app.securemessenger.signalstore.V2Route
 import app.securemessenger.signalstore.V2StoredMessage
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * In-memory [ConversationV2Store] with the same observable contract as
@@ -278,27 +277,32 @@ class SnapshotTransactionRunner(
     }
 }
 
-/** An untrusted relay double: tests read, drop, duplicate, relabel, and inject blobs freely. */
+/**
+ * An untrusted relay double with the v3 API (DEC-024): it assigns message IDs and binds deletion to
+ * the queue, like the real relay; tests read, drop, duplicate, relabel, and inject blobs freely.
+ */
 class FakeRelay : TransportClient {
     private val blobs = linkedMapOf<String, RelayEncryptedBlob>()
+    private var nextId = 0
     var failNextSends = 0
 
-    override suspend fun sendMessage(blob: RelayEncryptedBlob) = synchronized(this) {
-        if (failNextSends > 0) {
-            failNextSends--
-            error("relay offline")
+    override suspend fun sendMessage(queueId: String, opaqueCiphertext: ByteArray, expiresAtEpochMillis: Long): String =
+        synchronized(this) {
+            if (failNextSends > 0) {
+                failNextSends--
+                error("relay offline")
+            }
+            val messageId = "relay-${nextId++}"
+            blobs[messageId] = RelayEncryptedBlob(messageId, queueId, opaqueCiphertext, expiresAtEpochMillis)
+            messageId
         }
-        blobs[blob.messageId] = blob
+
+    override suspend fun fetchMessages(queue: RelayQueueCredentials): List<RelayEncryptedBlob> =
+        synchronized(this) { blobs.values.filter { it.queueId == queue.queueId } }
+
+    override suspend fun deleteMessage(queue: RelayQueueCredentials, messageId: String) {
+        synchronized(this) { if (blobs[messageId]?.queueId == queue.queueId) blobs.remove(messageId) }
     }
-
-    override suspend fun fetchMessages(queueId: String): List<RelayEncryptedBlob> =
-        synchronized(this) { blobs.values.filter { it.queueId == queueId } }
-
-    override suspend fun deleteMessage(messageId: String) {
-        synchronized(this) { blobs.remove(messageId) }
-    }
-
-    override fun observeIncomingMessages(queueId: String): Flow<RelayEncryptedBlob> = emptyFlow()
 
     @Synchronized
     fun queued(queueId: String): List<RelayEncryptedBlob> = blobs.values.filter { it.queueId == queueId }
@@ -318,14 +322,15 @@ class V2TestDevice(val name: String, relay: FakeRelay, clock: () -> Long) {
     val signalStore = EncryptedSignalProtocolStore(records, records, records, records, records, records)
     val sessions = SignalSessions(signalStore)
     val store = InMemoryConversationV2Store()
-    val queueId = "${name.lowercase()}-receive-queue"
+    val queue = RelayQueueCredentials.generate()
+    val queueId = queue.queueId
     val service = ConversationV2Service(
         sessions = sessions,
         invitationKeys = InvitationPreKeyFactory(signalStore),
         store = store,
         transactions = SnapshotTransactionRunner(records, store),
         transport = relay,
-        localReceiveQueueId = queueId,
+        localReceiveQueue = queue,
         localDisplayName = { name },
         now = clock,
     )

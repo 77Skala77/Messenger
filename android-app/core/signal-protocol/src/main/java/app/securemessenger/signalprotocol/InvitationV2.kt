@@ -1,5 +1,6 @@
 package app.securemessenger.signalprotocol
 
+import app.securemessenger.domain.RelayQueueCredentials
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -9,6 +10,7 @@ import javax.crypto.spec.SecretKeySpec
 import org.signal.libsignal.protocol.IdentityKey
 import org.signal.libsignal.protocol.InvalidKeyException
 import org.signal.libsignal.protocol.ecc.ECPublicKey
+import org.signal.libsignal.protocol.kdf.HKDF
 import org.signal.libsignal.protocol.kem.KEMPublicKey
 import org.signal.libsignal.protocol.util.Medium
 
@@ -41,33 +43,34 @@ class InvitationBundle(
     val expiresAtEpochMillis: Long,
 )
 
-/** The QR code content: where the sealed bundle is, the key that opens it, and a commitment to it. */
+/**
+ * The QR code content (DEC-024): one 32-byte secret and a commitment to the sealed bundle. The seal
+ * key and the mailbox's read secret are derived from the secret with HKDF under distinct labels.
+ */
 class InvitationCode internal constructor(
-    private val mailboxId: ByteArray,
-    private val sealKey: ByteArray,
+    private val secret: ByteArray,
     private val sealedBundleDigest: ByteArray,
 ) {
     init {
-        require(mailboxId.size == InvitationV2.MAILBOX_ID_BYTES)
-        require(sealKey.size == InvitationV2.SEAL_KEY_BYTES)
+        require(secret.size == InvitationV2.SECRET_BYTES)
         require(sealedBundleDigest.size == InvitationV2.DIGEST_BYTES)
     }
 
-    /** Relay queue that holds the sealed bundle. */
-    val mailboxQueueId: String = InvitationV2.MAILBOX_QUEUE_PREFIX + InvitationV2.base64Url(mailboxId)
+    /** Read access to the relay queue that holds the sealed bundle. */
+    val mailbox: RelayQueueCredentials = RelayQueueCredentials.fromReadSecret(InvitationV2.derive(secret, InvitationV2.MAILBOX_READ_INFO))
 
-    /** Text for the QR code and for copying: `smp-invite-v2:` + base64url, about 120 characters. */
+    /** Text for the QR code and for copying: `smp-invite-v3:` + base64url, about 100 characters. */
     fun encode(): String =
         InvitationV2.PREFIX + InvitationV2.base64Url(
-            byteArrayOf(InvitationV2.FORMAT_VERSION.toByte()) + mailboxId + sealKey + sealedBundleDigest,
+            byteArrayOf(InvitationV2.FORMAT_VERSION.toByte()) + secret + sealedBundleDigest,
         )
 
     internal fun commitsTo(sealedBundle: ByteArray): Boolean =
         MessageDigest.isEqual(InvitationV2.sealedBundleDigest(sealedBundle), sealedBundleDigest)
 
-    internal fun sealKey(): ByteArray = sealKey.copyOf()
+    internal fun sealKey(): ByteArray = InvitationV2.derive(secret, InvitationV2.SEAL_KEY_INFO)
 
-    /** Never prints the key or the mailbox. */
+    /** Never prints the secret or the mailbox. */
     override fun toString(): String = "InvitationCode(redacted)"
 }
 
@@ -80,44 +83,50 @@ class PublishedInvitation(
 )
 
 /**
- * Invitation v2 (DEC-019 O1, T8). The inviter seals the bundle with a random single-use
- * AES-256-GCM key and uploads it to a random relay mailbox; the QR code carries the mailbox ID,
- * the key, and a domain-separated SHA-256 digest of the exact sealed bytes. The relay learns
- * nothing from the bundle and cannot substitute it; a person who sees the QR code can read the
- * public bundle but cannot substitute it either, because the digest binds the bytes.
+ * Invitation (DEC-019 O1, T8; code format v3 since DEC-024). The inviter seals the bundle with a
+ * single-use AES-256-GCM key and uploads it to a relay mailbox that only the QR secret can read; the
+ * QR code carries that secret (the seal key and the mailbox read secret are HKDF-derived from it)
+ * and a domain-separated SHA-256 digest of the exact sealed bytes. The relay learns nothing from
+ * the bundle and cannot substitute it; a person who sees the QR code can read the public bundle but
+ * cannot substitute it either, because the digest binds the bytes.
  *
- * v1 (`smp-invite-v1:`) and the old experimental v2 DTO are never accepted here.
+ * `smp-invite-v1:` and `smp-invite-v2:` codes are refused as unsupported versions.
  */
 object InvitationV2 {
-    const val PREFIX = "smp-invite-v2:"
+    const val PREFIX = "smp-invite-v3:"
     const val DEFAULT_LIFETIME_MILLIS = 24 * 60 * 60 * 1000L
     const val MAX_LIFETIME_MILLIS = 7 * 24 * 60 * 60 * 1000L
 
-    internal const val FORMAT_VERSION = 2
-    internal const val MAILBOX_ID_BYTES = 16
+    internal const val FORMAT_VERSION = 3
+    internal const val SECRET_BYTES = 32
     internal const val SEAL_KEY_BYTES = 32
     internal const val DIGEST_BYTES = 32
-    internal const val MAILBOX_QUEUE_PREFIX = "inv2-"
+    internal val SEAL_KEY_INFO = "smp-invite-v3/seal-key".toByteArray()
+    internal val MAILBOX_READ_INFO = "smp-invite-v3/mailbox-read".toByteArray()
 
-    private const val CODE_BODY_BYTES = 1 + MAILBOX_ID_BYTES + SEAL_KEY_BYTES + DIGEST_BYTES
+    private const val CODE_BODY_BYTES = 1 + SECRET_BYTES + DIGEST_BYTES
     private const val MAX_CODE_CHARS = 256
     private const val SEAL_VERSION = 1
     private const val NONCE_BYTES = 12
     private const val TAG_BITS = 128
     private const val CLOCK_SKEW_MILLIS = 10 * 60 * 1000L
-    private val SEAL_AAD = "smp-invite-v2/sealed-bundle".toByteArray()
-    private val DIGEST_DOMAIN = "smp-invite-v2/sealed-bundle-digest\u0000".toByteArray()
+    private val SEAL_AAD = "smp-invite-v3/sealed-bundle".toByteArray()
+    private val DIGEST_DOMAIN = "smp-invite-v3/sealed-bundle-digest\u0000".toByteArray()
 
     fun publish(bundle: InvitationBundle, random: SecureRandom = SecureRandom()): PublishedInvitation {
-        val sealKey = ByteArray(SEAL_KEY_BYTES).also(random::nextBytes)
-        val sealed = seal(bundle, sealKey, random)
-        val code = InvitationCode(
-            mailboxId = ByteArray(MAILBOX_ID_BYTES).also(random::nextBytes),
-            sealKey = sealKey,
-            sealedBundleDigest = sealedBundleDigest(sealed),
-        )
-        return PublishedInvitation(code, code.mailboxQueueId, sealed, bundle.expiresAtEpochMillis)
+        val secret = ByteArray(SECRET_BYTES).also(random::nextBytes)
+        val sealKey = derive(secret, SEAL_KEY_INFO)
+        val sealed = try {
+            seal(bundle, sealKey, random)
+        } finally {
+            sealKey.fill(0)
+        }
+        val code = InvitationCode(secret = secret, sealedBundleDigest = sealedBundleDigest(sealed))
+        return PublishedInvitation(code, code.mailbox.queueId, sealed, bundle.expiresAtEpochMillis)
     }
+
+    /** HKDF-SHA256 (libsignal) with a distinct label per derived key. */
+    internal fun derive(secret: ByteArray, info: ByteArray): ByteArray = HKDF.deriveSecrets(secret, info, SEAL_KEY_BYTES)
 
     fun decodeCode(text: String): InvitationCode {
         if (text.length > MAX_CODE_CHARS) throw InvitationRejectedException(InvitationRejection.MALFORMED)
@@ -141,7 +150,7 @@ object InvitationV2 {
         if (body[0].toInt() != FORMAT_VERSION) throw InvitationRejectedException(InvitationRejection.UNSUPPORTED_VERSION)
         var offset = 1
         fun take(count: Int) = body.copyOfRange(offset, offset + count).also { offset += count }
-        return InvitationCode(take(MAILBOX_ID_BYTES), take(SEAL_KEY_BYTES), take(DIGEST_BYTES))
+        return InvitationCode(take(SECRET_BYTES), take(DIGEST_BYTES))
     }
 
     /**

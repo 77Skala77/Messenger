@@ -1,9 +1,11 @@
 package app.securemessenger.signalprotocol
 
+import app.securemessenger.domain.RelayQueueCredentials
 import java.security.SecureRandom
 import java.util.Base64
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,10 +21,11 @@ class InvitationV2Test {
         val published = InvitationV2.publish(bundle, random)
         val text = published.code.encode()
 
-        assertTrue(text.startsWith("smp-invite-v2:"))
-        // Small enough for a low-density QR code (v1 was about 250 characters).
-        assertTrue("QR text is ${text.length} characters", text.length <= 160)
-        assertEquals(published.mailboxQueueId, InvitationV2.decodeCode(text).mailboxQueueId)
+        assertTrue(text.startsWith("smp-invite-v3:"))
+        // One secret and one digest (DEC-024): shorter than v2 (122) and v1 (about 250).
+        assertTrue("QR text is ${text.length} characters", text.length <= 110)
+        assertEquals(published.mailboxQueueId, InvitationV2.decodeCode(text).mailbox.queueId)
+        assertTrue(RelayQueueCredentials.isValidQueueId(published.mailboxQueueId))
         assertEquals(text, InvitationV2.decodeCode(text).encode())
 
         val relayed = listOf(ByteArray(40) { 1 }, published.sealedBundle, ByteArray(3000) { 2 })
@@ -41,11 +44,14 @@ class InvitationV2Test {
     fun codeTextRejectsOtherFormatsAndDamage() {
         val text = InvitationV2.publish(bundleFor(TestSignalDevice()), random).code.encode()
         val body = Base64.getUrlDecoder().decode(text.removePrefix(InvitationV2.PREFIX))
-        val wrongVersion = InvitationV2.PREFIX + base64Url(body.copyOf().also { it[0] = 3 })
+        val wrongVersion = InvitationV2.PREFIX + base64Url(body.copyOf().also { it[0] = 2 })
+        // A v2 code (mailbox ID, seal key, digest) is refused by its prefix, never reinterpreted.
+        val v2Code = "smp-invite-v2:" + base64Url(byteArrayOf(2) + ByteArray(16) + ByteArray(32) + ByteArray(32))
 
         expectCodeRejected(InvitationRejection.UNSUPPORTED_VERSION, "smp-invite-v1:AAAA")
         expectCodeRejected(InvitationRejection.UNSUPPORTED_VERSION, "smp-invite-v2-signal-pqxdh-experimental:AAAA")
         expectCodeRejected(InvitationRejection.UNSUPPORTED_VERSION, wrongVersion)
+        expectCodeRejected(InvitationRejection.UNSUPPORTED_VERSION, v2Code)
         expectCodeRejected(InvitationRejection.MALFORMED, "hello")
         expectCodeRejected(InvitationRejection.MALFORMED, text.dropLast(1))
         expectCodeRejected(InvitationRejection.MALFORMED, text + "A")
@@ -126,17 +132,38 @@ class InvitationV2Test {
     @Test
     fun invalidQueueIdsCannotBeEncoded() {
         val preKeys = TestSignalDevice().invitations.create()
-        listOf("short", "has space in it", "slash/is/not/allowed", "x".repeat(129)).forEach { queueId ->
+        listOf(
+            "short", "has space in it", "slash/is/not/allowed", "x".repeat(129),
+            // Pre-DEC-024 forms: no read secret behind them.
+            "v2-7d1c0c1e-4f7a-4c55-9a8e-2b5d3f1e0a91", "inv2-AAAAAAAAAAAAAAAAAAAAAA",
+        ).forEach { queueId ->
             assertThrows(IllegalArgumentException::class.java) {
                 InvitationBundleCodec.encode(InvitationBundle(preKeys, queueId, RandomId.random(random), NOW))
             }
         }
     }
 
+    /** DEC-024: seal key and mailbox read secret come from the one QR secret under distinct labels. */
+    @Test
+    fun theSealKeyAndTheMailboxSecretAreDistinctDerivationsOfTheQrSecret() {
+        val published = InvitationV2.publish(bundleFor(TestSignalDevice()), random)
+        val secret = Base64.getUrlDecoder().decode(published.code.encode().removePrefix(InvitationV2.PREFIX)).copyOfRange(1, 33)
+        val sealKey = InvitationV2.derive(secret, InvitationV2.SEAL_KEY_INFO)
+        val mailboxSecret = InvitationV2.derive(secret, InvitationV2.MAILBOX_READ_INFO)
+
+        assertEquals(32, sealKey.size)
+        assertFalse(sealKey.contentEquals(mailboxSecret))
+        assertFalse(sealKey.contentEquals(secret) || mailboxSecret.contentEquals(secret))
+        assertArrayEquals(sealKey, published.code.sealKey())
+        assertEquals(RelayQueueCredentials.fromReadSecret(mailboxSecret).queueId, published.code.mailbox.queueId)
+        // The mailbox is reachable only through the QR secret, not through the queue ID alone.
+        assertEquals(published.mailboxQueueId, published.code.mailbox.queueId)
+    }
+
     private fun bundleFor(device: TestSignalDevice, expiresAt: Long = NOW + InvitationV2.DEFAULT_LIFETIME_MILLIS) =
         InvitationBundle(
             preKeys = device.invitations.create(),
-            receiveQueueId = "7d1c0c1e-4f7a-4c55-9a8e-2b5d3f1e0a91",
+            receiveQueueId = RelayQueueCredentials.generate(random).queueId,
             routingTag = RandomId.random(random),
             expiresAtEpochMillis = expiresAt,
         )

@@ -5,10 +5,12 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.securemessenger.storage.JcaLocalVaultCipher
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.spec.ECGenParameterSpec
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -56,8 +58,40 @@ class LegacyResetInstrumentedTest {
         LegacyReset.runOnce(context)
 
         assertFalse(LegacyReset.isNoticePending(context))
+        assertFalse(LegacyReset.isRelayNoticePending(context))
         assertFalse(keyStore.containsAlias(LegacyReset.LEGACY_IDENTITY_ALIAS))
     }
+
+    /** DEC-024: a pre-v3 plain queue ID is removed once, with one notice; the new secret survives. */
+    @Test
+    fun theOldPlainQueueIdIsRemovedOnceWithOneNotice() {
+        queuePreferences().edit()
+            .putString(V2QueueCredentialStore.OLD_QUEUE_ID, "v2-00000000-0000-0000-0000-000000000000")
+            .commit()
+
+        LegacyReset.runOnce(context)
+
+        assertFalse(queuePreferences().contains(V2QueueCredentialStore.OLD_QUEUE_ID))
+        assertTrue(LegacyReset.isRelayNoticePending(context))
+        LegacyReset.dismissRelayNotice(context)
+        queuePreferences().edit().putString(V2QueueCredentialStore.OLD_QUEUE_ID, "late").commit()
+        LegacyReset.runOnce(context)
+        assertFalse(LegacyReset.isRelayNoticePending(context))
+    }
+
+    @Test
+    fun theQueueReadSecretIsStoredEncryptedAndSurvivesReopening() {
+        val vault = JcaLocalVaultCipher(ByteArray(32) { 9 })
+        val created = V2QueueCredentialStore(context, vault).getOrCreate()
+        val reopened = V2QueueCredentialStore(context, vault).getOrCreate()
+
+        assertEquals(created.queueId, reopened.queueId)
+        val stored = queuePreferences().all.values.joinToString()
+        assertFalse("the bearer secret is stored in clear", stored.contains(created.bearer()))
+        assertFalse(stored.contains(created.queueId))
+    }
+
+    private fun queuePreferences() = context.getSharedPreferences(V2QueueCredentialStore.PREFERENCES, Context.MODE_PRIVATE)
 
     private fun createLegacyIdentityKey() {
         val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
@@ -71,7 +105,7 @@ class LegacyResetInstrumentedTest {
 
     private fun clearEverything() {
         if (keyStore.containsAlias(LegacyReset.LEGACY_IDENTITY_ALIAS)) keyStore.deleteEntry(LegacyReset.LEGACY_IDENTITY_ALIAS)
-        (LegacyReset.LEGACY_PREFERENCES + "secure_messenger_legacy_reset").forEach { name ->
+        (LegacyReset.LEGACY_PREFERENCES + "secure_messenger_legacy_reset" + V2QueueCredentialStore.PREFERENCES).forEach { name ->
             context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()
         }
     }

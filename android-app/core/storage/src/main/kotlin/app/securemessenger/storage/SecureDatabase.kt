@@ -435,7 +435,7 @@ interface SecureMessengerDao {
         V2MessageEntity::class,
         V2AcceptedEnvelopeEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -446,7 +446,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
-                    MIGRATION_7_8,
+                    MIGRATION_7_8, MIGRATION_8_9,
                 )
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
@@ -721,5 +721,24 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
 
         /** Tables of the removed prototype protocol, dropped by [MIGRATION_7_8]. */
         val LEGACY_TABLES = listOf("contacts", "contact_devices", "encrypted_sessions", "encrypted_messages", "accepted_replay")
+
+        /**
+         * DEC-024, explicit reset of the v2 test conversations: contacts know each other's pre-v3
+         * relay queue IDs, which have no read secret, so every conversation, its libsignal session,
+         * identity and pre-keys, and every invitation are deleted once. The profile and the local
+         * libsignal identity stay. No schema change; the app shows a one-time notice.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                RELAY_V3_RESET_TABLES.forEach { table -> db.execSQL("DELETE FROM `$table`") }
+            }
+        }
+
+        /** Rows deleted by [MIGRATION_8_9]; local_profile and signal_local_identity are kept. */
+        val RELAY_V3_RESET_TABLES = listOf(
+            "v2_accepted_envelopes", "v2_messages", "v2_contact_requests", "v2_contacts", "v2_invitations",
+            "signal_session_records", "signal_identity_records", "signal_prekey_records",
+            "signal_signed_prekey_records", "signal_kyber_prekey_records", "signal_kyber_base_key_uses",
+        )
     }
 }
