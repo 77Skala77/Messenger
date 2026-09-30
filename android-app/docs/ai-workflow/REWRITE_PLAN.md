@@ -102,8 +102,9 @@ Progress:
 - 1e — **IN PROGRESS**: design approved (DEC-019, 2026-09-29); legacy relay message-ID fix
   (DEC-020); sub-steps 2–5 done and verified on JVM and SM-S928B (session wrapper, invitation
   v2, envelope/payload v2, Room v7 storage with atomic transactions); sub-step 6a pipeline
-  written with 12 end-to-end JVM tests. Next: 6b UI wiring behind the flag (default OFF), then
-  the release-variant check. Nothing is enabled in the app. Status per sub-step:
+  written with 12 end-to-end JVM tests; 6b UI behind a hidden debug QA switch (default OFF,
+  impossible in release) verified by hand on two physical phones. Next: the release-variant
+  check (sub-step 7). Nothing is enabled in the app. Status per sub-step:
   `PHASE_1E_PREP.md`.
 
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.

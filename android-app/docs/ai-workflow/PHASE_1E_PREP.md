@@ -97,8 +97,18 @@ Original proposals, kept for history:
      accept/decline, text, receipts, retries, expiry) under a process-wide lock and one
      transaction per step. 12 end-to-end JVM tests with real libsignal and an attacking relay
      double (duplicates, relabelling, forged identity claims, second scanner, crash rollback).
-   - 6b **next** — minimal UI wiring behind the flag (show v2 invitation, scan, accept/decline
-     request, chat), WorkManager sync, flag default OFF.
+   - 6b **DONE 2026-09-30** — minimal UI behind the hidden debug QA switch (off by default,
+     impossible in release): invitation QR/text, scan or paste, contact requests with claimed
+     name and safety number, explicit accept/decline, chat with delivery status. Background sync
+     for v2 is **not implemented** (messages are fetched only while the v2 screen is open).
+     **Manually verified on two physical phones** (Samsung S24 Ultra SM-S928B and Redmi A3x
+     24048RN6CG, both Android 16) through a local relay over `adb reverse`: pairing with
+     matching safety numbers, request/accept, messages in both directions, `Delivered`
+     receipts, app restart (state kept), repeated and own invitation refused, switch off/on,
+     local data deletion clears v2 contacts, and a relay outage: messages stayed
+     `Waiting for sync`, all were delivered after the relay returned, exactly once each.
+     Not covered by this manual run: two-device forward-secrecy proof and legacy reset (1f),
+     WorkManager background sync for v2, and a public relay.
 7. Release-variant check: app depends on `:core:signal-protocol`, desugaring and `_testing`
    exclusion applied in the app module, minified release build verified.
 
