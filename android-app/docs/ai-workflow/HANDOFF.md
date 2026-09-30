@@ -35,20 +35,21 @@ the modules `:core:crypto` and `:core:delivery` are deleted.
 **Room:** schema v8 (`MIGRATION_7_8` drops the legacy tables). Legacy Keystore key and
 preferences are removed once on upgrade by `LegacyReset`, with a one-time notice.
 
+**Toolchain:** TQ-009 is done (2026-09-30, DEC-022): AGP 8.13.2, Gradle 8.14.3, compileSdk 36,
+AndroidX, Compose BOM 2025.10.01, Room 2.8.5. Lint and R8 now read Kotlin 2.2 metadata cleanly.
+
 ### Next step
 
-Choose one (both are allowed by the plan):
-
-1. **TQ-009** — dependency and AGP update (51 lint warnings; R8 and lint cannot parse Kotlin 2.2
-   metadata under AGP 8.5.2). Owner asked to do it after the Phase 1 exit gate and before
-   Phase 6. Doing it now gives Phases 2–5 a clean lint/R8 signal.
-2. **Phase 2 — storage hardening**: key-loss behavior (Keystore key invalidated → fail closed,
-   plainly told to the user), re-verify that no protocol secret reaches an unencrypted column.
+**Phase 2 — storage hardening** (`REWRITE_PLAN.md`): key-loss behavior (Keystore key invalidated →
+fail closed, plainly told to the user), re-verify that no protocol secret reaches an unencrypted
+column. Recommended model: Opus 5.5 · High. Commit policy: one commit at the end of each
+phase, step or task (owner, 2026-09-30).
 
 ## Operational constraints
 
 - Development machine: Windows, ~3.9 GB RAM, JDK 17 and Android SDK on drive D (`README.md` has
-  the low-memory Gradle flags). A full `assembleRelease` takes about 35 minutes.
+  the low-memory Gradle flags). With AGP 8.13 a release build takes 5–15 minutes. Close games and
+  other heavy programs before building: with under ~1.3 GB free RAM the JVM cannot start.
 - Test phones: Samsung S24 Ultra (SM-S928B) and Redmi A3x (24048RN6CG), Android 16, over USB.
   The relay runs on the laptop at `127.0.0.1:8787` and the phones reach it through
   `adb reverse tcp:8787 tcp:8787`.

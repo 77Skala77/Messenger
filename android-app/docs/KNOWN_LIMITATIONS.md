@@ -82,8 +82,9 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 
 ## Build And Tooling
 
-- AGP 8.5.2 predates Kotlin 2.2: lint's Kotlin analysis is degraded and R8 cannot parse Kotlin
-  metadata (warnings only). Tracked in TQ-009.
+- AGP 8.13.2 (DEC-022) builds Kotlin 2.2 code; lint and R8 read its metadata without errors or
+  warnings since TQ-009. Libraries that need compileSdk 37 (Compose 1.12, core 1.19, lifecycle
+  2.11), Kotlin above 2.2.20 and AGP 9 are deliberately not adopted yet.
 - Release APK is unsigned; reproducible builds, signing, dependency verification and SBOM are
   not in place (TQ-007, TQ-008).
 

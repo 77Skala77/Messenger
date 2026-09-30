@@ -90,7 +90,8 @@ Release rejects cleartext relay URLs.
 
 ## 9. Verification baseline (last run 2026-09-30)
 
-Toolchain on the development machine: JDK 17 (`D:\Tools\jdk-17`), Android SDK 34, Node.js 24;
+Toolchain on the development machine: JDK 17 (`D:\Tools\jdk-17`), Android SDK 34 and 36, AGP 8.13.2,
+Gradle 8.14.3, Kotlin 2.2.20 (TQ-009, DEC-022), Node.js 24;
 ~3.9 GB RAM (use the low-memory Gradle flags in `README.md`). Devices: Samsung S24 Ultra
 (SM-S928B) and Redmi A3x (24048RN6CG), both Android 16.
 

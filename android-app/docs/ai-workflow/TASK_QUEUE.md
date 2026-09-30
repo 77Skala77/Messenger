@@ -68,8 +68,7 @@ Reverify branch, HEAD, issues, pull requests, and repository state before starti
 5. TQ-006 — Re-establish the executable verification baseline (clean-clone run open)
 6. TQ-007 — Establish the release-variant baseline (signing, `lintRelease`, manifest audit open)
 7. TQ-008 — Add dependency verification, locking, and SBOM workflow
-8. TQ-009 — Update outdated dependencies and AGP (51 lint warnings) — DEFERRED until after the
-   Phase 1 exit gate and before Phase 6 (owner request, 2026-09-29)
+8. ~~TQ-009 — Update outdated dependencies and AGP (51 lint warnings)~~ — DONE 2026-09-30
 
 Phase 1 of `REWRITE_PLAN.md` (steps 1a–1f) replaced TQ-100 to TQ-103 and TQ-105. Multi-device
 (TQ-104), the independent audit (TQ-106), and the production relay (TQ-107) remain blocked on
@@ -462,8 +461,8 @@ Implement remaining dependency controls as separate reviewed steps, not a broad 
 ## TQ-009 — Update outdated dependencies and AGP (lint warnings)
 
 **Priority:** P2
-**Status:** DEFERRED — schedule after the Phase 1 exit gate of `REWRITE_PLAN.md` and before
-Phase 6 (UI rewrite). Owner asked (2026-09-29) that this not be forgotten.
+**Status:** DONE (2026-09-30) — see "Result" below. Remaining library updates (compileSdk 37, AGP 9,
+Kotlin above 2.2.20, targetSdk) are deliberately not part of this task and need their own decision.
 **Type:** Build/dependency maintenance
 **Security-sensitive:** Yes (build toolchain and packaging; do not mix with protocol work)
 
@@ -494,6 +493,26 @@ expected to fix that; verify lint output is clean afterwards. Count on 2026-09-3
 54 — plus 1 `ChromeOsAbiSupport` from the debug-only `abiFilters += "arm64-v8a"` in
 `app/build.gradle.kts` (intentional: smaller debug APK for the phones; release keeps 4 ABIs).
 
+### Result (2026-09-30, DEC-022)
+
+- AGP 8.5.2 -> 8.13.2, Gradle 8.7 -> 8.14.3, compileSdk 34 -> 36 (targetSdk 34 kept), Compose BOM
+  2025.10.01, activity-compose 1.13.0, appcompat 1.8.0, core-ktx 1.17.0, lifecycle 2.10.0,
+  navigation-compose 2.10.2, WorkManager 2.12.0, Room 2.8.5 (schema 8.json unchanged), AndroidX test
+  libraries. AGP 9.x not adopted; Kotlin 2.2.20, coroutines 1.10.2 and libsignal stay pinned.
+- Lint: 0 errors; warnings 54 -> 25 in total: GradleDependency 4 (Compose BOM 2026.09, core-ktx 1.19,
+  lifecycle 2.11 need compileSdk 37), NewerVersionAvailable 6 (Kotlin, coroutines: pinned),
+  AGP 2 (9.x), OldTargetApi 1 (targetSdk 34: a behavior change, not part of this task), plus the
+  intentional debug cleartext, ChromeOsAbiSupport (debug arm64 only) and localeConfig. No
+  Kotlin-metadata problems in lint; R8 Kotlin-metadata warnings 14 -> 0.
+- Also recorded: AGP 8.11.1 crashes lint on Kotlin 2.2 (rejected). AGP 8.x needs about 2 GB free RAM
+  on this machine; close games and other heavy programs before building.
+- Verified on the new toolchain: `:app:assembleDebug`, `:app:assembleRelease` (R8), all unit tests
+  (120 runs), `:app:lintDebug`, and on SM-S928B and 24048RN6CG: storage 20/20 (includes
+  migrations), ui 16/16, signal-protocol 46/46, transport 5/5. The owner checked the debug build
+  by hand on both phones (screens, language switch, existing contacts, messages to "Delivered",
+  QR scanner).
+- Not run: the `qaMinified` build on the new toolchain (the release R8 build was checked instead).
+
 ### Objective
 
 Reduce the 50 actionable warnings (the intentional debug cleartext one stays) through small,
@@ -516,11 +535,13 @@ separately reviewable upgrade steps, each verified by a real build and tests.
 
 ### Acceptance criteria
 
-- [ ] Each upgrade step has its own commit and recorded build/test evidence.
-- [ ] `lintDebug` reports 0 errors and only documented, intentional warnings remain.
-- [ ] `compileSdk`/`targetSdk` changes, if any, are explained and tested on a device.
-- [ ] No behavior change to crypto, storage schema, wire formats, or the relay.
-- [ ] Documentation (`DEPENDENCY_REVIEW.md`, `LIBSIGNAL_TOOLCHAIN_REVIEW.md`) is updated.
+- [x] Recorded build/test evidence for the update. One commit at the end of the task, by the
+  owner's 2026-09-30 rule, instead of one commit per step.
+- [x] `lintDebug` reports 0 errors; the remaining warnings are listed above.
+- [x] compileSdk 36 (targetSdk unchanged) is explained in DEC-022 and tested on two devices.
+- [x] No behavior change to crypto, storage schema (`8.json` unchanged), wire formats, or the relay.
+- [x] Documentation (`DEPENDENCY_REVIEW.md`, `LIBSIGNAL_TOOLCHAIN_REVIEW.md`,
+  `KNOWN_LIMITATIONS.md`) is updated.
 
 ---
 

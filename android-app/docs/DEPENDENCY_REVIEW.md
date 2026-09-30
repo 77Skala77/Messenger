@@ -39,7 +39,7 @@ transitive dependencies, or native payloads.
 The Gradle wrapper is pinned to:
 
 ```text
-Gradle 8.7 binary distribution
+Gradle 8.14.3 binary distribution
 ```
 
 The wrapper configuration validates the distribution URL. The repository must still record
@@ -52,21 +52,21 @@ The version catalog currently declares:
 
 | Component | Repository pin |
 | --- | ---: |
-| Gradle wrapper | `8.7` |
-| Android Gradle Plugin | `8.5.2` |
+| Gradle wrapper | `8.14.3` |
+| Android Gradle Plugin | `8.13.2` |
 | Kotlin | `2.2.20` |
-| Compose BOM | `2024.06.00` |
-| Activity Compose | `1.9.0` |
-| AppCompat | `1.7.0` |
-| AndroidX Core KTX | `1.13.1` |
-| Lifecycle | `2.8.2` |
-| Navigation Compose | `2.7.7` |
-| Room | `2.7.2` |
+| Compose BOM | `2025.10.01` |
+| Activity Compose | `1.13.0` |
+| AppCompat | `1.8.0` |
+| AndroidX Core KTX | `1.17.0` |
+| Lifecycle | `2.10.0` |
+| Navigation Compose | `2.10.2` |
+| Room | `2.8.5` |
 | Kotlin Coroutines | `1.10.2` |
-| WorkManager | `2.9.1` |
+| WorkManager | `2.12.0` |
 | ZXing Embedded | `4.3.0` |
 | JUnit | `4.13.2` |
-| AndroidX JUnit | `1.2.1` |
+| AndroidX JUnit | `1.3.0` |
 | AndroidX Test Runner | `1.6.2` |
 | Espresso | `3.6.1` |
 | Official libsignal gate | `0.94.1` |

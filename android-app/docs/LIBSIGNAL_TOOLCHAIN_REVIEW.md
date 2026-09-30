@@ -28,14 +28,14 @@ The current repository version catalog and Android configuration specify:
 
 | Area | Repository value |
 | --- | --- |
-| Android Gradle Plugin | `8.5.2` |
+| Android Gradle Plugin | `8.13.2` (was `8.5.2`; TQ-009, DEC-022) |
 | Kotlin Gradle plugin | `2.2.20` |
 | Compose compiler | Kotlin Compose compiler plugin `2.2.20` (was extension `1.5.14`) |
-| Compose BOM | `2024.06.00` |
-| Room | `2.7.2` (KAPT) |
+| Compose BOM | `2025.10.01` (was `2024.06.00`) |
+| Room | `2.8.5` (KAPT; was `2.7.2`) |
 | Kotlin Coroutines | `1.10.2` |
-| WorkManager | `2.9.1` |
-| Application compile SDK | `34` |
+| WorkManager | `2.12.0` (was `2.9.1`) |
+| Application compile SDK | `36` (was `34`; TQ-009) |
 | Application target SDK | `34` |
 | Application minimum SDK | `31` |
 | Java source and target | `17` |
@@ -44,6 +44,18 @@ The current repository version catalog and Android configuration specify:
 
 These are repository declarations, not proof that every build variant currently passes.
 Fresh results belong to TQ-006 and TQ-007.
+
+## Update 2026-09-30 (TQ-009, DEC-022)
+
+AGP 8.5.2 -> 8.13.2 with Gradle 8.14.3, compileSdk 34 -> 36 (targetSdk stays 34), AndroidX, Compose
+BOM 2025.10.01, WorkManager, Room 2.8.5 (schema `8.json` unchanged). Kotlin 2.2.20, coroutines
+1.10.2 and libsignal 0.94.1 are unchanged. After it: R8 prints no Kotlin-metadata warnings
+(14 before), lint reports 0 errors and no Kotlin-metadata problems. AGP 8.11.1 was tried and
+rejected: its lint crashed on Kotlin 2.2 class metadata in the Compose checks. Details and the
+versions that need compileSdk 37: `ai-workflow/DECISIONS.md` DEC-022.
+
+The table above is current; the sections below describe step 1b as it was done with the older
+toolchain (Gradle 8.7, AGP 8.5.2).
 
 ## Toolchain upgrade (step 1b, 2026-09-27) — DEBUG BUILD VERIFIED 2026-09-29
 

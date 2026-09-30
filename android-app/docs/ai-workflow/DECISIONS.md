@@ -59,6 +59,7 @@ When changing an accepted decision:
 | DEC-019 | Step 1e design: relayed committed invitation, one-sided pairing with explicit request, flag-gated enablement | ACCEPTED |
 | DEC-020 | Relay-supplied message IDs are never trusted as local keys or cross-contact receipt targets | ACCEPTED |
 | DEC-021 | Step 1f: automatic explicit legacy reset, legacy code and modules removed, v2 only in debug, release without chat until Phase 5 | ACCEPTED |
+| DEC-022 | TQ-009: stay on AGP 8.13.2 and compileSdk 36; Kotlin and libsignal pinned | ACCEPTED |
 
 ---
 
@@ -993,6 +994,32 @@ fails in practice, or Phase 3 relay authentication or Phase 4 multi-device chang
 honest boundary (skipped message keys), on in-memory and Room-backed stores, JVM and device;
 a Room-backed two-device integration test; a minified debug-signed build checked by hand on two
 phones. Then 1f-B: v2 background sync, the reset (Room v8), legacy removal, flags, docs.
+
+---
+
+## DEC-022 — TQ-009: stay on AGP 8.x (8.13.2) and compileSdk 36; Kotlin and libsignal stay pinned
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-30 (TQ-009, made by the implementing session within the task's
+"explicitly decide whether to adopt AGP 9.x or stay on 8.x" requirement; the owner can reverse it).
+
+### Decision
+
+- **AGP 8.13.2 with Gradle 8.14.3; compileSdk 36; targetSdk stays 34; minSdk 31.** AGP 9.x is not
+  adopted: Kotlin 2.2.20 (pinned by libsignal, `LIBSIGNAL_TOOLCHAIN_REVIEW.md`) documents support
+  only up to AGP 8.11.1, and AGP 9 also changes the Kotlin/KAPT plugin model. Revisit together
+  with a Kotlin upgrade, separately from protocol work.
+- **Library versions are bounded by compileSdk 36.** Compose 1.12 (BOM 2026.09.00),
+  `androidx.core` 1.19 and lifecycle 2.11 require compileSdk 37, which AGP 8.13 does not support.
+  Used instead: Compose BOM 2025.10.01, core-ktx 1.17.0, lifecycle 2.10.0. Newer ones wait for an
+  AGP that supports compileSdk 37.
+- **Why not AGP 8.11.1:** its lint crashes (`Provided Metadata instance has version 2.1.0, while
+  maximum supported version is 2.0.0`) in the Compose lint checks on Kotlin 2.2 classes. Compose
+  BOM 2025.10 ships lint checks that read the newer metadata, which removed the crash without
+  disabling any check.
+- **Not changed:** Kotlin 2.2.20, coroutines 1.10.2 (both libsignal's versions), libsignal
+  0.94.1, KAPT (KSP later), targetSdk.
+- No crypto, protocol, wire-format, storage-schema (`8.json` unchanged) or relay change.
 
 ---
 
