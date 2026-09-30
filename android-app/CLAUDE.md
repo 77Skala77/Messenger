@@ -14,6 +14,17 @@ mutable against the code before relying on it.
   English.
 - **Before each phase, step or task, name the recommended model and effort** (e.g. "Opus 5.5 · High")
   and say when the owner must switch models. The owner switches manually.
+- **Model check on every "go" (owner rule, 2026-09-30).** Each time the owner says a step is done
+  or tells you to start the next phase/step/task, FIRST compare the model that is active now (the
+  system prompt says "You are powered by the model named ..."; a `/model` line in the message also
+  shows a switch; the effort level is in the `reasoning_effort` tag) with the model and effort you
+  recommended for that step (see `docs/ai-workflow/HANDOFF.md` "Next step" and `REWRITE_PLAN.md`).
+  If they do not match, **do not start**: say in Russian which model is active, which one the step
+  needs, and ask whether to continue anyway or wait for the switch. If they match, start.
+  When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
+  Current recommendations: Phase 3 (relay hardening; changes the relay API and probably the
+  invitation, so design and owner decisions first): **Opus 5.5 · High**. Node relay plumbing, docs,
+  dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -96,6 +107,22 @@ mutable against the code before relying on it.
   strings are escapes; files with Cyrillic need a UTF-8 BOM to be read as UTF-8.
 - Room schemas are exported to `core/storage/schemas` and must be committed with every version
   (currently 8.json). Migrations have instrumented tests.
+
+## Findings and owner ideas worth remembering
+
+- **Honest forward-secrecy boundary** (explained to the owner 2026-09-30): the relay never reads
+  messages (end-to-end). Forward secrecy means a thief who steals the device state cannot decrypt
+  messages already received (their keys are erased); a message not yet fetched when the state was
+  stolen is decryptable with a copy of its ciphertext; after one reply round trip a passive thief
+  is locked out (post-compromise security). Stored history on the phone is NOT forward secret
+  against someone who can also use the Keystore key. Mitigations to design later: shorter relay
+  TTL (now 24 h), hardware-bound/unlocked-device keys (Phase 5), app lock, disappearing messages.
+- Owner ideas, not yet tasks (recorded in `TASK_QUEUE.md`, "Deferred"): disappearing messages, app
+  lock, and a Telegram-style UI shell on top of this core. Telegram's Android client is GPL and
+  speaks Telegram's own protocol; libsignal is AGPL-3.0 — do not copy its code; re-implement the
+  look in this project's own Compose UI, after an owner decision and a legal check.
+- Phase 2 found that libsignal wraps *checked* exceptions from store callbacks in `AssertionError`:
+  keep every vault/storage failure unchecked (`VaultException`).
 
 ## Where things stand (update when it changes)
 

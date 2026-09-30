@@ -46,6 +46,9 @@ protocol verdicts; secrets-at-rest and logging tests cover every module. Results
 
 ### Next step
 
+**Model check first (owner rule, `CLAUDE.md`):** on the owner's "go", compare the active model
+with the recommendation below; if it differs, warn and ask before starting.
+
 **Phase 3 — relay hardening** (`REWRITE_PLAN.md`): per-queue authorization (a capability issued at
 queue creation, required for GET/DELETE), server-assigned message IDs, basic rate limits. It
 changes the relay API and very likely the invitation (the scanner must be allowed to read the
