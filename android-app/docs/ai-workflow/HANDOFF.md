@@ -23,7 +23,7 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 
 **Date:** 2026-09-30
 
-**Workstream:** `REWRITE_PLAN.md` Phase 1 — official libsignal (PQXDH + Double Ratchet)
+**Workstream:** `REWRITE_PLAN.md` — Phase 1 (official libsignal), TQ-009, Phase 2 (storage)
 
 **Status:** Phase 1 (steps 1a–1f) done; the Phase 1 exit gate is met. Evidence:
 `PHASE_1E_PREP.md` ("Step 1f evidence") and `REWRITE_PLAN.md` (progress list).
@@ -38,12 +38,21 @@ preferences are removed once on upgrade by `LegacyReset`, with a one-time notice
 **Toolchain:** TQ-009 is done (2026-09-30, DEC-022): AGP 8.13.2, Gradle 8.14.3, compileSdk 36,
 AndroidX, Compose BOM 2025.10.01, Room 2.8.5. Lint and R8 now read Kotlin 2.2 metadata cleanly.
 
+**Phase 2 (storage hardening) is done** (2026-09-30, DEC-023): the vault key is never replaced
+silently; a lost, invalidated or replaced key blocks the app with an explanation, "Check again",
+and a confirmed "Delete local data and start over"; vault failures are unchecked and never become
+protocol verdicts; secrets-at-rest and logging tests cover every module. Results:
+`REWRITE_PLAN.md`, Phase 2.
+
 ### Next step
 
-**Phase 2 — storage hardening** (`REWRITE_PLAN.md`): key-loss behavior (Keystore key invalidated →
-fail closed, plainly told to the user), re-verify that no protocol secret reaches an unencrypted
-column. Recommended model: Opus 5.5 · High. Commit policy: one commit at the end of each
-phase, step or task (owner, 2026-09-30).
+**Phase 3 — relay hardening** (`REWRITE_PLAN.md`): per-queue authorization (a capability issued at
+queue creation, required for GET/DELETE), server-assigned message IDs, basic rate limits. It
+changes the relay API and very likely the invitation (the scanner must be allowed to read the
+inviter's mailbox), so start with a compatibility write-up and a threat review, and get owner
+decisions before code. Recommended model: Opus 5.5 · High (Sonnet 5.5 · High is enough later for
+the Node relay plumbing). Commit policy: one commit at the end of each phase, step or task (owner,
+2026-09-30).
 
 ## Operational constraints
 

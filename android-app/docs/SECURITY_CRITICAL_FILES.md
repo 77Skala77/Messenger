@@ -11,6 +11,7 @@ evidence. Paths are relative to `android-app/`. Updated 2026-09-30 (protocol v2,
 | Wire formats | `core/signal-protocol/.../EnvelopeV2.kt`, `V2Binary.kt` | Version separation, bounds, padding, safe display names, envelope digest |
 | Pipeline | `core/signal-protocol/.../ConversationV2Service.kt` | Lock + transaction per step, delete-after-commit, request flow, contact-scoped receipts, untrusted identity on receive never changes state |
 | Encrypted storage | `core/storage/src/main/kotlin/app/securemessenger/storage/` | Vault AAD binding, `RoomProtocolTransactionRunner`, `MIGRATION_7_8`, wipe completeness |
+| Vault key lifecycle (DEC-023) | `core/storage/.../LocalVaultCipher.kt`, `LocalProfileRepository.kt`, `core/ui/.../SecureMessengerViewModel.kt`, `V2BackgroundSync.kt` (`V2Pipeline`) | Key created only with a new profile; lost/invalidated/replaced key detected by the profile canary and blocks everything; wipe deletes the key first; storage failures never become protocol verdicts |
 | Legacy reset | `core/ui/.../LegacyReset.kt`, `SecureDatabase.MIGRATION_7_8` | Runs once, removes legacy key/preferences/tables, never migrates legacy state |
 | Release gating | `core/ui/src/*/res/values/transport_policy.xml` (`enable_v2_protocol`), `V2Availability.kt`, `SecureMessengerApp.kt`, `V2BackgroundSync.kt` | v2 unreachable in release; cleartext only in debug |
 | Background sync | `core/ui/.../V2BackgroundSync.kt` | No sensitive logging, availability gate, process-wide lock shared with the UI |
@@ -20,5 +21,5 @@ evidence. Paths are relative to `android-app/`. Updated 2026-09-30 (protocol v2,
 | Relay URL policy | `core/transport/.../RelayServerSettings.kt` | Release rejection of `http://`, URL validation |
 | Relay service | `server/relay/src/` | Opaque storage, TTL, health endpoint, log policy (no auth yet: Phase 3) |
 
-Related review documents: `PROTOCOL_V2.md`, `ai-workflow/DECISIONS.md` (DEC-018 to DEC-021),
+Related review documents: `PROTOCOL_V2.md`, `ai-workflow/DECISIONS.md` (DEC-018 to DEC-023),
 `THREAT_MODEL.md`, `SECURITY_WARNINGS.md`, `LIBSIGNAL_TOOLCHAIN_REVIEW.md`, `AUDIT_CHECKLIST.md`.

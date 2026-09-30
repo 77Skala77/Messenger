@@ -174,6 +174,38 @@ Exit gate: migration test from v5 with existing prototype data intact; a
 deliberately-corrupted/missing Keystore key test that proves the app fails closed
 instead of crashing into an inconsistent state or silently dropping to plaintext.
 
+**Status 2026-09-30: DONE, exit gate met** (DEC-023; owner chose "block and explain, the user
+decides" for key loss).
+
+- Key loss: the vault key is created only with a new profile; encrypt/decrypt never create one.
+  The profile row is the canary: a missing, invalidated, or replaced key, or a damaged canary,
+  makes the data `UNREADABLE`; the app then runs nothing and shows a screen with "Check again"
+  and a confirmed "Delete local data and start over" (no automatic deletion). The worker returns
+  failure instead of retrying. The wipe deletes the key first and needs no key.
+- Found and fixed on the way: (1) the old vault silently created a new key when its key was
+  missing, splitting data across two keys; (2) libsignal 0.94.1 wraps a *checked* exception from a
+  store callback in an `AssertionError`, which `catch (Exception)` misses, so a vault failure
+  inside a libsignal callback would have crashed the chat's polling loop — every vault failure is
+  now unchecked (`VaultException`) and a JVM test pins the libsignal behavior; (3) a stored record
+  that authenticates but does not parse could be taken for a bad message — now
+  `StoredRecordCorruptedException`, never a verdict; (4) a truncated vault blob surfaced as
+  `EOFException` (a "temporary" failure) — now a rejected record.
+- Secrets at rest: a device test takes the identity private key, signed/one-time EC pre-keys, the
+  Kyber secret key, and every 32-byte key inside the session records (root, chain, message, and
+  private ratchet keys) from the store and proves none of them appears in the database files.
+  Logs: `SecurityLoggingPolicyTest` scans every production source for logging or printing (the
+  check that lived in the removed `:core:crypto`). There is no diagnostics export.
+- Exit gate: migration v5 with prototype data → v8 (`SecureDatabaseMigrationInstrumentedTest`);
+  missing, replaced, and damaged key and rows on the real Keystore (`VaultKeyLossInstrumentedTest`);
+  the pipeline, the worker, and the screen on a device (`LocalKeyLossInstrumentedTest`); key loss
+  inside libsignal callbacks (`ConversationV2ServiceTest`).
+- Runs on 2026-09-30 (AGP 8.13.2): unit tests all green (signal-protocol 48, storage 4, ui 13,
+  signalstore 3); on SM-S928B and 24048RN6CG each: storage 26/26, ui 19/19, signal-protocol
+  48/48, transport 5/5 (live relay over `adb reverse`); `lintDebug` 0 errors; release build with
+  R8. The first device run found two test-side problems, both fixed: an old vault test relied on
+  encrypt creating the key (now forbidden), and the source-scanning logging test cannot run on a
+  device (moved to the ui JVM tests).
+
 ## Phase 3 — Transport / relay hardening
 
 Goal: the relay stops being a trivially abusable open queue.

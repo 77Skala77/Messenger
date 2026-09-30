@@ -69,6 +69,10 @@ Release rejects cleartext relay URLs.
 - Message bodies, names, and invitation text are vault-encrypted (Keystore AES-GCM, row-bound AAD);
   libsignal records likewise. Not SQLCipher: structure and metadata are visible.
 - The libsignal identity private key is a software key encrypted at rest (DEC-019 O3).
+- Key loss (DEC-023, Phase 2): the vault key is created only with a new profile; the profile row
+  is the canary. If it no longer decrypts, the app runs nothing and offers "Check again" and a
+  confirmed "Delete local data and start over". Vault failures are unchecked and never become
+  protocol verdicts.
 - Contact states: `AWAITING_ACCEPTANCE`, `ACTIVE`, `KEY_CHANGED` (blocked). Pending requests are
   not contacts. Strict identity trust in both directions (DEC-018). Single device per contact; no
   synchronized revocation.

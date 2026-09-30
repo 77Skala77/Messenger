@@ -66,6 +66,11 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
   present in app memory while in use.
 - Room schema v8. The legacy prototype tables were dropped by `MIGRATION_7_8`; its Keystore key and
   preferences are removed once by `LegacyReset` (DEC-021).
+- Key loss (DEC-023): the Keystore vault key is created only together with a new profile, never
+  by encrypt or decrypt. The profile row is the canary: if it no longer decrypts (key missing,
+  invalidated or replaced, or the row damaged), the app runs nothing, explains that the stored
+  data cannot be read, and offers only "Check again" and a confirmed "Delete local data and start
+  over". A storage failure is never treated as a protocol verdict.
 
 ## Verified properties (tests, 2026-09-30)
 
@@ -79,6 +84,9 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
 | Two devices over real Room, restart, plaintext never in the database file | `ConversationV2RoomProofInstrumentedTest` |
 | Legacy envelopes and v1 invitations are never accepted; legacy data is dropped | `ConversationV2ServiceTest`, `SecureDatabaseMigrationInstrumentedTest`, `LegacyResetInstrumentedTest` |
 | libsignal works under R8 | manual run of the `qaMinified` build on two phones |
+| Private keys, pre-keys (EC, Kyber) and ratchet keys never reach the database files in clear | `ConversationV2RoomProofInstrumentedTest` (Phase 2) |
+| A lost, replaced or damaged vault key fails closed: no new key, no state change, envelope kept on the relay, user told | `VaultKeyLossInstrumentedTest`, `LocalKeyLossInstrumentedTest`, `ConversationV2ServiceTest` (DEC-023) |
+| No production source logs or prints | `SecurityLoggingPolicyTest` |
 
 ## Not done / limits
 

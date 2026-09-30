@@ -32,6 +32,9 @@ server or privacy audit.
 - Local data is encrypted field by field with a Keystore-backed vault key; the database structure
   and metadata are visible (not SQLCipher). The libsignal identity private key is a software key
   encrypted at rest.
+- If the vault key is lost or replaced, the conversations stored on the phone are unrecoverable.
+  The app never creates a replacement key on its own; it blocks, explains, and lets the user
+  delete the local data and start over (DEC-023).
 - "Delete local data" and the debug test reset remove records and keys, but flash storage gives
   no forensic secure-deletion guarantee.
 - Legacy prototype data is deleted once on upgrade (`MIGRATION_7_8`, `LegacyReset`); legacy

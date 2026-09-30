@@ -71,12 +71,18 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 - Plaintext exists in input, Compose, and process memory while messages are typed or displayed.
   Screenshots, keyboards, notifications, accessibility services, and malware are out of scope.
 - App lock, biometric unlock, encrypted backup, device transfer, and attachments are not implemented.
+- If the vault key in Android Keystore is lost, invalidated or replaced (DEC-023), everything
+  stored on that phone is unrecoverable. The app detects it, runs nothing, says so, and lets the
+  user delete the local data and start over; contacts must be paired again and see a new safety
+  number. The key is an AES-256 key in Android Keystore without StrongBox or unlocked-device
+  binding (background sync runs while the phone is locked).
 
 ## Local Deletion And Legacy Reset
 
-- "Delete local data" removes the profile, conversations, libsignal records (one transaction,
-  under the protocol lock), the vault key and the v2 queue ID; the relay URL is kept. Blobs
-  already on the relay expire by TTL.
+- "Delete local data" removes the vault key first, then the profile, conversations and libsignal
+  records (one transaction, under the protocol lock), then the v2 queue ID; the relay URL is kept.
+  It needs no key, so it also works when the data is unreadable. Blobs already on the relay
+  expire by TTL.
 - The one-time legacy reset drops the legacy tables and removes the legacy Keystore key and
   preferences. Neither action is a forensic secure erase: flash storage can keep old blocks.
 

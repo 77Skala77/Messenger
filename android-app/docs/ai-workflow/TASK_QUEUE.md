@@ -499,7 +499,8 @@ expected to fix that; verify lint output is clean afterwards. Count on 2026-09-3
   2025.10.01, activity-compose 1.13.0, appcompat 1.8.0, core-ktx 1.17.0, lifecycle 2.10.0,
   navigation-compose 2.10.2, WorkManager 2.12.0, Room 2.8.5 (schema 8.json unchanged), AndroidX test
   libraries. AGP 9.x not adopted; Kotlin 2.2.20, coroutines 1.10.2 and libsignal stay pinned.
-- Lint: 0 errors; warnings 54 -> 25 in total: GradleDependency 4 (Compose BOM 2026.09, core-ktx 1.19,
+- Lint: 0 errors; warnings 54 -> 16 in total (corrected on 2026-09-30; the TQ-009 commit message
+  says 25, which was a counting mistake): GradleDependency 4 (Compose BOM 2026.09, core-ktx 1.19,
   lifecycle 2.11 need compileSdk 37), NewerVersionAvailable 6 (Kotlin, coroutines: pinned),
   AGP 2 (9.x), OldTargetApi 1 (targetSdk 34: a behavior change, not part of this task), plus the
   intentional debug cleartext, ChromeOsAbiSupport (debug arm64 only) and localeConfig. No

@@ -56,6 +56,12 @@ mutable against the code before relying on it.
 9. Release rejects cleartext `http://` relays. Debug allows it for QA only.
 10. Changing wire formats, Room schema, invitation/envelope/receipt formats or vault serialization
     needs the compatibility write-up in `AGENTS.md` first, plus tests for safe failure.
+11. **The vault key is created in exactly one place** (DEC-023): `LocalProfileRepository.createProfile`
+    on an empty vault. Encrypt/decrypt must never create a key; a missing or invalidated key throws
+    `VaultKeyUnavailableException`. The profile row is the canary (`localDataState()`): if it does
+    not decrypt, nothing runs, and the user sees an explanation with "Check again" and a confirmed
+    "Delete local data and start over" — never an automatic wipe. The wipe deletes the key first.
+    A storage failure must never be turned into a protocol verdict or a "not stored" result.
 
 ## libsignal traps (learned the hard way)
 
@@ -93,7 +99,8 @@ mutable against the code before relying on it.
 
 ## Where things stand (update when it changes)
 
-- Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done.
-  Next: Phase 2 storage hardening (Keystore key-loss must fail closed and tell the user), then
-  Phase 3 relay auth, Phase 4 multi-device, Phase 5 independent audit (gate for release chat).
+- Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done;
+  Phase 2 storage hardening done (DEC-023). Next: Phase 3 relay auth (changes the relay API and
+  likely the invitation: design and owner decisions first), then Phase 4 multi-device, Phase 5
+  independent audit (gate for release chat).
 - Not production-ready; no independent audit; do not claim otherwise.

@@ -60,6 +60,7 @@ When changing an accepted decision:
 | DEC-020 | Relay-supplied message IDs are never trusted as local keys or cross-contact receipt targets | ACCEPTED |
 | DEC-021 | Step 1f: automatic explicit legacy reset, legacy code and modules removed, v2 only in debug, release without chat until Phase 5 | ACCEPTED |
 | DEC-022 | TQ-009: stay on AGP 8.13.2 and compileSdk 36; Kotlin and libsignal pinned | ACCEPTED |
+| DEC-023 | Phase 2: vault key never replaced silently; a lost key fails closed; the user decides | ACCEPTED |
 
 ---
 
@@ -1020,6 +1021,69 @@ phones. Then 1f-B: v2 background sync, the reset (Room v8), legacy removal, flag
 - **Not changed:** Kotlin 2.2.20, coroutines 1.10.2 (both libsignal's versions), libsignal
   0.94.1, KAPT (KSP later), targetSdk.
 - No crypto, protocol, wire-format, storage-schema (`8.json` unchanged) or relay change.
+
+---
+
+## DEC-023 — Phase 2: the vault key is never replaced silently; a lost key fails closed and the user decides
+
+**Status:** ACCEPTED
+**Recorded:** 2026-09-30. Owner decision in chat: block and explain, offer "check again" and a
+confirmed "delete local data and start over"; no automatic deletion.
+
+### Context
+
+Before Phase 2, `AndroidKeystoreVaultCipher` created a new Keystore key on any encrypt or decrypt
+when its alias was missing. After a key loss (Keystore reset, OEM fault, app data restored without
+the non-exportable key) old rows would fail with an opaque error while new rows were written under
+the new key: data split across two keys, and the user never told.
+
+### Decision
+
+- **One place creates the vault key:** a new profile on an empty vault
+  (`LocalProfileRepository.createProfile` → `createKeyIfAbsent`). Encrypt and decrypt never create
+  a key; a missing, unrecoverable, or permanently invalidated key raises
+  `VaultKeyUnavailableException`. `createProfile` refuses to replace an existing profile.
+- **The profile row is the vault's canary:** written first with the key, deleted last; nothing
+  else is stored without it. `localDataState()` decrypts it: `EMPTY`, `READABLE`, or `UNREADABLE`
+  (key missing or invalidated, a key that is not the one the data was written with, or a damaged
+  canary). Any other failure (Keystore not answering) is treated as temporary, never as loss.
+- **Unreadable data blocks the app:** only a screen that explains the loss, with "Check again" and
+  a confirmed "Delete local data and start over". No chat, no background sync (the worker returns
+  failure, not retry), no key creation, no automatic deletion: a failure that only looked final
+  must not cost the user their data. For a temporary failure: "Check again" only.
+- **The wipe deletes the key first,** then every row in one transaction under the protocol lock; it
+  needs no key. If deleting the key fails, nothing is deleted; once the key is gone, leftover rows
+  and flash remnants can no longer be decrypted.
+- **A storage failure is never a protocol verdict.** A failure inside libsignal's store callbacks
+  propagates as an error: the transaction rolls back, the envelope stays on the relay, no contact
+  state changes. Damaged rows fail closed (bad tag or malformed blob) and are never read as "not
+  stored", which for identity records would mean trusting a new identity.
+- **Every vault failure is unchecked** (`VaultException`: `VaultKeyUnavailableException`,
+  `VaultRecordRejectedException`, `VaultTemporarilyUnavailableException`). Found while testing:
+  libsignal 0.94.1 passes unchecked exceptions from store callbacks back unchanged, but wraps a
+  checked one in an `AssertionError` (and logs it through its own logger), which `catch
+  (Exception)` blocks miss and which would have crashed the chat's polling loop. A stored libsignal
+  record that authenticates but does not parse raises the unchecked
+  `StoredRecordCorruptedException` for the same reason. A JVM test pins the libsignal behavior.
+
+### Consequences
+
+- A lost key ends the conversations stored on that phone; the user re-pairs and contacts see a
+  new safety number. The screen says so.
+- Key parameters are unchanged (AES-256-GCM, no user-authentication binding, so biometric and
+  lock-screen changes do not invalidate it). StrongBox and unlocked-device-only keys are not
+  adopted: background sync runs while the phone is locked, and not every test phone has
+  StrongBox. Revisit in Phase 5.
+- Cloud backup and device transfer stay excluded in the manifest, so a database restored without
+  its key is not an expected path; if it happens, it is detected and handled as above.
+
+### Evidence (2026-09-30)
+
+`VaultKeyLossInstrumentedTest` (real Keystore), `LocalKeyLossInstrumentedTest` (pipeline, worker,
+and the screen on a device), `ConversationV2ServiceTest` (key loss inside libsignal callbacks),
+`LocalVaultCipherTest` (damaged blobs), the 5→8 migration test, the secrets-at-rest test in
+`ConversationV2RoomProofInstrumentedTest`, and `SecurityLoggingPolicyTest`. Results:
+`REWRITE_PLAN.md`, Phase 2.
 
 ---
 

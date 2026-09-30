@@ -22,6 +22,8 @@ Updated 2026-09-30 for protocol v2 (DEC-021).
 - [ ] Confirm message bodies, names, and invitation text are vault-encrypted with row-bound AAD.
 - [ ] Confirm protocol ciphertext is not kept after sending and plaintext never reaches the database file.
 - [ ] Confirm "delete local data" removes every conversation and libsignal record, the vault key, and the v2 queue ID.
+- [ ] Confirm no code path creates a vault key except profile creation, and that a lost, invalidated or replaced key blocks the app without state changes (DEC-023); re-run `VaultKeyLossInstrumentedTest` and `LocalKeyLossInstrumentedTest`.
+- [ ] Confirm private keys, pre-keys and ratchet keys never reach the database files in clear, and damaged rows fail closed instead of reading as "not stored".
 
 ## Relay Delivery
 
