@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "app.securemessenger.ui"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         minSdk = 31
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "app.securemessenger.storage"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 31

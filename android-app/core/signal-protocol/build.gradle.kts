@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "app.securemessenger.signalprotocol"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         minSdk = 31
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
