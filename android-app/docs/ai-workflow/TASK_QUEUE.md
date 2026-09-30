@@ -711,10 +711,20 @@ These roadmap directions require a new decision and scoped design before enterin
 - relay chaining;
 - Tor, P2P, or local transports;
 - attachments and media;
-- app lock and biometric unlock;
+- app lock and biometric unlock (owner wants it; it lowers the "stolen unlocked phone" risk);
+- disappearing messages (auto-delete of stored history on the device and a shorter relay TTL;
+  owner wants it, 2026-09-30);
 - encrypted backup;
 - secure data-destruction design;
 - synchronized cryptographic revocation;
+- **Telegram-style UI shell (owner idea, 2026-09-30):** the finished core (libsignal protocol,
+  storage, relay client) would sit under a Telegram-like UI/UX. Before any work, settle the
+  licensing and architecture question: Telegram's Android client is GPL-licensed and its code
+  speaks Telegram's own protocol and servers, while this project uses libsignal (AGPL-3.0).
+  Mixing the two codebases may be license-incompatible; re-implementing the same look and
+  behavior in this project's own Compose UI avoids the problem. Needs an owner decision, a legal
+  check, and a design before it becomes a task. Disappearing messages and app lock would be
+  designed together with it;
 - Paranoia C4 implementation — moot: `PARANOIA_C4_AEAD` was removed entirely from the
   codebase 2026-09-27 (Phase 0 of `REWRITE_PLAN.md`), not merely left disabled.
 
