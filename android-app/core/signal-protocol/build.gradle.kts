@@ -29,6 +29,9 @@ android {
         // tests. It must never be packaged. Any app module that depends on this module needs the
         // same exclusion, since packaging rules apply to the final APK.
         jniLibs.excludes += "**/libsignal_jni_testing.so"
+        // Desktop natives are Java resources of libsignal-client: needed by JVM unit tests (not
+        // affected by this), useless in a device test APK.
+        resources.excludes += listOf("*.dll", "**/*.dll", "*.dylib", "**/*.dylib")
     }
 }
 

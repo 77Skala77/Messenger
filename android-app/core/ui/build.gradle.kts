@@ -15,6 +15,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // The instrumented-test APK contains libsignal-android, whose AAR metadata requires it.
+        isCoreLibraryDesugaringEnabled = true
+    }
+    packaging {
+        jniLibs.excludes += "**/libsignal_jni_testing.so"
+        resources.excludes += listOf("*.dll", "**/*.dll", "*.dylib", "**/*.dylib")
     }
 }
 
@@ -31,6 +37,7 @@ dependencies {
     implementation(project(":core:signalstore"))
     // The v2 protocol pipeline (DEC-019). Reached only through the debug QA switch until step 1f.
     implementation(project(":core:signal-protocol"))
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.compose)
@@ -47,6 +54,9 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    // Step 1f proofs build SignalSessions over Room-backed stores directly.
+    androidTestImplementation(libs.libsignal.client)
+    androidTestImplementation(libs.libsignal.android)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
 }

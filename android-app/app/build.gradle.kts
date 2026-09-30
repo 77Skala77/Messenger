@@ -28,7 +28,21 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // Step 1f: minified exactly like release (same R8 rules, not debuggable) but debug-signed,
+        // with the debug QA resources, so libsignal can be exercised under R8 on test phones.
+        // Installs side by side (".qa"); never distributed.
+        create("qaMinified") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            matchingFallbacks += listOf("debug")
+        }
     }
+    // The QA build needs the debug-only cleartext policy for the LAN / adb-reverse test relay.
+    sourceSets.getByName("qaMinified").res.srcDir("src/debug/res")
     buildFeatures {
         compose = true
         buildConfig = true

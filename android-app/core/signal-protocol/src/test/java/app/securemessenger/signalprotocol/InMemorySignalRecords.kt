@@ -127,6 +127,18 @@ class InMemorySignalRecords :
         kyberBaseKeyUses.removeAll { it.first == kyberPreKeyId }
     }
 
+    /** An independent copy of every record: what a thief with a full image of the device gets. */
+    @Synchronized
+    fun deepCopy(): InMemorySignalRecords = InMemorySignalRecords().also { copy ->
+        copy.localIdentity = localIdentity?.let { (registrationId, keyPair) -> registrationId to keyPair.copyOf() }
+        identities.forEach { (address, record) -> copy.identities[address] = record.copyOf() }
+        sessions.forEach { (address, record) -> copy.sessions[address] = record.copyOf() }
+        preKeys.forEach { (id, record) -> copy.preKeys[id] = record.copyOf() }
+        signedPreKeys.forEach { (id, record) -> copy.signedPreKeys[id] = record.copyOf() }
+        kyberPreKeys.forEach { (id, stored) -> copy.kyberPreKeys[id] = stored.first.copyOf() to stored.second }
+        copy.kyberBaseKeyUses.addAll(kyberBaseKeyUses)
+    }
+
     /** Copy of every map, for a test transaction runner that must roll back like Room does. */
     @Synchronized
     fun snapshot(): () -> Unit {
