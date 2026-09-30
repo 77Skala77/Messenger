@@ -29,8 +29,8 @@ import app.securemessenger.signalstore.SignalProtocolAddress as StoreAddress
 /**
  * libsignal store callbacks backed by the encrypted, neutral store boundaries.
  *
- * Not wired into any conversation path: `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` and
- * `SignalStoreFeatureFlags.SIGNAL_BACKED_SESSIONS_ENABLED` stay false (REWRITE_PLAN.md Phase 1).
+ * Backs the v2 conversation pipeline, which only debug builds run until the Phase 5 independent
+ * review (DEC-021).
  *
  * Every call blocks on storage. A caller must run one protocol operation (one encrypt, decrypt,
  * or bundle processing) at a time per remote address, off the main thread; individual calls are

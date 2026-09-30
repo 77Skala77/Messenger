@@ -175,7 +175,7 @@ class ConversationV2StorageInstrumentedTest {
         repository.storeIncomingText("contact-1", INNER_1, "x", 1)
         repository.recordAcceptedEnvelope(DIGEST, 1)
 
-        SecureLocalRepository(dao, vault).wipeLocalData()
+        LocalProfileRepository(dao, vault).wipeLocalData()
 
         assertNull(repository.invitation("inv-1"))
         assertTrue(repository.requests().isEmpty())

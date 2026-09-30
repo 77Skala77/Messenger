@@ -21,7 +21,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -50,30 +48,11 @@ import com.journeyapps.barcodescanner.ScanContract
 
 private enum class V2Screen { HOME, INVITE, ADD, CONVERSATION, REQUEST_SAFETY }
 
-/** Settings row for the hidden v2 QA switch. Shown only when the debug QA tools are enabled. */
-@Composable
-internal fun V2QaSwitchRow(debugQaToolsEnabled: Boolean) {
-    if (!debugQaToolsEnabled) return
-    val context = LocalContext.current
-    val enabled by V2QaSwitch.flow(context, debugQaToolsEnabled).collectAsState()
-    Text(stringResource(R.string.v2_qa_switch_title), style = MaterialTheme.typography.titleLarge)
-    Text(stringResource(R.string.v2_qa_switch_body))
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Switch(
-            checked = enabled,
-            onCheckedChange = { V2QaSwitch.set(context, debugQaToolsEnabled, it) },
-            modifier = Modifier.testTag("v2_qa_switch"),
-        )
-        Text(stringResource(R.string.v2_qa_switch_on))
-    }
-}
-
-/** The whole v2 UI. Replaces the legacy home while the QA switch is on. */
+/** The chat UI: the only conversation path (DEC-021), available in debug builds. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ConversationV2Root(
     onOpenSettings: () -> Unit,
-    onTurnOff: () -> Unit,
     viewModel: ConversationV2ViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -123,10 +102,6 @@ internal fun ConversationV2Root(
                     },
                     onSync = viewModel::synchronizeNow,
                     onSettings = onOpenSettings,
-                    onTurnOff = {
-                        viewModel.stop()
-                        onTurnOff()
-                    },
                 )
                 V2Screen.INVITE -> V2Invite(
                     code = state.invitationCode,
@@ -178,7 +153,6 @@ private fun V2Home(
     onSafety: (String) -> Unit,
     onSync: () -> Unit,
     onSettings: () -> Unit,
-    onTurnOff: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -204,11 +178,8 @@ private fun V2Home(
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onSync) { Text(stringResource(R.string.v2_sync_now)) }
-                    OutlinedButton(onClick = onTurnOff) { Text(stringResource(R.string.v2_switch_off)) }
-                }
-                Text(stringResource(R.string.v2_no_background_sync), style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = onSync) { Text(stringResource(R.string.v2_sync_now)) }
+                Text(stringResource(R.string.v2_background_sync_notice), style = MaterialTheme.typography.bodySmall)
             }
             if (state.requests.isNotEmpty()) {
                 item { Text(stringResource(R.string.v2_requests_title), style = MaterialTheme.typography.titleLarge) }

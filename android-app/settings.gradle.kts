@@ -22,10 +22,8 @@ dependencyResolutionManagement {
 rootProject.name = "SecureMessengerMvp"
 include(":app")
 include(":core:domain")
-include(":core:crypto")
 include(":core:storage")
 include(":core:transport")
-include(":core:delivery")
 include(":core:ui")
 include(":core:signal-protocol")
 include(":core:signalstore")

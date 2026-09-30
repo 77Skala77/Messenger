@@ -12,7 +12,7 @@ import app.securemessenger.signalstore.SignalSignedPreKeyStoreBoundary
 
 /**
  * Builds the v2 pipeline from neutral storage boundaries, so UI code never touches libsignal types.
- * Call it only when the v2 QA switch is on (DEC-019 O3): it creates this device's libsignal
+ * Call it only where v2 is available (debug builds, DEC-021): it creates this device's libsignal
  * identity if none exists, and nothing else in the app does.
  */
 object ConversationV2Wiring {

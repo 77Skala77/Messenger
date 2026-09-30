@@ -56,7 +56,7 @@ class PreKeyMessageHeader(
  * One-to-one libsignal sessions (PQXDH + Double Ratchet), addressed by the local contact ID.
  * Address names never leave the device, so each side names its peer by its own contact ID.
  *
- * Not used by the app yet: `SignalStoreFeatureFlags.SIGNAL_BACKED_SESSIONS_ENABLED` is false.
+ * The only session layer of the app; debug builds only until the Phase 5 review (DEC-021).
  * Not thread-safe: callers run every operation under the process-wide protocol lock and inside
  * the storage transaction that also persists its result (DEC-019 T2). Otherwise a decrypted
  * message whose ratchet step was stored, but whose plaintext was not, is lost for good.

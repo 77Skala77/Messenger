@@ -30,12 +30,10 @@ kotlin {
 
 dependencies {
     implementation(project(":core:domain"))
-    implementation(project(":core:crypto"))
     implementation(project(":core:storage"))
     implementation(project(":core:transport"))
-    implementation(project(":core:delivery"))
     implementation(project(":core:signalstore"))
-    // The v2 protocol pipeline (DEC-019). Reached only through the debug QA switch until step 1f.
+    // The v2 protocol pipeline: the only chat path, debug builds only until Phase 5 (DEC-021).
     implementation(project(":core:signal-protocol"))
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.core.ktx)

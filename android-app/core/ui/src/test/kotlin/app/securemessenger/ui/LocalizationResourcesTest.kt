@@ -8,6 +8,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalizationResourcesTest {
+    private val uiSources = listOf(
+        "SecureMessengerApp.kt",
+        "SecureMessengerViewModel.kt",
+        "V2Screens.kt",
+        "ConversationV2ViewModel.kt",
+        "V2BackgroundSync.kt",
+        "LegacyReset.kt",
+        "V2Availability.kt",
+    ).map { File("src/main/kotlin/app/securemessenger/ui/$it") }
+
     @Test
     fun `russian contains every english user facing string`() {
         val english = resourceNames(File("src/main/res/values/strings.xml"))
@@ -18,97 +28,52 @@ class LocalizationResourcesTest {
     }
 
     @Test
-    fun `compose source does not embed visible text literals or logging`() {
-        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
-        val workerSource = File("src/main/kotlin/app/securemessenger/ui/RelayBackgroundSync.kt").readText()
-        val diagnosticsSource = File("src/main/kotlin/app/securemessenger/ui/SafeDeliveryDiagnostics.kt").readText()
-        assertFalse(source.contains("Text(\""))
-        assertFalse(source.contains("android.util.Log"))
-        assertFalse(source.contains("println("))
-        assertFalse(workerSource.contains("android.util.Log"))
-        assertFalse(workerSource.contains("println("))
-        assertFalse(diagnosticsSource.contains("android.util.Log"))
-        assertFalse(diagnosticsSource.contains("println("))
+    fun `ui sources embed no visible text literals and no logging`() {
+        uiSources.forEach { source ->
+            val content = source.readText()
+            assertFalse("${source.name} embeds a text literal", content.contains("Text(\""))
+            assertFalse("${source.name} logs", content.contains("android.util.Log"))
+            assertFalse("${source.name} prints", content.contains("println("))
+        }
     }
 
     @Test
-    fun `active conversation path remains on prototype session manager`() {
-        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerViewModel.kt").readText()
-
-        assertTrue(source.contains("SimplifiedSessionManager"))
-        assertFalse(source.contains("SignalSessionManagerAdapter"))
-        assertFalse(source.contains("SignalStoreFeatureFlags"))
+    fun `the legacy prototype protocol is gone from the app`() {
+        val settings = File("../../settings.gradle.kts").readText()
+        assertFalse(settings.contains(":core:crypto"))
+        assertFalse(settings.contains(":core:delivery"))
+        uiSources.forEach { source ->
+            val content = source.readText()
+            listOf("SimplifiedSessionManager", "StandardAead", "InvitationCodec", "DeliveryPipeline").forEach { legacy ->
+                assertFalse("${source.name} still references $legacy", content.contains(legacy))
+            }
+        }
     }
 
     @Test
-    fun `relay and pairing labels exist in localized resources`() {
-        val expected = setOf(
-            "relay_server",
-            "relay_server_url",
-            "check_relay_server",
-            "relay_available",
-            "relay_unavailable",
-            "relay_connection_error",
-            "synchronize_now",
-            "show_invitation_qr",
-            "copy_invitation_code",
-            "pairing_waiting",
-            "pairing_ready",
-            "pairing_blocked",
-            "pairing_incomplete_instruction",
-            "pairing_return_invitation_required",
-            "pairing_ready_confirmation",
-            "empty_contact_name",
-            "empty_invitation_code",
-            "unsupported_invitation_version",
-            "http_relay_debug_warning",
-            "https_relay_required",
-            "public_relay_tunnel_notice",
-            "http_debug_lan_only",
-            "use_https_for_different_networks",
-            "relay_phone_loopback_warning",
-            "relay_unspecified_address_warning",
-            "qa_preflight_title",
-            "qa_preflight_relay_mode",
-            "relay_mode_lan",
-            "relay_mode_public",
-            "public_relay_available",
-            "run_qa_preflight",
-            "qa_preflight_ready",
-            "qa_preflight_https_ready",
-            "qa_preflight_phone_loopback",
-            "qa_preflight_unspecified_relay",
-            "reset_test_data",
-            "reset_test_data_warning",
-            "diagnostics_title",
-            "diagnostics_safe_notice",
-            "copy_diagnostic_report",
-            "clear_diagnostics",
-            "diagnostics_work_status",
-            "diagnostics_last_error",
-            "last_error_none",
-            "last_error_relay_unavailable",
-            "last_error_pairing_incomplete",
-            "last_error_device_blocked",
-            "event_group_relay",
-            "event_group_pairing",
-            "event_group_outgoing",
-            "event_group_incoming",
-            "event_group_retry",
-            "event_group_receipts",
-            "event_group_errors",
-            "event_outgoing_retry_started",
-            "event_outgoing_retry_succeeded",
-            "event_outgoing_retry_failed",
-            "event_delivery_receipt_queued",
-            "event_delivery_receipt_sent",
-            "event_delivery_receipt_received",
-            "event_delivery_receipt_duplicate_suppressed",
-            "event_delivery_status_updated",
-        )
+    fun `v2 is debug only and release policy stays closed`() {
+        val releasePolicy = File("src/main/res/values/transport_policy.xml").readText()
+        val debugPolicy = File("src/debug/res/values/transport_policy.xml").readText()
 
-        assertTrue(resourceNames(File("src/main/res/values/strings.xml")).containsAll(expected))
-        assertTrue(resourceNames(File("src/main/res/values-ru/strings.xml")).containsAll(expected))
+        assertTrue(releasePolicy.contains("<bool name=\"enable_v2_protocol\">false</bool>"))
+        assertTrue(debugPolicy.contains("<bool name=\"enable_v2_protocol\">true</bool>"))
+        assertTrue(releasePolicy.contains("<bool name=\"allow_insecure_relay_http\">false</bool>"))
+        assertTrue(debugPolicy.contains("<bool name=\"allow_insecure_relay_http\">true</bool>"))
+        assertTrue(releasePolicy.contains("<bool name=\"enable_debug_qa_tools\">false</bool>"))
+        assertTrue(debugPolicy.contains("<bool name=\"enable_debug_qa_tools\">true</bool>"))
+    }
+
+    @Test
+    fun `release shell never builds the pipeline and the chat viewmodel refuses without v2`() {
+        val app = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val viewModel = File("src/main/kotlin/app/securemessenger/ui/ConversationV2ViewModel.kt").readText()
+        val worker = File("src/main/kotlin/app/securemessenger/ui/V2BackgroundSync.kt").readText()
+
+        assertTrue(app.contains("if (state.v2Available)"))
+        assertTrue(app.contains("NotForMessagingScreen"))
+        assertTrue(viewModel.contains("if (!available) return"))
+        assertTrue(worker.contains("if (!V2Availability.isAvailable(applicationContext)) return Result.success()"))
+        assertTrue(worker.contains("if (!V2Availability.isAvailable(application)) return"))
     }
 
     @Test
@@ -123,74 +88,51 @@ class LocalizationResourcesTest {
         assertEquals("Delivered", english.getValue("status_delivered"))
         assertEquals("Доставлено", russian.getValue("status_delivered"))
         assertEquals("Waiting for sync", english.getValue("status_failed"))
-        assertEquals("Ожидает синхронизации", russian.getValue("status_failed"))
-        assertEquals("Waiting for two-way pairing", english.getValue("status_waiting_pairing"))
-        assertEquals("Ожидает двустороннее подключение", russian.getValue("status_waiting_pairing"))
-        assertEquals("Send failed", english.getValue("status_send_failed"))
-        assertEquals("Ошибка отправки", russian.getValue("status_send_failed"))
-        assertTrue(english.getValue("pairing_return_invitation_required").contains("import your invitation"))
-        assertTrue(russian.getValue("pairing_return_invitation_required").contains("импортировать ваше приглашение"))
     }
 
     @Test
-    fun `http warning is wired and insecure relay resource is debug only`() {
+    fun `http warnings are wired and the settings use fully selectable rows`() {
         val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
-        val releasePolicy = File("src/main/res/values/transport_policy.xml").readText()
-        val debugPolicy = File("src/debug/res/values/transport_policy.xml").readText()
-
-        assertTrue(source.contains("R.string.http_relay_debug_warning"))
-        assertTrue(source.contains("R.string.https_relay_required"))
-        assertTrue(source.contains("R.string.pairing_incomplete_instruction"))
-        assertTrue(source.contains("R.string.pairing_ready_confirmation"))
-        assertTrue(releasePolicy.contains("<bool name=\"allow_insecure_relay_http\">false</bool>"))
-        assertTrue(debugPolicy.contains("<bool name=\"allow_insecure_relay_http\">true</bool>"))
-        assertTrue(releasePolicy.contains("<bool name=\"enable_debug_qa_tools\">false</bool>"))
-        assertTrue(debugPolicy.contains("<bool name=\"enable_debug_qa_tools\">true</bool>"))
-    }
-
-    @Test
-    fun `settings use fully selectable option rows and portrait scanner options`() {
-        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val v2 = File("src/main/kotlin/app/securemessenger/ui/V2Screens.kt").readText()
         val scanner = File("src/main/kotlin/app/securemessenger/ui/PortraitQrCaptureActivity.kt").readText()
         val manifest = File("src/main/AndroidManifest.xml").readText()
 
+        assertTrue(source.contains("R.string.http_relay_debug_warning"))
+        assertTrue(source.contains("R.string.https_relay_required"))
+        assertTrue(source.contains("relayClientAddressWarning"))
         assertTrue(source.contains("SelectableOptionRow("))
         assertTrue(source.contains(".selectable("))
         assertTrue(source.contains("role = Role.RadioButton"))
         assertTrue(source.contains("RadioButton(selected = selected, onClick = null"))
-        assertEquals(2, Regex("portraitQrScanOptions\\(scanPrompt\\)").findAll(source).count())
+        assertEquals(1, Regex("portraitQrScanOptions\\(scanPrompt\\)").findAll(v2).count())
         assertTrue(scanner.contains("setOrientationLocked(true)"))
         assertTrue(scanner.contains("setCaptureActivity(PortraitQrCaptureActivity::class.java)"))
         assertTrue(manifest.contains("android:screenOrientation=\"portrait\""))
     }
 
     @Test
-    fun `app locale host is appcompat activity without locking messenger orientation`() {
-        val activity = File("../../app/src/main/kotlin/app/securemessenger/MainActivity.kt").readText()
-        val appManifest = File("../../app/src/main/AndroidManifest.xml").readText()
-
-        assertTrue(activity.contains("AppCompatActivity"))
-        assertFalse(appManifest.contains("android:name=\".MainActivity\"\n            android:screenOrientation"))
-        assertTrue(appManifest.contains("android.permission.CAMERA"))
-    }
-
-    @Test
-    fun `debug reset is confirmed and preflight is wired without enabling gated crypto`() {
+    fun `destructive actions are confirmed and the debug reset is debug only`() {
         val app = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
         val viewModel = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerViewModel.kt").readText()
 
         assertTrue(app.contains("showTestResetDialog"))
-        assertTrue(app.contains("R.string.show_invitation_qr"))
-        assertTrue(app.contains("R.string.copy_invitation_code"))
-        assertTrue(app.contains("clipboardManager.setText(AnnotatedString(invitationCode))"))
+        assertTrue(app.contains("showDeleteDialog"))
         assertTrue(app.contains("R.string.reset_test_data_warning"))
         assertTrue(app.contains("onResetTestData()"))
-        assertTrue(app.contains("onRunPreflight"))
-        assertTrue(app.contains("relayClientAddressWarning"))
         assertTrue(viewModel.contains("fun resetTestDataForQa()"))
-        assertTrue(viewModel.contains("if (!debugQaToolsEnabled) return"))
-        assertTrue(viewModel.contains("fun runTwoDevicePreflight()"))
-        assertFalse(viewModel.contains("SignalSessionManagerAdapter"))
+        assertTrue(viewModel.contains("if (!mutableState.value.debugQaToolsEnabled) return"))
+    }
+
+    @Test
+    fun `app locale host is appcompat activity and the legacy reset runs at startup`() {
+        val activity = File("../../app/src/main/kotlin/app/securemessenger/MainActivity.kt").readText()
+        val application = File("../../app/src/main/kotlin/app/securemessenger/SecureMessengerApplication.kt").readText()
+        val appManifest = File("../../app/src/main/AndroidManifest.xml").readText()
+
+        assertTrue(activity.contains("AppCompatActivity"))
+        assertTrue(application.contains("LegacyReset.runOnce(this)"))
+        assertFalse(appManifest.contains("android:name=\".MainActivity\"\n            android:screenOrientation"))
+        assertTrue(appManifest.contains("android.permission.CAMERA"))
     }
 
     @Test

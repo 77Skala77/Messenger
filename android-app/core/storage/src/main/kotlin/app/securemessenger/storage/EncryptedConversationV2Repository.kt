@@ -28,7 +28,7 @@ class RoomProtocolTransactionRunner(private val database: SecureMessengerDatabas
 /**
  * v2 conversation state (DEC-019). Names, QR text, and message bodies are vault-encrypted with
  * AAD bound to their row, so a value copied into another row fails to decrypt. Blocking by
- * design; not yet used by the app.
+ * design. Used by debug builds only until the independent review of Phase 5 (DEC-021).
  */
 class EncryptedConversationV2Repository(
     private val dao: SecureMessengerDao,

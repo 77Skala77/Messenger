@@ -99,6 +99,49 @@ class SecureDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    /** DEC-021: the explicit legacy reset. Legacy tables are gone; everything else survives. */
+    @Test
+    fun migrationSevenToEightDropsLegacyTablesAndKeepsProfileSignalAndV2Rows() {
+        migrationHelper.createDatabase(TEST_DATABASE, 7).use { db ->
+            db.execSQL("INSERT INTO local_profile (profileId, encryptedDisplayName, deviceId) VALUES ('local', X'01', 'legacy-device')")
+            db.execSQL(
+                "INSERT INTO contacts (contactId, encryptedLocalDisplayName, queueId, deviceId, encodedPublicKey, " +
+                    "fingerprint, verificationStatus) VALUES ('legacy', X'01', 'legacy-queue', 'device', X'02', 'FP', 'UNVERIFIED')",
+            )
+            db.execSQL("INSERT INTO encrypted_sessions (contactId, encryptedState, updatedAtEpochMillis) VALUES ('legacy', X'0A0B', 1)")
+            db.execSQL(
+                "INSERT INTO encrypted_messages (messageId, contactId, encryptedPayload, encodedAssociatedData, outgoing, " +
+                    "status, createdAtEpochMillis, deliveryAttemptCount, nextRetryAtEpochMillis) " +
+                    "VALUES ('m1', 'legacy', X'0C', X'0D', 1, 'PENDING', 1, 0, NULL)",
+            )
+            db.execSQL("INSERT INTO accepted_replay (conversationId, senderDeviceId, messageNumber, acceptedAtEpochMillis) VALUES ('c', 's', 1, 1)")
+            db.execSQL("INSERT INTO signal_session_records (recipientId, deviceId, encryptedRecord) VALUES ('v2-contact', 1, X'0304')")
+            db.execSQL(
+                "INSERT INTO v2_contacts (contactId, encryptedDisplayName, identityKey, peerQueueId, peerRoutingTagHex, " +
+                    "localRoutingTagHex, state, createdAtEpochMillis) VALUES ('v2-contact', X'01', X'05', 'peer-queue-1', 'aa', 'bb', 'ACTIVE', 1)",
+            )
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            8,
+            true,
+            SecureMessengerDatabase.MIGRATION_7_8,
+        )
+        SecureMessengerDatabase.LEGACY_TABLES.forEach { table ->
+            migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                assertEquals("legacy table $table survived", 0, cursor.count)
+            }
+        }
+        listOf("local_profile", "signal_session_records", "v2_contacts").forEach { table ->
+            migrated.query("SELECT COUNT(*) FROM $table").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("$table lost rows", 1, cursor.getInt(0))
+            }
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE = "signal-store-migration-test"
     }

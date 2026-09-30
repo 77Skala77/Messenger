@@ -22,10 +22,8 @@ kotlin {
 
 dependencies {
     implementation(project(":core:domain"))
-    implementation(project(":core:crypto"))
     implementation(libs.coroutines.android)
     testImplementation(libs.junit)
-    androidTestImplementation(project(":core:delivery"))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
 }

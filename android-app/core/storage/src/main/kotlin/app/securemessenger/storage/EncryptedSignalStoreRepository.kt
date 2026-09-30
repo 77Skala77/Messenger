@@ -18,7 +18,8 @@ import java.io.DataOutputStream
  * Persists opaque libsignal record bytes after local vault encryption. Every record is bound by
  * AAD to its type and key, so a row copied under another key fails to decrypt.
  *
- * Blocking by design (see the boundary interfaces). Not yet wired into any conversation path.
+ * Blocking by design (see the boundary interfaces). Backs the v2 protocol, which only debug
+ * builds use until the independent review of Phase 5 (DEC-021).
  */
 class EncryptedSignalStoreRepository(
     private val dao: SecureMessengerDao,

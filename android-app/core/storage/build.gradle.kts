@@ -33,10 +33,7 @@ kapt {
 }
 
 dependencies {
-    implementation(project(":core:domain"))
-    implementation(project(":core:crypto"))
-    implementation(project(":core:delivery"))
-    implementation(project(":core:signalstore"))
+    api(project(":core:signalstore"))
     implementation(libs.androidx.core.ktx)
     api(libs.room.runtime)
     implementation(libs.room.ktx)

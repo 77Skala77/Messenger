@@ -3,30 +3,19 @@ package app.securemessenger.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import app.securemessenger.domain.RelayEncryptedBlob
-import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalprotocol.ConversationV2Exception
 import app.securemessenger.signalprotocol.ConversationV2Service
-import app.securemessenger.signalprotocol.ConversationV2Wiring
 import app.securemessenger.signalprotocol.InvitationRejectedException
 import app.securemessenger.signalprotocol.InvitationRejection
 import app.securemessenger.signalprotocol.MalformedV2Exception
 import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2StoredMessage
-import app.securemessenger.storage.AndroidKeystoreVaultCipher
-import app.securemessenger.storage.EncryptedConversationV2Repository
-import app.securemessenger.storage.EncryptedSignalStoreRepository
-import app.securemessenger.storage.RoomProtocolTransactionRunner
-import app.securemessenger.storage.SecureLocalRepository
 import app.securemessenger.storage.SecureMessengerDatabase
-import app.securemessenger.transport.RelayHttpTransportClient
-import app.securemessenger.transport.RelayServerSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,13 +50,14 @@ data class ConversationV2UiState(
 )
 
 /**
- * UI state holder for the v2 pipeline (DEC-019). Runs only while the hidden debug QA switch is on:
- * in a release build [allowed] is false and this class never builds the pipeline, never creates a
- * libsignal identity, and never touches the relay. Messages are fetched only while the v2 screen is
- * open; background sync for v2 is not implemented.
+ * UI state holder for the v2 pipeline (DEC-021). In a release build v2 is unavailable, and this
+ * class never builds the pipeline, never creates a libsignal identity, and never touches the relay.
+ * While the chat screen is open it fetches every few seconds; otherwise best-effort background
+ * sync (`V2SyncWorker`) takes over.
  */
 class ConversationV2ViewModel(application: Application) : AndroidViewModel(application) {
-    private val allowed = application.resources.getBoolean(R.bool.enable_debug_qa_tools)
+    private val available = V2Availability.isAvailable(application)
+    private val scheduler = V2SyncScheduler(application)
     private val mutableState = MutableStateFlow(ConversationV2UiState())
     val state: StateFlow<ConversationV2UiState> = mutableState.asStateFlow()
 
@@ -76,12 +66,12 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     private var pollJob: Job? = null
 
     /**
-     * Builds the pipeline and starts fetching. Called each time the v2 screen enters composition, so
-     * a local wipe or a switch-off never leaves a stale service behind; creating it also creates
-     * this device's libsignal identity if none exists. No-op in a release build.
+     * Builds the pipeline and starts fetching. Called each time the chat screen enters
+     * composition, so a local wipe never leaves a stale service behind. Creating the pipeline also
+     * creates this device's libsignal identity if none exists.
      */
     fun start() {
-        if (!allowed) return
+        if (!available) return
         pollJob?.cancel()
         service = null
         mutableState.value = mutableState.value.copy(ready = false)
@@ -89,27 +79,9 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val application = getApplication<Application>()
                 val db = database ?: SecureMessengerDatabase.create(application).also { database = it }
-                val dao = db.dao()
-                val vault = AndroidKeystoreVaultCipher()
-                val signalRecords = EncryptedSignalStoreRepository(dao, vault)
-                val displayName = SecureLocalRepository(dao, vault).readProfileName().orEmpty()
-                val settings = RelayServerSettings(
-                    application,
-                    application.resources.getBoolean(R.bool.allow_insecure_relay_http),
-                )
-                service = ConversationV2Wiring.create(
-                    localIdentity = signalRecords,
-                    identities = signalRecords,
-                    sessions = signalRecords,
-                    preKeys = signalRecords,
-                    signedPreKeys = signalRecords,
-                    kyberPreKeys = signalRecords,
-                    conversations = EncryptedConversationV2Repository(dao, vault),
-                    transactions = RoomProtocolTransactionRunner(db),
-                    transport = CurrentRelayTransport(settings),
-                    localReceiveQueueId = V2QueueIdStore(application).getOrCreateQueueId(),
-                    localDisplayName = { displayName },
-                )
+                // No profile means the local data was just deleted; the app returns to onboarding.
+                service = V2Pipeline.createIfProfileExists(application, db) ?: return@launch
+                scheduler.ensurePeriodic()
                 refresh()
                 mutableState.value = mutableState.value.copy(ready = true)
                 while (true) {
@@ -132,6 +104,13 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    /** Stops foreground fetching: the chat screen left composition or local data was deleted. */
+    fun stop() {
+        pollJob?.cancel()
+        pollJob = null
+        service = null
+    }
+
     fun createInvitation() = run(successNotice = V2Notice.INVITATION_READY) { it.createInvitation() }
 
     fun addContactFromCode(code: String, localName: String) {
@@ -139,12 +118,12 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             mutableState.value = mutableState.value.copy(notice = V2Notice.INVALID_CODE)
             return
         }
-        run(successNotice = V2Notice.REQUEST_SENT) { it.acceptInvitation(code, localName.trim()) }
+        run(successNotice = V2Notice.REQUEST_SENT, syncAfterwards = true) { it.acceptInvitation(code, localName.trim()) }
     }
 
     fun acceptRequest(requestId: String, localName: String) {
         if (localName.isBlank()) return
-        run { it.acceptRequest(requestId, localName.trim()) }
+        run(syncAfterwards = true) { it.acceptRequest(requestId, localName.trim()) }
     }
 
     fun declineRequest(requestId: String) = run { it.declineRequest(requestId) }
@@ -157,7 +136,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     fun sendText(text: String) {
         val contactId = mutableState.value.selectedContactId ?: return
         if (text.isBlank()) return
-        run { it.sendText(contactId, text) }
+        run(syncAfterwards = true) { it.sendText(contactId, text) }
     }
 
     fun synchronizeNow() = run { it.synchronize() }
@@ -166,20 +145,17 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         mutableState.value = mutableState.value.copy(notice = null)
     }
 
-    /** Stops fetching: the v2 screen left composition, the switch was turned off, or data was deleted. */
-    fun stop() {
-        pollJob?.cancel()
-        pollJob = null
-        service = null
-    }
-
     override fun onCleared() {
         pollJob?.cancel()
         database?.close()
         super.onCleared()
     }
 
-    private fun run(successNotice: V2Notice? = null, block: suspend (ConversationV2Service) -> Unit) {
+    private fun run(
+        successNotice: V2Notice? = null,
+        syncAfterwards: Boolean = false,
+        block: suspend (ConversationV2Service) -> Unit,
+    ) {
         val current = service ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val notice = try {
@@ -211,6 +187,8 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             } catch (_: Exception) {
                 V2Notice.FAILED
             }
+            // Anything still queued (relay down, app about to close) is retried in the background.
+            if (syncAfterwards) scheduler.requestSoon()
             refresh()
             if (notice != null) mutableState.value = mutableState.value.copy(notice = notice)
         }
@@ -239,27 +217,4 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     private companion object {
         const val POLL_INTERVAL_MILLIS = 3_000L
     }
-}
-
-/** Follows relay URL changes made in Settings without rebuilding the pipeline. */
-private class CurrentRelayTransport(private val settings: RelayServerSettings) : TransportClient {
-    private var url = ""
-    private var client: RelayHttpTransportClient? = null
-
-    @Synchronized
-    private fun client(): RelayHttpTransportClient {
-        val current = settings.currentUrl()
-        return client.takeIf { current == url } ?: RelayHttpTransportClient(current).also {
-            client = it
-            url = current
-        }
-    }
-
-    override suspend fun sendMessage(blob: RelayEncryptedBlob) = client().sendMessage(blob)
-
-    override suspend fun fetchMessages(queueId: String): List<RelayEncryptedBlob> = client().fetchMessages(queueId)
-
-    override suspend fun deleteMessage(messageId: String) = client().deleteMessage(messageId)
-
-    override fun observeIncomingMessages(queueId: String): Flow<RelayEncryptedBlob> = client().observeIncomingMessages(queueId)
 }

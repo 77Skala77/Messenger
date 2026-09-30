@@ -53,7 +53,8 @@ class ConversationV2Exception(message: String) : Exception(message)
  * with the libsignal store writes it causes (DEC-019 T2). The relay copy of an envelope is deleted
  * only after that transaction committed. Methods block on storage: call them off the main thread.
  *
- * Not used by the app yet: it is wired only behind the step 1e flag, which stays off.
+ * The app's only conversation path. Debug builds only until the Phase 5 independent review
+ * (DEC-021); release builds never construct it.
  */
 class ConversationV2Service(
     private val sessions: SignalSessions,
@@ -442,11 +443,19 @@ class ConversationV2Service(
         class Payload(val payload: InnerPayloadV2) : Decrypted()
     }
 
-    private companion object {
+    companion object {
         /** One lock for the whole process: the UI and the WorkManager worker share it. */
-        val PROTOCOL_LOCK = ReentrantLock()
-        const val RELAY_TTL_MILLIS = 24 * 60 * 60 * 1000L
-        const val INITIAL_RETRY_DELAY_MILLIS = 5_000L
-        const val MAX_RETRY_DELAY_MILLIS = 15 * 60_000L
+        private val PROTOCOL_LOCK = ReentrantLock()
+        private const val RELAY_TTL_MILLIS = 24 * 60 * 60 * 1000L
+        private const val INITIAL_RETRY_DELAY_MILLIS = 5_000L
+        private const val MAX_RETRY_DELAY_MILLIS = 15 * 60_000L
+
+        /**
+         * Runs [block] under the process-wide protocol lock, so no protocol step can commit while it
+         * runs. For work outside the pipeline that must not interleave with it: the local wipe, and
+         * the profile check before a pipeline (and possibly a new libsignal identity) is created.
+         * [block] must be blocking code: the lock cannot be held across a suspension point.
+         */
+        fun <T> exclusively(block: () -> T): T = PROTOCOL_LOCK.withLock(block)
     }
 }

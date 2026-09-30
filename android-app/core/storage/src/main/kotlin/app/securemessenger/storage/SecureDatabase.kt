@@ -10,73 +10,18 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import app.securemessenger.delivery.DeliveryReceiptAcceptance
-import kotlinx.coroutines.flow.Flow
 
+/**
+ * The local profile: a vault-encrypted display name. `deviceId` belonged to the removed legacy
+ * P-256 identity (DEC-021); it is kept only so the table shape does not change, and is unused.
+ */
 @Entity(tableName = "local_profile", primaryKeys = ["profileId"])
 data class EncryptedProfileEntity(
     val profileId: String,
     val encryptedDisplayName: ByteArray,
     val deviceId: String,
-)
-
-@Entity(tableName = "contacts", primaryKeys = ["contactId"])
-data class ContactEntity(
-    val contactId: String,
-    val encryptedLocalDisplayName: ByteArray,
-    val queueId: String,
-    val deviceId: String,
-    val encodedPublicKey: ByteArray,
-    val fingerprint: String,
-    val verificationStatus: String,
-)
-
-@Entity(tableName = "encrypted_sessions", primaryKeys = ["contactId"])
-data class EncryptedSessionEntity(
-    val contactId: String,
-    val encryptedState: ByteArray,
-    val updatedAtEpochMillis: Long,
-)
-
-@Entity(tableName = "encrypted_messages", primaryKeys = ["messageId"])
-data class EncryptedMessageEntity(
-    val messageId: String,
-    val contactId: String,
-    val encryptedPayload: ByteArray,
-    val encodedAssociatedData: ByteArray,
-    val outgoing: Boolean,
-    val status: String,
-    val createdAtEpochMillis: Long,
-    val deliveryAttemptCount: Int = 0,
-    val nextRetryAtEpochMillis: Long? = null,
-)
-
-@Entity(tableName = "contact_devices", primaryKeys = ["contactId", "deviceId"])
-data class ContactDeviceEntity(
-    val contactId: String,
-    val deviceId: String,
-    val queueId: String,
-    val encodedPublicKey: ByteArray,
-    val fingerprint: String,
-    val approvalStatus: String,
-    val firstSeenEpochMillis: Long,
-)
-
-@Entity(tableName = "accepted_replay", primaryKeys = ["conversationId", "senderDeviceId", "messageNumber"])
-data class AcceptedReplayEntity(
-    val conversationId: String,
-    val senderDeviceId: String,
-    val messageNumber: Long,
-    val acceptedAtEpochMillis: Long,
-)
-
-data class DeliveryQueueMetrics(
-    val pendingOutgoingCount: Int,
-    val failedOutgoingCount: Int,
-    val nextRetryAtEpochMillis: Long?,
 )
 
 @Entity(tableName = "signal_identity_records", primaryKeys = ["recipientId", "deviceId"])
@@ -215,155 +160,15 @@ data class V2AcceptedEnvelopeEntity(
 
 @Dao
 interface SecureMessengerDao {
+    // Every method is deliberately blocking (not suspend): libsignal calls its stores synchronously,
+    // and the profile check and the local wipe run under the protocol lock, which must not be held
+    // across a suspension point. Room refuses them on the main thread.
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putProfile(profile: EncryptedProfileEntity)
+    fun putProfile(profile: EncryptedProfileEntity)
 
     @Query("SELECT * FROM local_profile LIMIT 1")
-    suspend fun getProfile(): EncryptedProfileEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putContact(contact: ContactEntity)
-
-    @Query("SELECT * FROM contacts ORDER BY contactId")
-    fun observeContacts(): Flow<List<ContactEntity>>
-
-    @Query("SELECT * FROM contacts ORDER BY contactId")
-    suspend fun getContactsSnapshot(): List<ContactEntity>
-
-    @Query("SELECT * FROM contacts WHERE contactId = :contactId LIMIT 1")
-    suspend fun getContact(contactId: String): ContactEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putContactDevice(device: ContactDeviceEntity)
-
-    @Query("SELECT * FROM contact_devices WHERE contactId = :contactId ORDER BY firstSeenEpochMillis")
-    fun observeContactDevices(contactId: String): Flow<List<ContactDeviceEntity>>
-
-    @Query("SELECT * FROM contact_devices WHERE contactId = :contactId AND deviceId = :deviceId LIMIT 1")
-    suspend fun getContactDevice(contactId: String, deviceId: String): ContactDeviceEntity?
-
-    @Query("SELECT * FROM contact_devices WHERE contactId = :contactId ORDER BY firstSeenEpochMillis")
-    suspend fun getContactDevices(contactId: String): List<ContactDeviceEntity>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putSession(session: EncryptedSessionEntity)
-
-    @Query("SELECT * FROM encrypted_sessions WHERE contactId = :contactId LIMIT 1")
-    suspend fun getSession(contactId: String): EncryptedSessionEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putMessage(message: EncryptedMessageEntity)
-
-    @Query("SELECT * FROM encrypted_messages WHERE contactId = :contactId ORDER BY createdAtEpochMillis")
-    fun observeMessages(contactId: String): Flow<List<EncryptedMessageEntity>>
-
-    @Query("SELECT * FROM encrypted_messages WHERE messageId = :messageId AND outgoing = 1 LIMIT 1")
-    suspend fun getOutgoingMessage(messageId: String): EncryptedMessageEntity?
-
-    @Query(
-        """
-        SELECT * FROM encrypted_messages
-        WHERE outgoing = 1
-          AND status IN ('PENDING', 'FAILED')
-          AND (nextRetryAtEpochMillis IS NULL OR nextRetryAtEpochMillis <= :nowEpochMillis)
-        ORDER BY createdAtEpochMillis
-        """,
-    )
-    suspend fun getDueOutgoingMessages(nowEpochMillis: Long): List<EncryptedMessageEntity>
-
-    @Query(
-        """
-        SELECT * FROM encrypted_messages
-        WHERE outgoing = 1
-          AND status IN ('PENDING', 'FAILED')
-        ORDER BY createdAtEpochMillis
-        """,
-    )
-    suspend fun getRetryableOutgoingMessages(): List<EncryptedMessageEntity>
-
-    @Query(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN outgoing = 1 AND status = 'PENDING' THEN 1 ELSE 0 END), 0)
-                AS pendingOutgoingCount,
-            COALESCE(SUM(CASE WHEN outgoing = 1 AND status = 'FAILED' THEN 1 ELSE 0 END), 0)
-                AS failedOutgoingCount,
-            MIN(CASE WHEN outgoing = 1 AND status = 'FAILED' THEN nextRetryAtEpochMillis ELSE NULL END)
-                AS nextRetryAtEpochMillis
-        FROM encrypted_messages
-        """,
-    )
-    fun observeDeliveryQueueMetrics(): Flow<DeliveryQueueMetrics>
-
-    @Query(
-        """
-        UPDATE encrypted_messages
-        SET status = :status,
-            deliveryAttemptCount = :attemptCount,
-            nextRetryAtEpochMillis = :nextRetryAtEpochMillis
-        WHERE messageId = :messageId
-        """,
-    )
-    suspend fun updateDeliveryState(
-        messageId: String,
-        status: String,
-        attemptCount: Int,
-        nextRetryAtEpochMillis: Long?,
-    )
-
-    @Query(
-        """
-        UPDATE encrypted_messages
-        SET status = :status,
-            nextRetryAtEpochMillis = NULL
-        WHERE messageId = :messageId
-          AND outgoing = 1
-        """,
-    )
-    suspend fun updateOutgoingStatus(messageId: String, status: String): Int
-
-    @Query(
-        """
-        UPDATE encrypted_messages
-        SET status = :status,
-            nextRetryAtEpochMillis = NULL
-        WHERE messageId = :messageId
-          AND contactId = :contactId
-          AND outgoing = 1
-        """,
-    )
-    suspend fun updateOutgoingStatusForContact(messageId: String, contactId: String, status: String): Int
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun acceptIncomingNumber(replay: AcceptedReplayEntity): Long
-
-    @Transaction
-    suspend fun acceptAndStoreIncoming(replay: AcceptedReplayEntity, message: EncryptedMessageEntity): Boolean {
-        if (acceptIncomingNumber(replay) == -1L) return false
-        putMessage(message)
-        return true
-    }
-
-    @Transaction
-    suspend fun acceptDeliveryReceiptAndMarkDelivered(
-        replay: AcceptedReplayEntity,
-        originalMessageId: String,
-        contactId: String,
-        deliveredStatus: String,
-    ): DeliveryReceiptAcceptance {
-        if (acceptIncomingNumber(replay) == -1L) return DeliveryReceiptAcceptance.DUPLICATE_SUPPRESSED
-        // A receipt is authenticated by one contact's session, so it may only mark a message that
-        // was sent to that contact (DEC-020).
-        val updated = updateOutgoingStatusForContact(originalMessageId, contactId, deliveredStatus)
-        return if (updated > 0) {
-            DeliveryReceiptAcceptance.STATUS_UPDATED
-        } else {
-            DeliveryReceiptAcceptance.UNKNOWN_MESSAGE
-        }
-    }
-
-    // Per-record Signal store methods are deliberately blocking (not suspend): libsignal calls its
-    // stores synchronously. Room refuses them on the main thread.
+    fun getProfile(): EncryptedProfileEntity?
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertSignalLocalIdentityIfAbsent(record: EncryptedSignalLocalIdentityEntity): Long
@@ -443,43 +248,28 @@ interface SecureMessengerDao {
     fun deleteSignalKyberBaseKeyUsesForSignedKey(signedPreKeyId: Int)
 
     @Query("DELETE FROM local_profile")
-    suspend fun deleteProfile()
-
-    @Query("DELETE FROM contacts")
-    suspend fun deleteContacts()
-
-    @Query("DELETE FROM contact_devices")
-    suspend fun deleteContactDevices()
-
-    @Query("DELETE FROM encrypted_sessions")
-    suspend fun deleteSessions()
-
-    @Query("DELETE FROM encrypted_messages")
-    suspend fun deleteMessages()
-
-    @Query("DELETE FROM accepted_replay")
-    suspend fun deleteAcceptedReplay()
+    fun deleteProfile()
 
     @Query("DELETE FROM signal_identity_records")
-    suspend fun deleteSignalIdentityRecords()
+    fun deleteSignalIdentityRecords()
 
     @Query("DELETE FROM signal_session_records")
-    suspend fun deleteSignalSessionRecords()
+    fun deleteSignalSessionRecords()
 
     @Query("DELETE FROM signal_prekey_records")
-    suspend fun deleteSignalPreKeyRecords()
+    fun deleteSignalPreKeyRecords()
 
     @Query("DELETE FROM signal_signed_prekey_records")
-    suspend fun deleteSignalSignedPreKeyRecords()
+    fun deleteSignalSignedPreKeyRecords()
 
     @Query("DELETE FROM signal_kyber_prekey_records")
-    suspend fun deleteSignalKyberPreKeyRecords()
+    fun deleteSignalKyberPreKeyRecords()
 
     @Query("DELETE FROM signal_kyber_base_key_uses")
-    suspend fun deleteSignalKyberBaseKeyUses()
+    fun deleteSignalKyberBaseKeyUses()
 
     @Query("DELETE FROM signal_local_identity")
-    suspend fun deleteSignalLocalIdentity()
+    fun deleteSignalLocalIdentity()
 
     // v2 methods are blocking: they run inside ProtocolTransactionRunner transactions together with
     // the libsignal store writes of the same operation. Room refuses them on the main thread.
@@ -614,29 +404,24 @@ interface SecureMessengerDao {
     fun countV2AcceptedEnvelope(digestHex: String): Int
 
     @Query("DELETE FROM v2_invitations")
-    suspend fun deleteV2Invitations()
+    fun deleteV2Invitations()
 
     @Query("DELETE FROM v2_contact_requests")
-    suspend fun deleteV2ContactRequests()
+    fun deleteV2ContactRequests()
 
     @Query("DELETE FROM v2_contacts")
-    suspend fun deleteV2Contacts()
+    fun deleteV2Contacts()
 
     @Query("DELETE FROM v2_messages")
-    suspend fun deleteV2Messages()
+    fun deleteV2Messages()
 
     @Query("DELETE FROM v2_accepted_envelopes")
-    suspend fun deleteV2AcceptedEnvelopes()
+    fun deleteV2AcceptedEnvelopes()
 }
 
 @Database(
     entities = [
         EncryptedProfileEntity::class,
-        ContactEntity::class,
-        EncryptedSessionEntity::class,
-        EncryptedMessageEntity::class,
-        ContactDeviceEntity::class,
-        AcceptedReplayEntity::class,
         EncryptedSignalIdentityRecordEntity::class,
         EncryptedSignalSessionRecordEntity::class,
         EncryptedSignalPreKeyRecordEntity::class,
@@ -650,7 +435,7 @@ interface SecureMessengerDao {
         V2MessageEntity::class,
         V2AcceptedEnvelopeEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -659,7 +444,10 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
     companion object {
         fun create(context: Context): SecureMessengerDatabase =
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                    MIGRATION_7_8,
+                )
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
                 .build()
@@ -916,5 +704,22 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
                 )
             }
         }
+
+        /**
+         * The explicit legacy reset (DEC-021): the prototype protocol's contacts, devices, session
+         * root keys, stored ciphertext and replay markers are dropped on purpose. Nothing is
+         * migrated or reinterpreted: a legacy session can never be read or accepted as a v2 session.
+         * Tables are dropped rather than emptied so no legacy row survives in the schema.
+         * `local_profile`, the libsignal record tables and the `v2_*` tables are untouched.
+         * Keystore keys and preferences of the legacy path are removed by `LegacyReset`.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                LEGACY_TABLES.forEach { table -> db.execSQL("DROP TABLE IF EXISTS `$table`") }
+            }
+        }
+
+        /** Tables of the removed prototype protocol, dropped by [MIGRATION_7_8]. */
+        val LEGACY_TABLES = listOf("contacts", "contact_devices", "encrypted_sessions", "encrypted_messages", "accepted_replay")
     }
 }

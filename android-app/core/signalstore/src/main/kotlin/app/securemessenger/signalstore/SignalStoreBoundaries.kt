@@ -1,13 +1,5 @@
 package app.securemessenger.signalstore
 
-object SignalStoreFeatureFlags {
-    /**
-     * No production or prototype conversation path may opt in until the documented migration
-     * gates have been completed and an independently reviewed integration exists.
-     */
-    const val SIGNAL_BACKED_SESSIONS_ENABLED: Boolean = false
-}
-
 data class SignalProtocolAddress(
     val recipientId: String,
     val deviceId: Int,
@@ -100,28 +92,4 @@ interface SignalKyberPreKeyStoreBoundary {
      * the tuple was seen before, or the key is unknown.
      */
     fun consumeKyberPreKey(kyberPreKeyId: Int, signedPreKeyId: Int, baseKeyDigest: ByteArray): Boolean
-}
-
-/**
- * Reserved for a later, separately reviewed group design; no sender-key storage is activated now.
- */
-interface SignalSenderKeyStoreBoundary {
-    fun saveSenderKeyRecord(distributionId: String, serializedRecord: ByteArray)
-    fun loadSenderKeyRecord(distributionId: String): ByteArray?
-    fun deleteSenderKeyRecord(distributionId: String)
-}
-
-class SignalSpikeDisabledException :
-    IllegalStateException("Signal-backed sessions are disabled; current chats use the prototype session layer")
-
-interface SignalSessionManagerAdapter {
-    val enabled: Boolean
-    fun createExperimentalSession(invitation: ExperimentalSignalPqxdhInvitation): Nothing
-}
-
-class DisabledSignalSessionManagerAdapter : SignalSessionManagerAdapter {
-    override val enabled: Boolean = SignalStoreFeatureFlags.SIGNAL_BACKED_SESSIONS_ENABLED
-
-    override fun createExperimentalSession(invitation: ExperimentalSignalPqxdhInvitation): Nothing =
-        throw SignalSpikeDisabledException()
 }

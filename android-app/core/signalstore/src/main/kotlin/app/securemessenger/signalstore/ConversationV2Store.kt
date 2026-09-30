@@ -6,8 +6,8 @@ package app.securemessenger.signalstore
  * called inside [ProtocolTransactionRunner.inTransaction] together with the libsignal store writes
  * of the same operation.
  *
- * v2 state lives in its own tables; legacy prototype rows are never reinterpreted as v2 rows.
- * Not used by the app until the step 1e flag is turned on.
+ * v2 state lives in its own tables; the legacy prototype tables were dropped by the explicit reset
+ * (DEC-021). Used by debug builds only until the independent review of Phase 5.
  */
 
 /**

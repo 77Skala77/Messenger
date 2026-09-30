@@ -61,6 +61,36 @@ class ConversationV2ServiceTest {
         assertEquals(listOf("hi Bob"), bob.store.incomingTexts(aliceOnBob).map { it.text })
     }
 
+    /** DEC-021: nothing of the removed legacy protocol is ever accepted by v2. */
+    @Test
+    fun legacyEnvelopesAndInvitationsAreNeverAccepted() = runBlocking {
+        val (_, bobOnAlice) = pair()
+        // Legacy session-message envelope: 32-bit version 1, message number, bucket, AAD, ciphertext.
+        val legacyEnvelope = java.io.ByteArrayOutputStream().also { bytes ->
+            java.io.DataOutputStream(bytes).use { out ->
+                out.writeInt(1)
+                out.writeLong(7)
+                out.writeLong(123)
+                out.writeInt(16)
+                out.write(ByteArray(16) { 1 })
+                out.writeInt(48)
+                out.write(ByteArray(48) { 2 })
+            }
+        }.toByteArray()
+        relay.inject(RelayEncryptedBlob("legacy-envelope", alice.queueId, legacyEnvelope, Long.MAX_VALUE))
+
+        assertEquals(listOf(IncomingV2Result.UNAUTHENTICATED), alice.service.synchronize())
+        assertTrue(alice.store.incomingTexts(bobOnAlice).isEmpty())
+        assertEquals(1, relay.queued(alice.queueId).size)
+
+        val legacyInvitation = "smp-invite-v1:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(120) { 3 })
+        val rejected = assertThrows(InvitationRejectedException::class.java) {
+            runBlocking { bob.service.acceptInvitation(legacyInvitation, "Legacy") }
+        }
+        assertEquals(InvitationRejection.UNSUPPORTED_VERSION, rejected.reason)
+        assertEquals(1, bob.store.contactIds().size)
+    }
+
     @Test
     fun bothSidesSeeTheSameSafetyNumberAndASubstitutedKeyChangesIt() = runBlocking {
         val (aliceOnBob, bobOnAlice) = pair()

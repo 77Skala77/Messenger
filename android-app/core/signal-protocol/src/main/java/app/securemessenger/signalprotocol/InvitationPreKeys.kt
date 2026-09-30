@@ -48,8 +48,7 @@ class InvitationPreKeys(
 }
 
 /**
- * Creates the private and public pre-keys for one invitation. Not used by the app yet
- * (`SignalStoreFeatureFlags.SIGNAL_BACKED_SESSIONS_ENABLED` is false).
+ * Creates the private and public pre-keys for one invitation.
  *
  * Callers hold the process-wide protocol lock (DEC-019 T2): key IDs are chosen by checking the
  * store, which is only race-free while no other protocol operation runs.
