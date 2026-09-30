@@ -82,8 +82,14 @@ remained unverified until step 1a was completed.
   `-Dorg.gradle.jvmargs=-Xmx1280m -Pkotlin.compiler.execution.strategy=in-process
   --max-workers=1`.
 - `core/signal-protocol/consumer-rules.pro` adds conservative R8 keep rules for
-  `org.signal.libsignal.**` and native methods. **UNVERIFIED**: no app currently depends on
-  `:core:signal-protocol`, so no minified build contains libsignal yet.
+  `org.signal.libsignal.**` and native methods. **Update 2026-09-30:** the app now depends on
+  `:core:signal-protocol` (through `:core:ui`, debug QA switch only). `:app:assembleRelease`
+  succeeds; `mapping.txt` shows the rules applied and no real libsignal class renamed. The
+  first release APK also contained ~153 MB of desktop natives (`*.dll`, `*.dylib`, including
+  `*_testing`) from libsignal-client's jar resources, now excluded in `:app`
+  (`packaging.resources.excludes`). **Still UNVERIFIED:** libsignal running inside a minified
+  build (release cannot enable v2), and R8 warns it cannot parse Kotlin 2.2 metadata under
+  AGP 8.5.2 (TQ-009). Release APK: unsigned, 357.5 MB, 4 ABIs.
 
 **Still NOT verified:** a minified release build (`assembleRelease`, R8) that actually
 contains libsignal, resulting release APK size/ABI splits, and instrumented tests for

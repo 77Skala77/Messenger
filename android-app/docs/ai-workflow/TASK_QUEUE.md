@@ -479,6 +479,12 @@ Phase 6 (UI rewrite). Owner asked (2026-09-29) that this not be forgotten.
 
 Version numbers are a 2026-09-29 snapshot; re-check before acting.
 
+Also found 2026-09-30: R8 bundled with AGP 8.5.2 prints "An error occurred when parsing kotlin
+metadata" warnings during `assembleRelease` because the app modules use Kotlin 2.2 (R8 predates
+it). The minified release build still succeeds and the libsignal keep rules apply, but R8 cannot
+use Kotlin metadata for those classes; the AGP upgrade in this task should remove the warnings,
+so re-inspect the release APK and mapping afterwards.
+
 Also found 2026-09-30: lint bundled with AGP 8.5.2 prints "Module was compiled with an
 incompatible version of Kotlin" for the Kotlin 2.2 modules, i.e. lint's Kotlin analysis cannot
 read their metadata and is degraded (it still reports 0 errors). The AGP upgrade in this task is

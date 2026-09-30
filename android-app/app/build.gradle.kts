@@ -42,6 +42,9 @@ android {
     packaging {
         // libsignal_jni_testing.so (~100 MB per ABI) is for Signal's own tests and must never ship.
         jniLibs.excludes += "**/libsignal_jni_testing.so"
+        // libsignal-client's jar also carries desktop natives (Windows/macOS, including *_testing)
+        // as Java resources: ~150 MB of dead weight on Android.
+        resources.excludes += listOf("*.dll", "**/*.dll", "*.dylib", "**/*.dylib")
     }
 }
 

@@ -109,8 +109,19 @@ Original proposals, kept for history:
      `Waiting for sync`, all were delivered after the relay returned, exactly once each.
      Not covered by this manual run: two-device forward-secrecy proof and legacy reset (1f),
      WorkManager background sync for v2, and a public relay.
-7. Release-variant check: app depends on `:core:signal-protocol`, desugaring and `_testing`
-   exclusion applied in the app module, minified release build verified.
+7. **DONE 2026-09-30 (build level; runtime of the minified build UNVERIFIED)** — release-variant
+   check. `:app:assembleRelease` (minified, R8) succeeds in ~34 min on the 3.9 GB machine; the
+   APK is **unsigned** (357.5 MB, 4 ABIs). The app module now enables core library desugaring
+   and excludes `libsignal_jni_testing.so`; the first release build also showed that
+   libsignal-client's jar carries **desktop natives as Java resources** (`*.dll`, `*.dylib`,
+   including `*_testing`, ~153 MB) — excluded via `packaging.resources.excludes`, none remain.
+   In `mapping.txt` the libsignal keep rules are applied (`-keep class org.signal.libsignal.**`
+   from `consumer-rules.pro`, plus libsignal's own JAR rules) and only D8/R8 synthetic classes
+   (lambdas, `-IA`) are renamed or removed. R8 prints "error occurred when parsing kotlin
+   metadata" warnings (AGP 8.5.2 predates Kotlin 2.2; tracked in TQ-009). **Not verified:**
+   that libsignal actually runs inside a minified build — release builds cannot enable v2, so
+   the JNI callbacks under R8 have not been exercised. Plan: build a minified debug variant
+   locally for the step 1f manual run.
 
 ## Constraints that apply (from `AGENTS.md`)
 
