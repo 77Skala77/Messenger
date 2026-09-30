@@ -61,6 +61,7 @@ When changing an accepted decision:
 | DEC-021 | Step 1f: automatic explicit legacy reset, legacy code and modules removed, v2 only in debug, release without chat until Phase 5 | ACCEPTED |
 | DEC-022 | TQ-009: stay on AGP 8.13.2 and compileSdk 36; Kotlin and libsignal pinned | ACCEPTED |
 | DEC-023 | Phase 2: vault key never replaced silently; a lost key fails closed; the user decides | ACCEPTED |
+| DEC-024 | Phase 3: self-certifying relay queues, server message IDs, invitation v3, reset of v2 test chats | ACCEPTED |
 
 ---
 
@@ -1084,6 +1085,40 @@ and the screen on a device), `ConversationV2ServiceTest` (key loss inside libsig
 `LocalVaultCipherTest` (damaged blobs), the 5→8 migration test, the secrets-at-rest test in
 `ConversationV2RoomProofInstrumentedTest`, and `SecurityLoggingPolicyTest`. Results:
 `REWRITE_PLAN.md`, Phase 2.
+
+---
+
+## DEC-024 — Phase 3: self-certifying relay queues, server message IDs, invitation v3
+
+**Status:** ACCEPTED
+**Recorded:** 2026-10-01. Owner decisions in chat: explicit reset of v2 test conversations with a
+notice; one QR secret with HKDF-derived keys; relay maximum TTL stays 7 days.
+
+### Decision
+
+Design: `../PHASE3_RELAY_DESIGN.md`.
+
+- Queue ID = `q3-` + base64url(SHA-256("smp-relay-queue-v1\0" || R)) for a 32-byte read secret R.
+  Anyone may send to a queue; reading and deleting need `Authorization: Bearer R`. The relay keeps
+  no token table. Contacts learn only the queue ID.
+- The relay assigns message IDs; deletion is bound to the queue; a client-supplied message ID is
+  refused.
+- QA-level limits: body ≤ 64 KB, per-IP rate limits, ≤ 1,000 pending envelopes per queue. Relay
+  maximum TTL stays 7 days (owner choice; the app sends 24 hours).
+- Invitation `smp-invite-v3:` = version + 32-byte secret S + 32-byte sealed-bundle digest. The seal
+  key and the mailbox read secret are derived from S with HKDF-SHA256 (distinct `info` labels).
+  `smp-invite-v2:` codes are refused as an unsupported version.
+- The own queue's read secret is stored vault-encrypted, never in plain preferences.
+- Migration: v2 test conversations (contacts, requests, messages, invitations, their libsignal
+  sessions, identities and pre-keys) are deleted once, with a one-time notice; the profile, the
+  local libsignal identity and the vault key stay. Users pair again.
+
+### Consequences
+
+Closes: contacts reading or deleting my queue (P1), cross-queue deletion (P2), message-ID
+overwrite (P3), trivial flooding (P4). No backward compatibility on the wire: old apps and the new
+relay do not interoperate (test data only). A leaked read secret exposes pending ciphertext and
+lets it be deleted, never decrypted.
 
 ---
 

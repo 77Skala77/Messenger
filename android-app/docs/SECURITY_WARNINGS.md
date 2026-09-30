@@ -18,8 +18,8 @@ server or privacy audit.
   name and a safety number. Comparing safety numbers in person is the only identity check.
 - Single device per contact; no multi-device fan-out and no synchronized revocation.
 - The relay is untrusted and exposes metadata: IP addresses, queue IDs, routing tags, timing,
-  sizes, and the initiator's identity key in the first (PreKey) messages. It has no per-queue
-  authentication or rate limiting yet (Phase 3).
+  sizes, and the initiator's identity key in the first (PreKey) messages. Per-queue read secrets
+  and QA-level limits exist since Phase 3 (DEC-024); they are not production abuse control.
 - Background sync uses WorkManager and is best effort: Android may delay it, and it is not a
   guarantee of timely offline delivery.
 - `Delivered` means the contact's device authenticated, decrypted, and stored the message; it is

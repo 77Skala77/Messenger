@@ -17,14 +17,16 @@ mutable against the code before relying on it.
 - **Model check on every "go" (owner rule, 2026-09-30).** Each time the owner says a step is done
   or tells you to start the next phase/step/task, FIRST compare the model that is active now (the
   system prompt says "You are powered by the model named ..."; a `/model` line in the message also
-  shows a switch; the effort level is in the `reasoning_effort` tag) with the model and effort you
-  recommended for that step (see `docs/ai-workflow/HANDOFF.md` "Next step" and `REWRITE_PLAN.md`).
-  If they do not match, **do not start**: say in Russian which model is active, which one the step
-  needs, and ask whether to continue anyway or wait for the switch. If they match, start.
+  shows a switch) with the model you recommended for that step (see `docs/ai-workflow/HANDOFF.md`
+  "Next step" and `REWRITE_PLAN.md`). If it does not match, **do not start**: say in Russian which
+  model is active, which one the step needs, and ask whether to continue anyway or wait for the
+  switch. If it matches, start. **Effort cannot be read reliably** (the internal `reasoning_effort`
+  number varies per message and has no known mapping to Low/Medium/High/Extra/Max): never claim
+  the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
-  Current recommendations: Phase 3 (relay hardening; changes the relay API and probably the
-  invitation, so design and owner decisions first): **Opus 5.5 · High**. Node relay plumbing, docs,
-  dependency updates: Sonnet 5.5 · High.
+  Current recommendations: Phase 4 (multi-device; the largest protocol change, design and owner
+  decisions first): **Opus 5.5 · High**. Node relay plumbing, docs, dependency updates:
+  Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -67,6 +69,12 @@ mutable against the code before relying on it.
 9. Release rejects cleartext `http://` relays. Debug allows it for QA only.
 10. Changing wire formats, Room schema, invitation/envelope/receipt formats or vault serialization
     needs the compatibility write-up in `AGENTS.md` first, plus tests for safe failure.
+12. **Relay queues are self-certifying** (DEC-024, relay API v3): queue ID = `q3-` + base64url(
+    SHA-256("smp-relay-queue-v1\0" || readSecret)). Only the read secret reads or deletes (Bearer),
+    anyone may send; the relay assigns message IDs; deletion is bound to the queue. Never put the
+    read secret in a URL, a log or plain preferences (it is vault-encrypted), never share it with
+    contacts (they get the queue ID only). The invitation (`smp-invite-v3:`) carries one secret; the
+    seal key and mailbox read secret are HKDF-derived with distinct labels.
 11. **The vault key is created in exactly one place** (DEC-023): `LocalProfileRepository.createProfile`
     on an empty vault. Encrypt/decrypt must never create a key; a missing or invalidated key throws
     `VaultKeyUnavailableException`. The profile row is the canary (`localDataState()`): if it does
@@ -127,7 +135,8 @@ mutable against the code before relying on it.
 ## Where things stand (update when it changes)
 
 - Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done;
-  Phase 2 storage hardening done (DEC-023). Next: Phase 3 relay auth (changes the relay API and
-  likely the invitation: design and owner decisions first), then Phase 4 multi-device, Phase 5
-  independent audit (gate for release chat).
+  Phase 2 storage hardening done (DEC-023); Phase 3 relay hardening done (DEC-024: self-certifying
+  queues, invitation v3, Room v9). Next: Phase 4 multi-device and revocation (Opus 5.5 · High;
+  written design and owner decisions before code), then Phase 5 independent audit (gate for
+  release chat).
 - Not production-ready; no independent audit; do not claim otherwise.

@@ -226,6 +226,24 @@ Goal: the relay stops being a trivially abusable open queue.
 Exit gate: relay tests cover rejecting a request with a missing/wrong queue token
 and rejecting a client-supplied duplicate `messageId`.
 
+**Status 2026-10-01: DONE, exit gate met** (DEC-024; design `../PHASE3_RELAY_DESIGN.md`; owner
+chose: reset of v2 test chats with a notice, one QR secret with HKDF, relay TTL stays 7 days).
+
+- Relay API v3: self-certifying queue IDs (`q3-` + hash of a 32-byte read secret); anyone sends,
+  only the read secret reads or deletes (Bearer); the relay assigns message IDs and refuses a
+  client-supplied one; deletion is bound to the queue; limits: 64 KB body, per-IP token buckets,
+  1,000 pending per queue. The relay also starts directly on Windows now (`node src/server.mjs`).
+- App: `RelayQueueCredentials` (shared test vector with the relay), transport API with queue
+  credentials, invitation `smp-invite-v3:` (one secret, HKDF-derived seal key and mailbox secret,
+  about 100 characters, v2 codes refused), the own queue's read secret stored vault-encrypted,
+  Room v9 (`MIGRATION_8_9` resets the v2 test conversations; profile and local identity kept),
+  one-time notice.
+- Evidence (2026-10-01): relay tests 8/8; unit tests green (domain 3, signal-protocol 49, storage 4,
+  ui 13); on SM-S928B and 24048RN6CG each: storage 27/27 (incl. migration 8→9), ui 21/21 (reset,
+  encrypted secret), signal-protocol 49/49, transport 7/7 against the live relay (incl. 403 for a
+  foreign or missing secret and cross-queue deletion); lint 0 errors; release with R8 (v2 closed);
+  the owner checked the upgrade, the new QR, pairing, messages, and restart by hand on both phones.
+
 ## Phase 4 — Multi-device and revocation, done properly
 
 Goal: replace "primary-device-only, block everything else" with real fan-out.

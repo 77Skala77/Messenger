@@ -53,8 +53,11 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 ## Relay And Network Metadata
 
 - The debug relay may use HTTP (LAN or `adb reverse`); release builds reject cleartext.
-- The relay has no per-queue authentication and no rate limiting (Phase 3). Anyone who learns a
-  queue ID can read or delete its blobs (still ciphertext).
+- Relay queues are self-certifying (DEC-024): the queue ID is the hash of a read secret that only
+  the owner holds, so contacts can send but not read or delete. The relay assigns message IDs and
+  applies QA-level limits (64 KB bodies, per-IP rate, 1,000 pending per queue); this is not
+  production abuse control. Over plain HTTP (debug) the read secret travels in clear; release
+  requires HTTPS. Pending envelopes live up to 7 days on the relay.
 - The relay operator can observe client IP addresses, queue IDs, per-conversation routing tags,
   request timing, message sizes (padded to 160-byte blocks), traffic frequency, and the
   initiator's identity key in PreKey message headers.

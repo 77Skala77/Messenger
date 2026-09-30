@@ -41,7 +41,7 @@ in-app language; English is available from Settings.
 
 ## Not implemented / limits
 
-Single device per contact; no synchronized revocation; no relay authentication or rate limiting
+Single device per contact; no synchronized revocation; relay authorization and limits are QA-level
 (Phase 3); no app lock, backup, attachments, or secure erase; Android deletion cannot guarantee
 erasure of flash-storage blocks. See [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 
@@ -90,9 +90,11 @@ It listens on `0.0.0.0:8787`. A physical phone on the same Wi-Fi uses the laptop
 `http://127.0.0.1:8787` (this is how the two-phone tests of 2026-09-30 were run). Release builds
 reject cleartext relay URLs.
 
-The relay implements `POST /v1/messages`, `GET /v1/messages/{queueId}`,
-`DELETE /v1/messages/{messageId}` and `GET /health`. It stores opaque envelopes and expiry times
-but can observe queue IDs, routing tags, timing, sizes, source IPs and traffic frequency.
+The relay (API v3, DEC-024) implements `POST /v1/queues/{queueId}/messages` (anyone),
+`GET /v1/queues/{queueId}/messages` and `DELETE /v1/queues/{queueId}/messages/{messageId}` (both need
+`Authorization: Bearer <read secret>`; the queue ID is a hash of that secret) and `GET /health`. Start
+it with `node server/relay/src/server.mjs` (also on Windows). It stores opaque envelopes and expiry
+times but can observe queue IDs, routing tags, timing, sizes, source IPs and traffic frequency.
 
 ### Historical VPS evidence
 

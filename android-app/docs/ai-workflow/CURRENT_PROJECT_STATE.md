@@ -80,9 +80,10 @@ Release rejects cleartext relay URLs.
 
 ## 7. Relay and infrastructure
 
-- **ACTIVE for development/QA:** Node relay in `android-app/server/relay` (`POST /v1/messages`,
-  `GET /v1/messages/{queueId}`, `DELETE /v1/messages/{messageId}`, `GET /health`).
-- The relay is untrusted, has no per-queue authentication or rate limiting (Phase 3), and observes
+- **ACTIVE for development/QA:** Node relay in `android-app/server/relay`, API v3 (DEC-024):
+  `POST /v1/queues/{queueId}/messages`, `GET` and `DELETE` on the same path with a Bearer read
+  secret, `GET /health`. Queue IDs are self-certifying; the relay assigns message IDs.
+- The relay is untrusted, has QA-level limits only (not production abuse control), and observes
   IPs, queue IDs, routing tags, timing, sizes, and the initiator's identity key in PreKey headers.
 - Two-phone QA on 2026-09-30 used a relay on the laptop reached over USB (`adb reverse`).
 - **HISTORICAL/UNVERIFIED:** the VPS relay (`http://194.87.226.46`, HTTP by IP, legacy protocol).
@@ -116,7 +117,7 @@ UI/storage tests; its current result is **UNVERIFIED** from this machine.
 ## 10. Explicitly not implemented or not complete
 
 Independent review; v2 in release builds; multi-device fan-out and synchronized revocation; relay
-authentication and rate limiting; read receipts; app lock; encrypted backup; attachments; secure
+production relay abuse controls; read receipts; app lock; encrypted backup; attachments; secure
 wipe; production relay and HTTPS endpoint; reproducible build, signing, SBOM; external audit.
 
 ## 11. Update rules

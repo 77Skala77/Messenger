@@ -44,18 +44,22 @@ and a confirmed "Delete local data and start over"; vault failures are unchecked
 protocol verdicts; secrets-at-rest and logging tests cover every module. Results:
 `REWRITE_PLAN.md`, Phase 2.
 
+**Phase 3 (relay hardening) is done** (2026-10-01, DEC-024): self-certifying queues with read
+secrets, relay-assigned message IDs, QA-level limits, invitation v3, Room v9 (v2 test chats reset
+once with a notice). Design: `../PHASE3_RELAY_DESIGN.md`; results: `REWRITE_PLAN.md`, Phase 3.
+
 ### Next step
 
 **Model check first (owner rule, `CLAUDE.md`):** on the owner's "go", compare the active model
 with the recommendation below; if it differs, warn and ask before starting.
 
-**Phase 3 — relay hardening** (`REWRITE_PLAN.md`): per-queue authorization (a capability issued at
-queue creation, required for GET/DELETE), server-assigned message IDs, basic rate limits. It
-changes the relay API and very likely the invitation (the scanner must be allowed to read the
-inviter's mailbox), so start with a compatibility write-up and a threat review, and get owner
-decisions before code. Recommended model: Opus 5.5 · High (Sonnet 5.5 · High is enough later for
-the Node relay plumbing). Commit policy: one commit at the end of each phase, step or task (owner,
-2026-09-30).
+**Phase 4 — multi-device and revocation** (`REWRITE_PLAN.md`; TQ-104): real fan-out with one
+Double Ratchet session per contact device, revocation as an authenticated message, replacing the
+single-device-per-contact model. This is the largest protocol change left (new identity and device
+model, storage, UI for device approval, migration of contacts), so begin with a written design,
+threat review and owner decisions before any code. Recommended model: **Opus 5.5 · High** (Extra is
+reasonable for the design document itself). Commit policy: one commit at the end of each phase,
+step or task (owner, 2026-09-30).
 
 ## Operational constraints
 

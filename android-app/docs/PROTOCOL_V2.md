@@ -24,12 +24,13 @@ DEC-021 (legacy removal). Implementation history: `ai-workflow/PHASE_1E_PREP.md`
 ## Invitation and pairing (one-sided scan, explicit request)
 
 1. The inviter creates a fresh invitation: its own signed pre-key, one-time EC pre-key and
-   one-time Kyber-1024 pre-key (no last-resort key), a random routing tag, a random relay mailbox
-   ID and a random AES-256-GCM seal key. The bundle is sealed with that key and uploaded to the
-   mailbox. Lifetime: 24 hours.
-2. The QR code is `smp-invite-v2:` + base64url(version, mailbox ID, seal key, SHA-256 digest of
-   the exact sealed bytes) — 122 characters.
-3. The scanner fetches the mailbox, keeps only a blob matching the digest, opens it, validates it
+   one-time Kyber-1024 pre-key (no last-resort key), a random routing tag, and a random 32-byte
+   invitation secret. HKDF-SHA256 derives from the secret the AES-256-GCM seal key and the read
+   secret of the relay mailbox (DEC-024). The bundle is sealed and uploaded to that mailbox.
+   Lifetime: 24 hours.
+2. The QR code is `smp-invite-v3:` + base64url(version, invitation secret, SHA-256 digest of the
+   exact sealed bytes), about 100 characters. `smp-invite-v2:` codes are refused.
+3. The scanner derives the mailbox read secret, fetches the mailbox, keeps only a blob matching the digest, opens it, validates it
    strictly (exact key sizes, signatures), starts a PQXDH session, stores the inviter as a contact
    "waiting for acceptance", and sends a HELLO carrying its own receive queue and routing tag.
 4. The inviter's device turns the HELLO into a **contact request** (never a contact) showing the
@@ -93,6 +94,8 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
 - No independent review (Phase 5). Release builds have no chat.
 - Trust on first use on the accepting side; safety-number comparison is manual.
 - Single device per contact (Phase 4). Revocation is not a protocol message.
-- Relay has no per-queue authentication or rate limiting (Phase 3) and sees metadata: queue IDs,
+- Relay queues are self-certifying (DEC-024): only the holder of a queue's read secret can read or
+  delete it; contacts learn only the queue ID; the relay assigns message IDs and applies QA-level
+  limits. It still sees metadata: queue IDs,
   routing tags, sizes, timing, the initiator's identity key in PreKey headers.
 - Background sync is best effort (WorkManager, about 15 minutes or later).
