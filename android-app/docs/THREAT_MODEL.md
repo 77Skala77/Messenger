@@ -1,5 +1,7 @@
 # Threat Model
 
+> **PARTLY HISTORICAL (2026-09-30):** statements here about the prototype session layer, `STANDARD_AEAD`, v1 invitations, reciprocal pairing, device approval states, or delivery diagnostics describe code removed by DEC-021. Relay, network, and process guidance may still apply. Current protocol: [Protocol v2](PROTOCOL_V2.md).
+
 ## Status And Evidence Boundary
 
 This repository is an audit-ready MVP prototype, not a production-secure messenger.

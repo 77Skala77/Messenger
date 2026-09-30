@@ -2,159 +2,93 @@
 
 ## Status And Claim Boundary
 
-The application is an audit-ready MVP prototype, not a production-secure messenger.
-It has not completed an independent cryptographic, Android, protocol, server, privacy,
-or release-security audit and must not be represented as suitable for real sensitive
-communications.
+The application is an audit-ready MVP prototype, not a production-secure messenger. It has not
+completed an independent cryptographic, Android, protocol, server, privacy, or release-security
+audit and must not be represented as suitable for real sensitive communications.
 
-Current chats use `SimplifiedSessionManager` and the executable `STANDARD_AEAD` suite.
-There is no active PQXDH or Double Ratchet session yet — real Double Ratchet/PQXDH
-via `libsignal` is the committed direction of `docs/ai-workflow/REWRITE_PLAN.md`.
-Signal-backed sessions remain disabled pending that rewrite. `PARANOIA_C4_AEAD` was
-removed from the codebase entirely (2026-09-27) rather than kept as a disabled
-placeholder. Disabled modules, storage spikes, DTOs, interfaces, and test fixtures add no
-security guarantee to the active messaging path.
+Since 2026-09-30 the only chat path is protocol v2: official libsignal PQXDH + Double Ratchet
+([PROTOCOL_V2.md](PROTOCOL_V2.md)). It runs in **debug builds only**; release builds have no chat
+until the independent review of Phase 5 (DEC-021). The legacy prototype (`SimplifiedSessionManager`,
+`STANDARD_AEAD`, v1 invitations) was removed, and its data is deleted once on upgrade.
+`PARANOIA_C4_AEAD` was removed on 2026-09-27.
 
 ## Session And Protocol Security
 
-- The prototype static-ECDH session design does not provide the forward secrecy or
-  post-compromise recovery of a reviewed Double Ratchet.
-- The project has not demonstrated reviewed Signal Protocol interoperability.
-- Secure protocol migration, downgrade handling, rollback, and production key-management
-  behavior are not implemented.
-- The active invitation flow is a limited project-specific protocol and is not a reviewed
-  Signal prekey or PQXDH establishment flow.
+- libsignal provides the Double Ratchet's forward secrecy and post-compromise security; project
+  tests prove both through this app's store adapter, including their honest boundary: a message
+  not yet received when a device is stolen keeps its (skipped) key and is readable by the thief,
+  and healing after a compromise needs one full round trip.
+- The integration (store adapter, invitations, envelopes, pipeline) is project code and has not
+  been independently reviewed. Interoperability with Signal's own apps is neither a goal nor tested.
+- The libsignal identity private key is a software key: encrypted at rest with an Android Keystore
+  key, but present in app memory while in use (as in Signal-Android). The removed legacy identity
+  was a hardware-backed, non-exportable P-256 key.
 
-## Identity And Device Trust
+## Identity And Pairing Trust
 
-The accepted MVP policy uses warning-only trust on first use after reciprocal invitation
-import. Communication is allowed when the contact is
-`VerificationStatus.UNVERIFIED` and its matching primary device is
-`DeviceApprovalStatus.PRIMARY_UNVERIFIED`.
-
-Encryption in this state does not prove that the imported key belongs to the intended
-human. An attacker controlling the initial invitation-delivery channel can substitute the
-first imported key. The interface must continue to show that the identity is unverified,
-and the state must not be described as `VERIFIED` or as appropriate for real sensitive
-communication. Identity assurance requires later safety-number or verification-QR
-comparison through a trusted or independent channel.
-
-Contact verification and device delivery approval are separate persisted models. Current
-delivery permits primary-device states `PRIMARY_UNVERIFIED` and `VERIFIED`, and blocks:
-
-- `VerificationStatus.KEY_CHANGED`;
-- `DeviceApprovalStatus.PENDING_APPROVAL`;
-- `DeviceApprovalStatus.KEY_CHANGED`;
-- `DeviceApprovalStatus.REVOKED`;
-- a missing primary-device record.
-
-Multi-device cryptographic fan-out is not implemented. Delivery selects only the matching
-primary device and does not silently target a secondary device. Local revocation is local
-delivery policy state, not synchronized cryptographic revocation across devices.
-
-Policy also requires `VerificationStatus.UNKNOWN`, malformed enum strings, unsupported
-persisted states, corrupt trust records, and otherwise invalid trust state to fail closed.
-Complete runtime and regression evidence for every UI, direct-send, restart, migration,
-background-retry, and queued-delivery path does not yet exist.
-
-Persisted trust values use exact uppercase enum names. Migration 1 to 2 maps every contact
-verification value other than `VERIFIED` to `PRIMARY_UNVERIFIED`. Targeted runtime
-hardening and migration/retry tests remain required for old `KEY_CHANGED`, `UNKNOWN`,
-malformed, unsupported, or corrupt values before this boundary can be described as fully
-fail closed.
-
-See [Device Trust Policy](ai-workflow/DEVICE_TRUST_POLICY.md) and
-[Cryptographic Design](CRYPTO_DESIGN.md) for the accepted policy and persistence details.
+- One-sided pairing: the scanner gets the inviter's identity from the QR-committed bundle; the
+  inviter gets the scanner's identity from the HELLO and must accept a contact request. This is
+  **trust on first use** on the accepting side. A person who photographs the QR code can send one
+  request first; the only protection is comparing the 60-digit safety number through a trusted or
+  independent channel, which is manual.
+- Unaccepted requests are never contacts and get no receipts. A contact whose identity changes is
+  never trusted again (strict trust in both directions); re-pairing with a new invitation is the
+  only way forward. An identity claimed by an unauthenticated message never changes contact state.
+- Single device per contact. Multi-device fan-out and synchronized revocation are not implemented
+  (Phase 4).
 
 ## Delivery Semantics And Availability
 
-- Foreground synchronization and WorkManager retries are best effort. Android may delay
-  background work, so prompt or timely offline delivery is not guaranteed.
+- Foreground polling (chat open) and WorkManager sync (about every 15 minutes or later) are best
+  effort. Android may delay background work; timely offline delivery is not guaranteed.
 - The relay can delete, delay, reorder, replay, or withhold encrypted blobs. Authenticated
-  encryption does not prevent denial of service.
-- Malformed or unauthenticated blobs are not accepted as messages, but unusable blobs may
-  remain until later processing or expiry and can contribute to queue-filling denial of
-  service.
-- `DELIVERED` means the receiving application authenticated, decrypted, and durably stored
-  the message and the sender authenticated the resulting receipt. It does not mean the
-  human user opened or read the message.
-- User read receipts are not implemented.
-- Legacy path only (DEC-020): the legacy wire format has no authenticated sender message ID,
-  so a delivery receipt echoes the relay-visible ID. Since 2026-09-29 incoming messages are
-  stored under local IDs and receipts only update messages sent to the same contact, but a
-  malicious relay can still swap IDs among messages to the **same** contact and make one
-  dropped message show `DELIVERED`. The v2 protocol (DEC-019 T4) removes this; the legacy
-  path is deleted in step 1f.
+  encryption does not prevent denial of service. Unauthenticated or unroutable blobs are not
+  accepted and stay on the relay until expiry, which can contribute to queue filling.
+- `Delivered` means the receiving application authenticated, decrypted, and durably stored the
+  message and the sender authenticated the resulting receipt from the same contact. It does not
+  mean the person read the message. Read receipts are not implemented.
+- Invitations expire after 24 hours and can be used once. If the relay withholds the sealed bundle,
+  the inviter must show a new invitation.
 
 ## Relay And Network Metadata
 
-- The debug LAN relay may use HTTP for test convenience and exposes traffic to the local
-  network. It is not a deployable production or anonymity design.
-- Release builds reject insecure HTTP relay configuration and Android cleartext traffic.
-  This restriction does not make an unreviewed HTTPS relay production-secure.
-- An HTTPS relay protects the network hop to the endpoint but the relay operator can still
-  observe client IP addresses, queue identifiers, request timing, approximate message
-  sizes, and traffic frequency.
-- Stable queue identifiers and traffic patterns may expose linkability and social-graph
-  metadata.
-- A public relay can still withhold, delete, replay, reorder, or flood traffic and requires
-  separate abuse controls, monitoring, retention limits, logging restrictions, patching,
-  rate limiting, and incident-response planning.
-- Historical VPS or endpoint QA records do not prove current server availability,
-  ownership, configuration, authorization, security, or retention behavior.
+- The debug relay may use HTTP (LAN or `adb reverse`); release builds reject cleartext.
+- The relay has no per-queue authentication and no rate limiting (Phase 3). Anyone who learns a
+  queue ID can read or delete its blobs (still ciphertext).
+- The relay operator can observe client IP addresses, queue IDs, per-conversation routing tags,
+  request timing, message sizes (padded to 160-byte blocks), traffic frequency, and the
+  initiator's identity key in PreKey message headers.
+- Historical VPS or endpoint QA records do not prove current server availability, ownership,
+  configuration, or security.
 
 ## Devices, Local Storage, And Plaintext
 
-- Room stores message ciphertext rather than a plaintext message-body column, but the
-  database is not claimed to be fully encrypted with SQLCipher.
-- Local database structure, identifiers, table relationships, routing associated data,
-  statuses, timestamps, lookup identifiers, and access patterns may remain visible.
-- Opaque disabled Signal-store record payloads may be vault-wrapped, but their lookup and
-  address identifiers remain local metadata and the store is not active messaging
-  protection.
-- Plaintext necessarily exists in input, Compose, application, display, and process memory
-  while messages are typed, encrypted, decrypted, or displayed.
-- Screenshots, screen recording, keyboard or clipboard collection, notification leakage,
-  accessibility capture, UI automation, and memory inspection are not prevented by the
-  messaging cryptography.
-- Android Keystore reduces direct key-extraction risk but does not make an unlocked or
-  compromised device safe. Malware or a malicious operating system may capture plaintext
-  or act through the application while keys are usable.
-- App lock and biometric unlock, encrypted backup, secure device transfer, and attachment
-  or media encryption workflows are not implemented.
+- Message bodies, contact names, claimed names, and invitation text are vault-encrypted
+  (AES-GCM, Keystore key) with the row bound into the AAD; the database is not fully encrypted
+  (no SQLCipher). Table structure, identifiers, routing tags, statuses and timestamps are visible.
+- Stored history is not protected by forward secrecy: a compromise that includes the usable
+  vault key reveals stored messages.
+- Plaintext exists in input, Compose, and process memory while messages are typed or displayed.
+  Screenshots, keyboards, notifications, accessibility services, and malware are out of scope.
+- App lock, biometric unlock, encrypted backup, device transfer, and attachments are not implemented.
 
-## Local Deletion
+## Local Deletion And Legacy Reset
 
-The current local deletion path removes current Room application data, prototype session
-state, replay and retry state, disabled Signal-spike records, local queue state, nonce
-preferences, and current Keystore aliases.
+- "Delete local data" removes the profile, conversations, libsignal records (one transaction,
+  under the protocol lock), the vault key and the v2 queue ID; the relay URL is kept. Blobs
+  already on the relay expire by TTL.
+- The one-time legacy reset drops the legacy tables and removes the legacy Keystore key and
+  preferences. Neither action is a forensic secure erase: flash storage can keep old blocks.
 
-It has important limitations:
+## Build And Tooling
 
-- the configured relay URL is retained for repeated development and QA use;
-- local deletion does not request deletion of every ciphertext blob already queued on a
-  relay;
-- remaining relay ciphertext is subject to normal receipt deletion, relay behavior, and
-  TTL;
-- application deletion and Keystore alias deletion cannot guarantee forensic erasure of
-  historical flash-storage blocks.
-
-The debug reset and local deletion controls must not be described as cryptographic remote
-revocation or secure physical erasure.
-
-## Diagnostic Boundary
-
-Delivery diagnostics intentionally show technical statuses, counts, timestamps, the
-configured relay URL, and short SHA-256 fingerprints of queue identifiers. They do not
-include plaintext, cryptographic key material, nonce values, ciphertext envelopes, or
-full queue identifiers.
-
-Diagnostics are QA support. They are not cryptographic evidence, identity verification,
-metadata anonymity, or proof of current relay security.
+- AGP 8.5.2 predates Kotlin 2.2: lint's Kotlin analysis is degraded and R8 cannot parse Kotlin
+  metadata (warnings only). Tracked in TQ-009.
+- Release APK is unsigned; reproducible builds, signing, dependency verification and SBOM are
+  not in place (TQ-007, TQ-008).
 
 ## Additional Missing Production Controls
 
-The current project does not provide a complete reproducible release, signing, dependency
-verification, SBOM, backup and recovery, incident-response, production relay, or external
-security-audit process. These require separate implementation, verification, and review
-before any production-security claim.
+No complete release, signing, dependency-verification, SBOM, backup and recovery,
+incident-response, production relay, or external security-audit process exists. These require
+separate implementation, verification, and review before any production-security claim.

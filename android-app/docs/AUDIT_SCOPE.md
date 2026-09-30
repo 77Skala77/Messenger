@@ -2,34 +2,39 @@
 
 ## Status
 
-This repository is an Android MVP and audit-ready prototype. It is not
-production-secure and must not be used for real sensitive conversations.
+This repository is an Android MVP and audit-ready prototype. It is not production-secure and
+must not be used for real sensitive conversations. Updated 2026-09-30 for protocol v2 (DEC-021).
 
 ## In-Scope Components
 
-- `core:crypto`: active `STANDARD_AEAD`, AAD, nonce persistence, prototype sessions and disabled C4 boundary.
-- `core:delivery`: pending/retry flow, authenticate-before-store, replay suppression and delete-after-accept.
-- `core:storage`: Room ciphertext persistence, vault wrapping and Keystore use.
-- `core:transport` and `server/relay`: relay request handling, TTL and metadata exposure.
-- `core:ui`: security status, safe diagnostics, localization and debug/release relay controls.
-- `core:signalstore` and `core:signal-protocol`: disabled migration spike boundaries only.
+- `core:signal-protocol`: libsignal store adapter, sessions, invitation v2, envelope and payload
+  codecs, the v2 pipeline (`ConversationV2Service`).
+- `core:storage`: Room v8, Keystore vault, encrypted records, protocol transactions, legacy reset
+  migration.
+- `core:signalstore`: neutral storage boundaries.
+- `core:transport` and `server/relay`: relay requests, TTL, metadata exposure.
+- `core:ui`: release gating, request acceptance and safety numbers, background sync, legacy reset,
+  debug/release relay controls.
 
 ## Explicit State Of The Protocol
 
-- Active chats still use `SimplifiedSessionManager` based on prototype ECDH/HKDF behavior.
-- Signal-backed sessions are disabled and are not reachable from active message delivery.
-- `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27; there is no cascade implementation to scope in.
+- Chats use official libsignal PQXDH + Double Ratchet (protocol v2), in debug builds only;
+  release builds have no chat until independent review.
+- The legacy prototype (`SimplifiedSessionManager`, `STANDARD_AEAD`) and `PARANOIA_C4_AEAD` are
+  removed; there is nothing of them to scope in.
 - LAN `http://` relay access is debug-only; release configuration blocks insecure HTTP URLs.
 
 ## Review Objectives
 
-- Establish whether active AEAD/nonce/AAD and local storage boundaries match their stated MVP guarantees.
-- Confirm relay delivery ordering, retry durability, replay suppression and fail-closed device policy.
-- Verify diagnostics and logs do not emit plaintext, keys, nonces, ciphertext or full queue identifiers.
-- Review the gate for a later official libsignal integration without treating the spike as an implemented protocol.
+- Confirm the store adapter and pipeline preserve libsignal's guarantees (forward secrecy,
+  post-compromise security, replay rejection) and fail closed on identity changes.
+- Review invitation v2 (commitment, sealing, one-time keys) and the request/TOFU flow.
+- Review transaction atomicity, relay deletion ordering, receipts, and background sync.
+- Verify logs never contain plaintext, keys, ciphertext, or full queue IDs.
+- Confirm v2 is unreachable in release builds.
 
 ## Out Of Scope As A Completed Guarantee
 
-Production protocol readiness, metadata anonymity, synchronized multi-device revocation,
-secure deletion, full app compromise resistance, independent crypto assurance and
-reproducible release artifacts remain unimplemented or unaudited.
+Production protocol readiness, metadata anonymity, multi-device and synchronized revocation,
+relay authentication, secure deletion, full device-compromise resistance, independent crypto
+assurance, and reproducible release artifacts remain unimplemented or unaudited.

@@ -125,6 +125,60 @@ Original proposals, kept for history:
    worked by hand. `mapping.txt`: no non-synthetic libsignal class renamed; app classes are
    obfuscated, so R8 really ran.
 
+## Step 1f evidence (2026-09-30)
+
+Owner decisions: DEC-021. 1f-A (proofs) is described under sub-step 7 above and in
+`REWRITE_PLAN.md`. 1f-B removed the legacy prototype, `:core:crypto`, `:core:delivery`, and the
+spikes; added `MIGRATION_7_8`, `LegacyReset`, WorkManager sync for v2 (`V2SyncWorker`), the
+release gate `enable_v2_protocol`, and runs "delete local data" under the protocol lock.
+
+Automated checks on the development machine (JDK 17, AGP 8.5.2, Kotlin 2.2.20):
+
+| Check | Result |
+| --- | --- |
+| `:app:assembleDebug` | passed |
+| `test` (all modules, debug and release variants) | 123 test runs (63 distinct tests), 0 failures |
+| `:app:lintDebug` | 0 errors, 54 warnings (TQ-009) |
+| `:core:signal-protocol:connectedDebugAndroidTest` | 46/46 on SM-S928B and on 24048RN6CG |
+| `:core:storage:connectedDebugAndroidTest` (includes migration 7→8) | 20/20 on each phone |
+| `:core:ui:connectedDebugAndroidTest` (includes `LegacyResetInstrumentedTest`, `V2PipelineWipeInstrumentedTest`) | 16/16 on each phone (see note) |
+| `:core:transport:connectedDebugAndroidTest` (live relay over `adb reverse`) | 5/5 on each phone |
+| Relay `node --test` | 3/3 |
+| `:app:assembleRelease` (R8) | passed; unsigned APK 357.3 MB, 4 ABIs, only `libsignal_jni.so`, no desktop natives |
+
+Note on the ui run: in the first full run, 3 `LanguageSwitcherUiInstrumentedTest` cases failed on
+SM-S928B only, in `@Before` (`ComposeTimeoutException`, nothing displayed within 5 s). The run took
+24 minutes and the phone's screen turns off after 10; the same APK passed 16/16 on both phones
+right after waking the screens. The first run also had one real failure, fixed before the rerun:
+`relayClientAddressWarning` did not recognise `[::1]` because `java.net.URI` keeps IPv6 brackets.
+
+Release gating, checked in the built release APK: `aapt2 dump resources` shows
+`enable_v2_protocol = false`, `enable_debug_qa_tools = false`, `allow_insecure_relay_http =
+false`. libsignal is packaged (the code is shared with debug) but nothing constructs the pipeline
+when the flag is false. `mapping.txt`: no non-synthetic libsignal class renamed; 184 of 190 app
+classes renamed, the rest are entry points (activities, application, Room database, the
+WorkManager worker, which returns at once in release).
+
+Upgrade from a 6b build on both phones (`adb install -r`): Android started the app process in
+the background for a WorkManager job right after the update; `LegacyReset` ran there (legacy
+preferences gone, `notice_pending = true`) with no errors in the log.
+
+Manual check by the owner on both phones after that upgrade (local relay over `adb reverse`),
+all passed:
+
+1. The one-time legacy-reset notice appeared once on each phone and did not return after a
+   restart.
+2. The v2 chat opened directly (no switch); existing v2 contacts and history were kept.
+3. Messages in both directions reached `Delivered`.
+4. Background sync: with the app on the Redmi closed (swiped away), a message sent from the
+   Samsung was fetched by the scheduled `V2SyncWorker` run (JobScheduler: started 17:34:03,
+   finished normally after 2.4 s, launcher in the foreground), and the Samsung showed
+   `Delivered`; the message was in the Redmi chat when opened.
+
+QA note: `adb shell cmd jobscheduler run -f <package> <job>` does not make WorkManager run
+periodic work early; WorkManager cancels such a run and reschedules it. Wait for the scheduled
+run instead (`adb shell dumpsys jobscheduler <package>` shows the remaining delay).
+
 ## Constraints that apply (from `AGENTS.md`)
 
 - Never weaken fail-closed behavior, replay tracking, or receipt semantics ("Delivered" only
@@ -132,9 +186,11 @@ Original proposals, kept for history:
 - Never log keys, sessions, raw payloads, or full queue ids.
 - Describe old/new formats, compatibility, migration/rollback, downgrade and cross-protocol
   risks before changing any wire or storage format.
-- Final report must state: active chat path changed; `SIGNAL_BACKED_SESSIONS_ENABLED` value;
-  `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` value; official libsignal active in normal
-  chats; normal v1 invitation flow changed; `PARANOIA_C4_AEAD` reintroduced (must be no).
+- Final report fields at the time of 1e: active chat path changed;
+  `SIGNAL_BACKED_SESSIONS_ENABLED` value; `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED`
+  value; official libsignal active in normal chats; normal v1 invitation flow changed;
+  `PARANOIA_C4_AEAD` reintroduced (must be no). Since 1f the flags and the v1 flow no longer
+  exist; the current report fields are in `AGENTS.md`.
 
 ## Recommended working mode
 

@@ -1,5 +1,7 @@
 # Security Warnings
 
+Updated 2026-09-30 for protocol v2 (DEC-021).
+
 ## Required User Warning
 
 This is an MVP and audit-ready prototype only. Do not use it for real sensitive
@@ -8,46 +10,36 @@ server or privacy audit.
 
 ## Explicitly Unsafe Or Incomplete For Production
 
-- Simplified ECDH session setup is not X3DH/PQXDH plus Double Ratchet.
-- Debug relay synchronization is wired, but it exposes queue/timing/size/IP metadata
-  and is not a production transport.
-- Failed delivery is persisted and can be retried by a WorkManager worker, but
-  background execution is best effort, may be delayed by Android, and is not a
+- Chats use official libsignal PQXDH + Double Ratchet (protocol v2, `PROTOCOL_V2.md`), but only
+  in debug builds. Release builds have no chat until the independent review of Phase 5
+  (`enable_v2_protocol = false`). The project's store adapter, invitation format, and pipeline
+  around libsignal are unaudited.
+- Trust on first use: the inviter accepts a contact request after seeing an unverified claimed
+  name and a safety number. Comparing safety numbers in person is the only identity check.
+- Single device per contact; no multi-device fan-out and no synchronized revocation.
+- The relay is untrusted and exposes metadata: IP addresses, queue IDs, routing tags, timing,
+  sizes, and the initiator's identity key in the first (PreKey) messages. It has no per-queue
+  authentication or rate limiting yet (Phase 3).
+- Background sync uses WorkManager and is best effort: Android may delay it, and it is not a
   guarantee of timely offline delivery.
-- Delivery receipts are encrypted control messages and contain no plaintext, but they
-  still reveal minimal delivery metadata to the peers. `Delivered` means the receiving
-  device accepted, decrypted and stored the message; it is not a read receipt.
-- Debug builds permit a user-selected cleartext LAN relay URL for two-device testing.
-  It is not a secure deployment transport and exposes network metadata.
-- Public HTTPS tunnel/VPS relay testing is QA-only. It helps a phone and emulator
-  reach the same relay, but it still exposes relay metadata and is not production
-  infrastructure.
-- A VPS HTTPS relay is not trusted. HTTPS protects the network hop to the server,
-  but the relay can still observe IP addresses, request timing, queue metadata,
-  approximate message sizes and traffic frequency. It must not store messages beyond
-  TTL and must use secret-free logs.
-- The confirmed public `http://194.87.226.46` endpoint is a temporary debug/QA
-  exception only. Public HTTP by IP is not acceptable for release or production.
-  Configure a domain name and HTTPS before broader testing.
-- VPS SSH access was hardened for QA with public-key login, disabled password login
-  and disabled keyboard-interactive login. This reduces one operational risk, but it
-  does not make the relay trusted or production-ready.
-- The debug-only test-data reset intentionally preserves the configured relay URL for
-  repeated LAN QA while removing local profiles, cryptographic/delivery state and
-  diagnostics. It is not a forensic secure-erasure claim.
-- Release builds reject `http://` relay configuration and Android cleartext traffic;
-  this hardening does not make an unreviewed HTTPS relay production-safe.
-- New devices can be staged, approved and locally revoked; true per-device sessions,
-  cryptographic multi-device fan-out, synchronized revocation, metadata protection,
-  app lock, secure backup and attachment handling are incomplete.
-- The official `libsignal` dependency is only a disabled migration gate. It does not
-  make current chats Double Ratchet sessions.
-- `core:signalstore` stores encrypted opaque spike records and an experimental v2
-  invitation DTO only. `SIGNAL_BACKED_SESSIONS_ENABLED` is false; none of this
-  creates a Signal-backed chat or verifies PQXDH data.
-- No forensic secure-delete assurance is possible in this version.
-- Basic release defaults now disable cleartext networking and enable shrinking, but
-  no reproducible-build review or external release-hardening audit has been completed.
+- `Delivered` means the contact's device authenticated, decrypted, and stored the message; it is
+  not a read receipt. Receipts are encrypted but reveal delivery metadata to the peers.
+- Debug builds permit a user-selected cleartext `http://` relay URL for testing. It is not a
+  secure deployment transport.
+- A VPS HTTPS relay is not trusted either: HTTPS protects the network hop, but the relay still
+  observes the metadata above. It must not store messages beyond TTL and must use secret-free
+  logs. The old `http://194.87.226.46` endpoint is historical and not acceptable for release.
+- Local data is encrypted field by field with a Keystore-backed vault key; the database structure
+  and metadata are visible (not SQLCipher). The libsignal identity private key is a software key
+  encrypted at rest.
+- "Delete local data" and the debug test reset remove records and keys, but flash storage gives
+  no forensic secure-deletion guarantee.
+- Legacy prototype data is deleted once on upgrade (`MIGRATION_7_8`, `LegacyReset`); legacy
+  conversations cannot be continued or converted.
+- Release builds reject `http://` relay configuration and Android cleartext traffic; this does
+  not make an unreviewed HTTPS relay production-safe. The release APK is unsigned and has no
+  reproducible-build review.
+- App lock, encrypted backup, and attachments are not implemented.
 
 ## Paranoia C4 (removed)
 
@@ -60,11 +52,8 @@ have added provable security over a single reviewed AEAD suite in any case.
 ## Logging And Diagnostics Policy
 
 Never log or export plaintext, decrypted attachments, passwords, private keys, session
-keys, message keys, nonce values, or raw encrypted envelopes tied to identifiable users.
-The delivery diagnostics screen exports only technical statuses, counters, formatted
-timestamps, grouped event names, last-error labels and short SHA-256 queue fingerprints,
-with a 100-event cap. This redaction boundary still requires audit review and is not
-a metadata-anonymity guarantee.
+keys, message keys, nonce values, ciphertext, or full queue IDs. The app has no diagnostics
+export screen (the legacy one was removed in step 1f).
 The optional QA logcat scripts sanitize labelled sensitive fields before saving or
 displaying output, but QA must use disposable messages: scripts cannot recognize
 arbitrary sensitive text introduced by future accidental logging.

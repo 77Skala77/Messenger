@@ -1,5 +1,7 @@
 # Testing Checklist — Secure Messenger MVP
 
+> **PARTLY HISTORICAL (2026-09-30):** statements here about the prototype session layer, `STANDARD_AEAD`, v1 invitations, reciprocal pairing, device approval states, or delivery diagnostics describe code removed by DEC-021. Relay, network, and process guidance may still apply. Current protocol: [Protocol v2](../PROTOCOL_V2.md).
+
 Use this checklist to select, run, and report verification for repository changes.
 
 This checklist supplements `../../AGENTS.md`. It does not require every command for every task. Verification must match the actual changed-file scope and risk.

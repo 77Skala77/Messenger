@@ -7,67 +7,62 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 1. [`../../AGENTS.md`](../../AGENTS.md)
 2. [`README.md`](README.md)
 3. [`CURRENT_PROJECT_STATE.md`](CURRENT_PROJECT_STATE.md)
-4. [`DEVICE_TRUST_POLICY.md`](DEVICE_TRUST_POLICY.md)
-5. [`TASK_QUEUE.md`](TASK_QUEUE.md)
-6. [`DECISIONS.md`](DECISIONS.md)
-7. The checklist relevant to the task
+4. [`../PROTOCOL_V2.md`](../PROTOCOL_V2.md)
+5. [`REWRITE_PLAN.md`](REWRITE_PLAN.md)
+6. [`TASK_QUEUE.md`](TASK_QUEUE.md)
+7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-021)
+8. The checklist relevant to the task
 
 ## Source-of-truth warning
 
-- Repository: `https://github.com/77Skala77/Messenger`
-- Authoritative branch: `main`
-- Last verified parent HEAD before this documentation update: `abfa1475b24fefd0b39860d6e0a42005f0fa2910`
-- Last executable/configuration baseline: `c974e460b827022a841e374a95cb1ed736b2c25b`
-- Read the current HEAD from GitHub; this file does not self-reference its own commit.
-- The previous local clone and unpushed commits are unavailable.
+- Repository: `https://github.com/77Skala77/Messenger`, branch `main`.
+- The owner pushes. Check `git log origin/main..main` for local commits not yet pushed.
 - Historical chat reports are context only, not repository evidence.
 
 ## Current handoff
 
-**Date:** 2026-07-26
+**Date:** 2026-09-30
 
-**Workstream:** Device-state audit and accepted trust-policy recording
+**Workstream:** `REWRITE_PLAN.md` Phase 1 — official libsignal (PQXDH + Double Ratchet)
 
-**Status:** TQ-003 audit completed; warning-only trust-on-first-use policy approved and recorded in a focused decision file; broader documentation reconciliation remains pending
+**Status:** Phase 1 (steps 1a–1f) done; the Phase 1 exit gate is met. Evidence:
+`PHASE_1E_PREP.md` ("Step 1f evidence") and `REWRITE_PLAN.md` (progress list).
 
-**Runtime changes:** None
+**Runtime:** protocol v2 is the only chat path, in debug builds only. Release builds show a
+"not for messaging" screen (`enable_v2_protocol = false`, DEC-021). The legacy prototype and
+the modules `:core:crypto` and `:core:delivery` are deleted.
 
-**Room/schema changes:** None
+**Room:** schema v8 (`MIGRATION_7_8` drops the legacy tables). Legacy Keystore key and
+preferences are removed once on upgrade by `LegacyReset`, with a one-time notice.
 
-**Build/tests:** Not run; this change is documentation-only and no desktop Android environment is available
+### Next step
 
-### Completed
+Choose one (both are allowed by the plan):
 
-- Integrated the original ten-file workflow package into `main` at `abfa1475b24fefd0b39860d6e0a42005f0fa2910`.
-- Audited contact/device state types, Room persistence, migration 1 → 2, planner behavior, UI labels, and existing tests.
-- Verified separate persisted models:
-  - `VerificationStatus`: `VERIFIED`, `UNVERIFIED`, `KEY_CHANGED`, `UNKNOWN`;
-  - `DeviceApprovalStatus`: `PRIMARY_UNVERIFIED`, `VERIFIED`, `PENDING_APPROVAL`, `KEY_CHANGED`, `REVOKED`.
-- Project owner approved warning-only trust on first use for reciprocal-paired `UNVERIFIED` / `PRIMARY_UNVERIFIED`.
-- Recorded that decision in [`DEVICE_TRUST_POLICY.md`](DEVICE_TRUST_POLICY.md) and indexed it in the workflow README.
-
-### Important current boundary
-
-- `UNVERIFIED` / `PRIMARY_UNVERIFIED` is allowed for initial remote communication only with a clear identity-not-verified warning.
-- It must not be described as verified or safe for real sensitive communication.
-- `KEY_CHANGED`, `PENDING_APPROVAL`, `REVOKED`, and missing primary state block delivery.
-- `UNKNOWN`, malformed, unsupported, or invalid persisted trust state is required to fail closed.
-- Current runtime/test evidence for every unknown/invalid case is incomplete; a focused code and regression-test task remains required.
-- Room stores exact uppercase enum names; do not rename without migration and tests.
-- Older conflicting wording in `AGENTS.md`, `DECISIONS.md`, `CURRENT_PROJECT_STATE.md`, and checklists has not yet been fully reconciled; the focused accepted policy file takes precedence for this issue until TQ-004 updates those documents.
-
-## Exact next step
-
-TQ-004 — audit and reconcile non-workflow and workflow project documentation one file at a time, beginning with `android-app/README.md`, then update the central workflow documents without overstating runtime hardening.
-
-That pass must replace shorthand such as `pending`, `verified`, `revoked`, and `key_changed` with precise type-qualified terminology where technical identifiers are intended, while preserving localized UI labels where screen text is being described.
+1. **TQ-009** — dependency and AGP update (51 lint warnings; R8 and lint cannot parse Kotlin 2.2
+   metadata under AGP 8.5.2). Owner asked to do it after the Phase 1 exit gate and before
+   Phase 6. Doing it now gives Phases 2–5 a clean lint/R8 signal.
+2. **Phase 2 — storage hardening**: key-loss behavior (Keystore key invalidated → fail closed,
+   plainly told to the user), re-verify that no protocol secret reaches an unencrypted column.
 
 ## Operational constraints
 
-- Only the Android phone is currently available.
-- Local Gradle, SDK, emulator, ADB, release-build, and VPS verification cannot be assumed.
+- Development machine: Windows, ~3.9 GB RAM, JDK 17 and Android SDK on drive D (`README.md` has
+  the low-memory Gradle flags). A full `assembleRelease` takes about 35 minutes.
+- Test phones: Samsung S24 Ultra (SM-S928B) and Redmi A3x (24048RN6CG), Android 16, over USB.
+  The relay runs on the laptop at `127.0.0.1:8787` and the phones reach it through
+  `adb reverse tcp:8787 tcp:8787`.
+- Known Windows quirk: `node src/server.mjs` exits without starting, because its main-module
+  check compares `import.meta.url` with `file://` + the argv path, which never matches on
+  Windows. Start the relay with a one-line wrapper that imports `createRelayServer` from
+  `src/server.mjs` and calls `.listen(8787, "127.0.0.1")`. Not fixed yet.
+- Instrumented Compose tests fail with `ComposeTimeoutException` if a phone's screen turns off
+  during a long run (the S24 turns it off after 10 minutes): wake the screens before running
+  `:core:ui:connectedDebugAndroidTest`.
+- WorkManager does not run periodic work early when the job is forced with
+  `cmd jobscheduler run -f`; to test background sync, wait for the scheduled run.
 - Skipped verification must be reported as skipped, never passed.
-- Do not commit or push future changes without explicit user approval.
+- Do not commit or push without explicit owner approval.
 
 ## Replacement rule
 

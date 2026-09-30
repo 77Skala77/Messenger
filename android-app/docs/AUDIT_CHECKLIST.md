@@ -1,45 +1,49 @@
 # Audit Checklist
 
-## Protocol And Feature Gates
+Updated 2026-09-30 for protocol v2 (DEC-021).
 
-- [ ] Confirm active chats instantiate `SimplifiedSessionManager`, with its non-production limitation visible in documentation.
-- [ ] Confirm Signal-backed session feature flags remain disabled and no active delivery path calls the adapter.
-- [ ] Confirm `PARANOIA_C4_AEAD` is absent from the codebase (removed 2026-09-27) and was not reintroduced in any form.
+## Protocol And Release Gates
 
-## Payload And Local Data
+- [ ] Confirm `enable_v2_protocol` is `false` in main (release) resources and that release builds never construct the pipeline, create a libsignal identity, or schedule v2 work.
+- [ ] Confirm the legacy prototype (`SimplifiedSessionManager`, `STANDARD_AEAD`, v1 invitations) and `PARANOIA_C4_AEAD` are absent and not reintroduced in any form.
+- [ ] Confirm legacy envelopes and v1 invitations are rejected by v2, and the legacy reset runs once.
 
-- [ ] Review `STANDARD_AEAD` nonce uniqueness and authenticated AAD enforcement.
-- [ ] Confirm wrong AAD/tag fails before local plaintext acceptance.
-- [ ] Confirm persisted messages and session records do not store plaintext payloads.
-- [ ] Confirm private device keys remain under Android Keystore boundaries where designed.
+## Protocol v2
+
+- [ ] Review the store adapter: strict identity trust, one-time Kyber deletion, last-resort reuse rejection.
+- [ ] Review invitation v2: one-time pre-keys, digest commitment, seal, strict parsing, expiry.
+- [ ] Review the request flow: unaccepted requests never become contacts or get receipts.
+- [ ] Confirm untrusted-identity results on receive never change contact state.
+- [ ] Confirm each decrypt/encrypt step commits atomically with its stored result, and relay deletion follows the commit.
+- [ ] Re-run `ForwardSecrecyTest` and `ConversationV2RoomProofInstrumentedTest`.
+
+## Local Data
+
+- [ ] Confirm message bodies, names, and invitation text are vault-encrypted with row-bound AAD.
+- [ ] Confirm protocol ciphertext is not kept after sending and plaintext never reaches the database file.
+- [ ] Confirm "delete local data" removes every conversation and libsignal record, the vault key, and the v2 queue ID.
 
 ## Relay Delivery
 
-- [ ] Verify pending-before-send, retry metadata and WorkManager execution.
-- [ ] Verify authenticate-before-store, atomic replay marker persistence and delete-after-accept.
-- [ ] Verify duplicate/replay input cannot create duplicate visible plaintext.
-- [ ] Verify pending, revoked, changed or missing primary devices fail closed.
+- [ ] Verify retries, backoff, and WorkManager execution (best effort only).
+- [ ] Verify byte-identical re-deliveries are deleted without decryption and no duplicate plaintext appears.
+- [ ] Verify receipts only mark TEXT messages sent to the same contact.
 
-## Diagnostics And Privacy
+## Privacy
 
-- [ ] Inspect copied diagnostic report: no plaintext, keys, nonce values, ciphertext or full queue IDs.
-- [ ] Confirm queue identifiers appear only as short hashes and technical event log is capped at 100 entries.
-- [ ] Confirm logs do not contain sensitive fields.
-- [ ] Record relay metadata limitations and the visible configured relay URL.
-- [ ] Inspect the preflight summary boundary and QA logcat redaction: no payload, key, nonce, ciphertext or full queue identifier.
+- [ ] Confirm logs contain no plaintext, keys, ciphertext, or full queue IDs.
+- [ ] Record relay metadata limitations (queue IDs, routing tags, sizes, timing, PreKey identity).
 
 ## Debug And Release
 
-- [ ] Confirm debug build visibly warns when LAN `http://` relay is configured.
-- [ ] Confirm release build rejects insecure HTTP relay URLs and Android cleartext networking.
-- [ ] Confirm LAN HTTP testing is described as debug-only, never production transport.
-- [ ] Confirm debug-only test reset requires confirmation, clears local test/delivery/diagnostic state and intentionally preserves only Relay URL configuration.
-- [ ] Confirm physical-phone warnings reject `127.0.0.1`, `localhost` and `0.0.0.0` as LAN client test addresses while emulator `10.0.2.2` is not misclassified.
+- [ ] Confirm the debug build visibly warns when an `http://` relay is configured.
+- [ ] Confirm release rejects insecure HTTP relay URLs and cleartext networking.
+- [ ] Confirm the debug test reset requires confirmation and keeps only the relay URL.
 
 ## Evidence
 
-- [ ] Run Gradle build, unit tests and lint.
-- [ ] Run connected UI/storage/transport checks on a test Android device.
+- [ ] Run Gradle build, unit tests, and lint.
+- [ ] Run connected signal-protocol, storage, ui, and transport tests on a device.
 - [ ] Run relay Node tests.
-- [ ] Record the two-device QA result using `MANUAL_TWO_DEVICE_QA.md` without exporting sensitive content.
+- [ ] Record a two-phone manual run (pairing, safety numbers, messages, receipts, relay outage).
 - [ ] When troubleshooting, capture only sanitized evidence according to `LOGCAT_QA.md`.

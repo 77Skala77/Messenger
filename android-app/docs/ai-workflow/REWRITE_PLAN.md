@@ -99,18 +99,28 @@ Progress:
   across signal-protocol and signalstore) and 12 storage instrumented tests on a physical
   device (including the 5→6 migration) pass. Semantics recorded in `DECISIONS.md` DEC-018.
   Still disabled: nothing in the app uses the adapter.
-- 1e — **IN PROGRESS**: design approved (DEC-019, 2026-09-29); legacy relay message-ID fix
-  (DEC-020); sub-steps 2–5 done and verified on JVM and SM-S928B (session wrapper, invitation
-  v2, envelope/payload v2, Room v7 storage with atomic transactions); sub-step 6a pipeline
-  written with 12 end-to-end JVM tests; 6b UI behind a hidden debug QA switch (default OFF,
-  impossible in release) verified by hand on two physical phones; sub-step 7 release build
-  with R8 succeeds.
-- 1f — **IN PROGRESS** (owner decisions DEC-021): 1f-A proofs — forward secrecy,
+- 1e — **DONE** (2026-09-30): design approved (DEC-019); legacy relay message-ID fix
+  (DEC-020); sub-steps 2–5 verified on JVM and SM-S928B (session wrapper, invitation v2,
+  envelope/payload v2, Room v7 storage with atomic transactions); 6a pipeline with end-to-end
+  JVM tests; 6b UI verified by hand on two physical phones; 7 release build with R8 succeeds.
+  Status per sub-step: `PHASE_1E_PREP.md`.
+- 1f — **DONE** (2026-09-30, owner decisions DEC-021). 1f-A proofs: forward secrecy,
   post-compromise security and the skipped-key boundary (`ForwardSecrecyTest`, JVM and device),
   Room-backed two-device and plaintext-at-rest tests (`ConversationV2RoomProofInstrumentedTest`),
-  and libsignal under R8 verified by hand with the `qaMinified` build. Next, 1f-B: v2
-  background sync, automatic explicit legacy reset (Room v8), legacy code removal, flags, docs. Nothing is enabled in the app. Status per sub-step:
-  `PHASE_1E_PREP.md`.
+  libsignal under R8 verified by hand with the `qaMinified` build. 1f-B: the legacy prototype,
+  `:core:crypto`, `:core:delivery` and the spikes are deleted; `MIGRATION_7_8` drops the legacy
+  tables and `LegacyReset` removes the legacy Keystore key and preferences once, with a one-time
+  notice (tested on device); v2 is the only chat path in debug builds, with WorkManager
+  background sync; release builds show a "not for messaging" screen
+  (`enable_v2_protocol = false`). Upgrade from the 6b build, the one-time notice, messaging, and
+  background delivery with the receiving app closed were verified by hand on both phones.
+  Protocol summary: `../PROTOCOL_V2.md`.
+
+**Phase 1 exit gate — status 2026-09-30: MET.** Every item below was proven by real builds and
+test runs on two physical phones (evidence: `PHASE_1E_PREP.md`, "Step 1f evidence").
+
+The original Phase 1 work list follows for reference; it is done, and the names it mentions
+(`OfficialSignalDoubleRatchetGate`, `DeliveryPipeline.kt`) no longer exist.
 
 - Turn on `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` behind a feature flag.
   Legacy prototype conversations are reset explicitly when the new protocol ships
@@ -142,6 +152,12 @@ an installed toolchain — not by code review alone.
 ## Phase 2 — Storage hardening
 
 Goal: make sure the new protocol state is stored at least as safely as before.
+
+Already done in Phase 1 (2026-09-30): real migrations 5→6 (libsignal records), 6→7 (v2
+tables) and 7→8 (legacy tables dropped, DEC-021), each with an instrumented test; a
+plaintext-at-rest test over the database files. Because legacy data is now reset on purpose,
+the exit gate below means "v5 prototype data is dropped cleanly while profile, libsignal and v2
+rows survive", not "kept intact".
 
 - Room migration for the new signal record tables (schema is already v5 with
   placeholder tables for this — write the real migration, not just `CREATE TABLE`).

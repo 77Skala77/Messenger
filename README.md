@@ -1,56 +1,43 @@
 # Secure Messenger MVP / Защищённый мессенджер MVP
 
-Native Android audit-ready prototype for a private 1-to-1 messenger, with a Kotlin
-Compose app and a minimal development relay. Russian is the default app language;
-English is available in Settings.
+Native Android prototype of a private 1-to-1 messenger, with a Kotlin Compose app and a minimal
+development relay. Russian is the default app language; English is available in Settings.
 
-> **Security warning:** this repository is an MVP for development verification and
-> security review. It is not production-secure and must not be used for real
-> sensitive conversations.
+> **Security warning:** this repository is an MVP for development verification and security
+> review. It is not production-secure and must not be used for real sensitive conversations. The
+> protocol integration has not had an independent security review.
 
-Current chats use the prototype `SimplifiedSessionManager`, not Signal
-PQXDH/Double Ratchet. The Signal-backed store is a disabled migration spike only,
-now being finished into a real integration — see
+Since 2026-09-30 chats use official **libsignal PQXDH + Double Ratchet** (protocol v2), in
+**debug builds only**; release builds have no chat until the independent review of Phase 5. The
+earlier prototype session layer (`SimplifiedSessionManager`, `STANDARD_AEAD`) was removed, and old
+test chats are deleted once on upgrade. `PARANOIA_C4_AEAD` was removed on 2026-09-27. See
+[`android-app/docs/PROTOCOL_V2.md`](android-app/docs/PROTOCOL_V2.md) and
 [`android-app/docs/ai-workflow/REWRITE_PLAN.md`](android-app/docs/ai-workflow/REWRITE_PLAN.md).
-`PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27; it is not
-present in any form, not merely disabled.
 
-Confirmed QA: a physical Android phone and Android Emulator exchanged messages via
-the local Node relay, delivery receipts updated outgoing messages to `Delivered`,
-and WorkManager/background sync resent pending retry messages after relay recovery.
-`Delivered` is not a read receipt; user read receipts are not implemented.
+Verified on 2026-09-30: automated tests on the JVM and on two physical phones (Samsung S24 Ultra,
+Redmi A3x) including forward secrecy and post-compromise security proofs, plus manual two-phone
+pairing, messaging, `Delivered` receipts and relay-outage recovery. `Delivered` is not a read
+receipt; read receipts are not implemented.
 
 ## Build And Test
 
 ```bash
 cd android-app
-./gradlew :app:assembleDebug test lintDebug
+./gradlew :app:assembleDebug test :app:lintDebug
 cd server/relay
 node --test
 ```
 
-Local Node relay is enough for LAN/debug QA. For phone + emulator tests outside one
-local network, use a public HTTPS relay URL and the VPS deployment examples under
-`android-app/deploy`; this is still QA infrastructure, not a production-security
-claim.
-
-Confirmed VPS QA: an Ubuntu 24.04 LTS VPS served the relay through Caddy and
-systemd, survived reboot, and delivered messages plus delivery receipts between a
-physical phone and Android Emulator. The tested public endpoint was temporary
-debug-only HTTP by IP: `http://194.87.226.46`. It is not suitable for release or
-production use. SSH public-key login was verified and password login was disabled.
-A domain name and HTTPS are required before broader testing.
+A local Node relay is enough for LAN/USB debug QA. A public relay is still untrusted QA
+infrastructure, not production. The historical VPS test endpoint (`http://194.87.226.46`, HTTP by
+IP, legacy protocol) is unverified and must not be used as current infrastructure.
 
 ## Documentation
 
 - [Android app and relay overview](android-app/README.md)
-- [Crypto-core rewrite plan (active)](android-app/docs/ai-workflow/REWRITE_PLAN.md)
-- [Two-device LAN test](android-app/docs/TWO_DEVICE_TEST.md)
-- [Manual two-device QA checklist](android-app/docs/MANUAL_TWO_DEVICE_QA.md)
-- [Crypto design](android-app/docs/CRYPTO_DESIGN.md)
+- [Protocol v2 (current design)](android-app/docs/PROTOCOL_V2.md)
+- [Rewrite plan](android-app/docs/ai-workflow/REWRITE_PLAN.md)
+- [Known limitations](android-app/docs/KNOWN_LIMITATIONS.md)
 - [Security warnings](android-app/docs/SECURITY_WARNINGS.md)
 - [VPS HTTPS relay deployment](android-app/docs/VPS_RELAY_DEPLOYMENT.md)
 - [Relay deployment examples](android-app/deploy/README.md)
-- [Audit scope](android-app/docs/AUDIT_SCOPE.md)
-- [Known limitations](android-app/docs/KNOWN_LIMITATIONS.md)
-- [Audit checklist](android-app/docs/AUDIT_CHECKLIST.md)

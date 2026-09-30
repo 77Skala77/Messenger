@@ -1,5 +1,7 @@
 # VPS Relay Deployment For Controlled QA
 
+> **PARTLY HISTORICAL (2026-09-30):** statements here about the prototype session layer, `STANDARD_AEAD`, v1 invitations, reciprocal pairing, device approval states, or delivery diagnostics describe code removed by DEC-021. Relay, network, and process guidance may still apply. Current protocol: [Protocol v2](PROTOCOL_V2.md).
+
 ## Role And Claim Boundary
 
 **Repository baseline reviewed:** `32433ef4aba5110e2670525430ed41bf72def8f5`

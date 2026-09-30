@@ -1,5 +1,7 @@
 # Phone + Emulator Relay QA
 
+> **HISTORICAL (2026-09-30):** this document describes the removed legacy prototype (static-ECDH session layer, `STANDARD_AEAD`, v1 invitations, reciprocal pairing, device approval states), deleted by DEC-021. It is kept for history and audit context only and does not describe current code. Current design: [Protocol v2](PROTOCOL_V2.md).
+
 ## Роль И Граница Доказательств
 
 **Проверенная база репозитория:** `83785913910b9ee2ccc63f96c6c922cd39e678c5`

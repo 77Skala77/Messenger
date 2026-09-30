@@ -62,17 +62,18 @@ Reverify branch, HEAD, issues, pull requests, and repository state before starti
 
 1. ~~TQ-002 — Add the approved workflow package to GitHub~~ — DONE
 2. ~~TQ-004 — Reconcile existing project documentation~~ — DONE
-3. TQ-003 — Audit canonical device-state identifiers
-4. TQ-005 — Rebuild a trusted development environment
-5. TQ-006 — Re-establish the executable verification baseline
-6. TQ-007 — Establish the release-variant baseline
+3. ~~TQ-003 — Audit canonical device-state identifiers~~ — CANCELLED (legacy states removed,
+   DEC-021)
+4. ~~TQ-005 — Rebuild a trusted development environment~~ — DONE
+5. TQ-006 — Re-establish the executable verification baseline (clean-clone run open)
+6. TQ-007 — Establish the release-variant baseline (signing, `lintRelease`, manifest audit open)
 7. TQ-008 — Add dependency verification, locking, and SBOM workflow
 8. TQ-009 — Update outdated dependencies and AGP (51 lint warnings) — DEFERRED until after the
    Phase 1 exit gate and before Phase 6 (owner request, 2026-09-29)
 
-Signal migration, production relay, and independent audit tasks remain blocked, and
-are superseded in sequencing by `docs/ai-workflow/REWRITE_PLAN.md`, which is now the
-primary active plan for the crypto rewrite.
+Phase 1 of `REWRITE_PLAN.md` (steps 1a–1f) replaced TQ-100 to TQ-103 and TQ-105. Multi-device
+(TQ-104), the independent audit (TQ-106), and the production relay (TQ-107) remain blocked on
+later phases of that plan, which is the primary active plan.
 
 ---
 
@@ -158,7 +159,7 @@ A full Android build may be skipped as documentation-only, but skipped checks mu
 ## TQ-003 — Audit canonical device-state identifiers and persistence
 
 **Priority:** P0
-**Status:** READY (TQ-002 is now DONE, corrected 2026-09-27)
+**Status:** CANCELLED (2026-09-30) — the legacy device-approval and verification states it would audit were removed with the prototype (DEC-021). v2 contact states are defined in `../PROTOCOL_V2.md`.
 **Type:** Audit first; no code change in the first pass
 **Security-sensitive:** Yes
 
@@ -294,7 +295,7 @@ TQ-004 reconciled documentation claims; it did not establish a fresh executable,
 ## TQ-005 — Rebuild a trusted development environment
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** DONE (2026-09-29) — JDK 17, Android SDK 34 and Node.js installed on drive D; two physical test phones available. See `CURRENT_PROJECT_STATE.md` section 9.
 **Type:** Environment/provisioning
 **Security-sensitive:** Yes
 
@@ -344,11 +345,11 @@ Create a fresh environment from GitHub without relying on lost local state.
 ## TQ-006 — Re-establish the executable verification baseline
 
 **Priority:** P1
-**Status:** PARTLY DONE (2026-09-29) — a fresh debug baseline exists on the rebuilt
-development machine (`:app:assembleDebug`, `:app:lintDebug`, 105 unit tests, storage and
-signal-protocol instrumented tests on SM-S928B, relay tests). Not yet done: instrumented
-`:core:transport` / `:core:ui`, and a run from a clean clone. Evidence:
-`LIBSIGNAL_TOOLCHAIN_REVIEW.md`.
+**Status:** PARTLY DONE (2026-09-30) — the full baseline passes on the development machine:
+build, lint, all unit tests, relay tests, and instrumented `:core:signal-protocol`,
+`:core:storage`, `:core:ui`, `:core:transport` on two physical phones (evidence:
+`PHASE_1E_PREP.md`, "Step 1f evidence"). Not yet done: a run from a clean clone, and a CI run
+(the workflow result is unverified from this machine).
 **Type:** Build/test/QA
 **Security-sensitive:** Yes
 
@@ -386,7 +387,7 @@ With a compatible emulator/device:
 ## TQ-007 — Establish the release-variant baseline
 
 **Priority:** P1
-**Status:** READY AFTER TQ-006
+**Status:** PARTLY DONE (2026-09-30) — `assembleRelease` (R8) succeeds; unsigned APK 357.5 MB, 4 ABIs; libsignal keep rules verified at runtime with `qaMinified`. Open: signing, `lintRelease`, manifest/permission audit.
 **Type:** Release/build audit
 **Security-sensitive:** Yes
 
@@ -489,7 +490,9 @@ Also found 2026-09-30: lint bundled with AGP 8.5.2 prints "Module was compiled w
 incompatible version of Kotlin" for the Kotlin 2.2 modules, i.e. lint's Kotlin analysis cannot
 read their metadata and is degraded (it still reports 0 errors). The AGP upgrade in this task is
 expected to fix that; verify lint output is clean afterwards. Count on 2026-09-30: 53 warnings
-(45 `GradleDependency`, 6 AGP, 1 intentional debug cleartext, 1 `localeConfig`).
+(45 `GradleDependency`, 6 AGP, 1 intentional debug cleartext, 1 `localeConfig`). After step 1f:
+54 — plus 1 `ChromeOsAbiSupport` from the debug-only `abiFilters += "arm64-v8a"` in
+`app/build.gradle.kts` (intentional: smaller debug APK for the phones; release keeps 4 ABIs).
 
 ### Objective
 
@@ -528,7 +531,7 @@ These tasks require explicit decisions and remain isolated from normal chats.
 ## TQ-100 — Decide whether official libsignal external use is acceptable
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** DONE (2026-09-27) — owner accepted official libsignal and AGPL-3.0 (REWRITE_PLAN decision 2). AGPL notice obligations remain open before any distribution.
 **Blocker:** Qualified legal/licensing review and project-owner acceptance of unsupported-external-use risk.
 
 ### Acceptance criteria
@@ -544,7 +547,7 @@ These tasks require explicit decisions and remain isolated from normal chats.
 ## TQ-101 — Plan a controlled Android/Kotlin toolchain migration
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** DONE (2026-09-29) — Kotlin 2.2.20 and related upgrades (REWRITE_PLAN step 1b), verified by real builds. AGP upgrade remains in TQ-009.
 **Blockers:** TQ-005, TQ-006, and direction from TQ-100.
 
 ### Objective
@@ -564,7 +567,7 @@ Plan Kotlin, AGP, Compose, Room/KAPT or KSP, Coroutines, WorkManager, lint, CI, 
 ## TQ-102 — Map official protocol records into disabled encrypted stores
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** DONE (2026-09-29) — `EncryptedSignalProtocolStore` over the encrypted Room records (step 1d, DEC-018).
 **Blockers:** TQ-100, TQ-101, approved record-lifecycle design, and development environment.
 
 ### Scope
@@ -586,7 +589,7 @@ A separate implementation plan is required after blockers clear.
 ## TQ-103 — Design versioned PQXDH/prekey invitation semantics
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** DONE (2026-09-30) — invitation v2 (DEC-019, `../PROTOCOL_V2.md`).
 **Blockers:** TQ-100, reviewed protocol design, identity/device decisions.
 
 ### Required decisions
@@ -608,7 +611,7 @@ Do not reinterpret `INVITE_V2_SIGNAL_PQXDH_EXPERIMENTAL` as a verified bundle.
 ## TQ-104 — Define per-device session and revocation semantics
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** BLOCKED — Phase 4 of REWRITE_PLAN (multi-device and revocation). v2 is single-device per contact until then.
 **Blockers:** TQ-003 and reviewed Signal design.
 
 ### Objective
@@ -622,7 +625,7 @@ Do not silently fan out from the current primary-device path.
 ## TQ-105 — Isolated Signal-backed test conversations
 
 **Priority:** P1
-**Status:** BLOCKED
+**Status:** DONE (2026-09-30) — v2 is the only chat path in debug builds (isolated test conversations); release has no chat until TQ-106 (DEC-021).
 **Blockers:** TQ-100 through TQ-104, interoperability tests, migration/rollback design, independent-review plan.
 
 ### Objective
@@ -636,19 +639,20 @@ This cannot activate existing normal chats or justify real sensitive use.
 ## TQ-106 — Independent cryptographic and application security audit
 
 **Priority:** P1
-**Status:** BLOCKED
-**Blockers:** Stable scope, fresh baseline, resolved high-risk gaps, funding, and qualified reviewer.
+**Status:** BLOCKED — this is Phase 5 of `REWRITE_PLAN.md`. Until it passes, release builds
+have no chat (`enable_v2_protocol = false`, DEC-021).
+**Blockers:** Phases 2–4, funding, and a qualified reviewer.
 
-### Candidate scope
+### Candidate scope (updated 2026-09-30 for protocol v2)
 
-- active AEAD and nonce durability;
-- session design or migration;
-- parsing, replay, receipts, and delivery state;
-- Keystore, vault, Room, migrations, backup, and reset;
-- pairing, device trust, and identity changes;
+- the libsignal store adapter (identity trust, one-time pre-key and Kyber handling);
+- invitation v2 (commitment, sealing, expiry), the request/TOFU flow, safety numbers;
+- the v2 pipeline: parsing, replay and dedupe, receipts, transaction atomicity, relay deletion
+  ordering;
+- Keystore, vault, Room, migrations (including `MIGRATION_7_8`), backup, reset;
 - relay and metadata exposure;
-- dependencies, build, release, and diagnostics;
-- disabled experimental boundaries.
+- dependencies (libsignal, AGPL obligations), build, release gating, R8 keep rules.
+- Scope document: `../AUDIT_SCOPE.md`; checklist: `../AUDIT_CHECKLIST.md`.
 
 ---
 

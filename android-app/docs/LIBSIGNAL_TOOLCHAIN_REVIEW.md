@@ -83,7 +83,7 @@ remained unverified until step 1a was completed.
   --max-workers=1`.
 - `core/signal-protocol/consumer-rules.pro` adds conservative R8 keep rules for
   `org.signal.libsignal.**` and native methods. **Update 2026-09-30:** the app now depends on
-  `:core:signal-protocol` (through `:core:ui`, debug QA switch only). `:app:assembleRelease`
+  `:core:signal-protocol` (through `:core:ui`; v2 runs in debug builds only, DEC-021). `:app:assembleRelease`
   succeeds; `mapping.txt` shows the rules applied and no real libsignal class renamed. The
   first release APK also contained ~153 MB of desktop natives (`*.dll`, `*.dylib`, including
   `*_testing`) from libsignal-client's jar resources, now excluded in `:app`
@@ -93,9 +93,11 @@ remained unverified until step 1a was completed.
   debug signing and debug QA resources; installed on SM-S928B and Redmi A3x, v2 pairing,
   messaging, and receipts worked by hand.
 
-**Still NOT verified:** a minified release build (`assembleRelease`, R8) that actually
-contains libsignal, resulting release APK size/ABI splits, and instrumented tests for
-`:core:transport` and `:core:ui`.
+**Verified since (2026-09-30):** a minified release build that contains libsignal, its APK size
+(357.5 MB unsigned, 4 ABIs, no ABI splits), libsignal under R8 at runtime (`qaMinified`), and
+instrumented tests for `:core:transport` and `:core:ui`. **Still NOT verified:** a signed
+release, `lintRelease`, and a clean R8/lint run on Kotlin 2.2 metadata (needs the AGP update,
+TQ-009).
 
 The risk analysis sections below were written against the pre-upgrade versions; the
 checklist below records which items the debug build has now answered.
@@ -121,14 +123,19 @@ Known risks and their status after the 2026-09-29 debug build:
 - Compose compiler plugin 2.2.20 against the older Compose runtime from BOM `2024.06.00` —
   **passed at compile time** (debug build). Runtime behavior of the UI was not exercised.
 - R8 bundled with AGP 8.5.2 processing Kotlin 2.2 metadata in the minified release build —
-  **UNVERIFIED** (release build not run).
+  **passed with warnings** (2026-09-30): the build succeeds and runs (`qaMinified`), but R8
+  cannot parse Kotlin 2.2 metadata and prints warnings; fixed by the AGP update (TQ-009).
 - K2 compiler stricter diagnostics in existing Kotlin source — **passed** (debug build and
   all unit-test compilation succeeded).
 - libsignal's `coreLibraryDesugaringEnabled = true`: assumed likely irrelevant at minSdk 31 —
   **WRONG**: the AAR metadata check fails the build without desugaring; now enabled
   (see step 1c above).
 
-## Current Official Artifact Gate
+## Official Artifact Gate (HISTORICAL — before step 1e)
+
+> Since step 1e (2026-09-30) `:core:signal-protocol` also contains Kotlin code (the v2
+> pipeline), and since 1f it is the only chat path in debug builds (release: none, DEC-021). This
+> section describes the earlier Java-only compile gate.
 
 The isolated `core:signal-protocol` Android library:
 
@@ -188,7 +195,9 @@ Upstream release activity continued after this historical snapshot. Before any m
 upgrade decision, refresh every artifact fact from official sources and record the date,
 exact version, hashes or verification metadata where available, and relevant release notes.
 
-## Why The Current Boundary Is Safe To Keep Disabled
+## Why The Boundary Was Kept Disabled (HISTORICAL — before step 1e)
+
+> `SimplifiedSessionManager` and the flags named below were deleted in step 1f (DEC-021).
 
 The project currently avoids a broad toolchain migration because:
 

@@ -27,9 +27,9 @@ This is an MVP for architecture review and testing.
 
 It is not production-ready and must not be represented as ready for real sensitive communications.
 
-The current executable chat path uses the prototype session layer and `STANDARD_AEAD`.
+Since 2026-09-30 (DEC-021) the only chat path is protocol v2: official libsignal PQXDH + Double Ratchet sessions (`docs/PROTOCOL_V2.md`). It is **active in debug builds only**, controlled by the `enable_v2_protocol` resource (`false` in main/release, `true` in debug). Release builds never construct it and show a "not for messaging" screen until the independent review of Phase 5. v2 has not been independently reviewed.
 
-Signal-backed sessions, PQXDH semantics, official libsignal processing, and SignalStore integration are experimental or disabled boundaries unless current code, dependency wiring, feature flags, and tests explicitly prove otherwise. `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27 and no longer exists in any form (see `docs/ai-workflow/DECISIONS.md` DEC-016).
+The legacy prototype session layer and `STANDARD_AEAD` were removed entirely (modules `:core:crypto` and `:core:delivery`, Room tables dropped by `MIGRATION_7_8`, Keystore key and preferences by `LegacyReset`). Do not reintroduce them. `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27 and no longer exists in any form (see `docs/ai-workflow/DECISIONS.md` DEC-016).
 
 Distinguish these statuses in code reviews and documentation:
 
@@ -128,12 +128,11 @@ Prefer high-level event names, timestamps, sanitized state names, short fingerpr
 
 Treat these as security-critical:
 
-- cryptographic session setup
-- `STANDARD_AEAD` implementation
-- nonce allocation and counter persistence
-- HKDF-derived per-message keys
-- replay tracking
-- envelope and receipt authentication
+- cryptographic session setup (libsignal PQXDH, pre-key generation, invitation v2)
+- the libsignal store adapter and its encrypted records (identity trust, one-time Kyber pre-keys)
+- the protocol transaction and process-wide lock (decrypt + store, encrypt + enqueue)
+- replay tracking (libsignal duplicate detection, envelope digests)
+- envelope and receipt authentication (inner message IDs, contact-scoped receipts)
 - incoming message pipeline
 - outgoing delivery pipeline
 - delivery receipts and status transitions
@@ -148,8 +147,8 @@ Treat these as security-critical:
 - relay transport, queue lifecycle, retention, and relay deletion behavior
 - diagnostics and copied reports
 - reset, wipe, and secure-erasure claims
-- disabled Signal, libsignal, PQXDH, and SignalStore boundaries
-- removed `PARANOIA_C4_AEAD` boundary (do not reintroduce a home-grown cipher cascade in any form)
+- the debug/release gate of v2 (`enable_v2_protocol`) and the legacy reset (`MIGRATION_7_8`, `LegacyReset`)
+- removed legacy prototype and `PARANOIA_C4_AEAD` boundaries (do not reintroduce either, or any home-grown cipher cascade, in any form)
 - dependency, Kotlin/Gradle, JNI/ABI, manifest, resource, and packaging changes that could activate experimental code
 - release cleartext-network policy and debug/release separation
 
@@ -196,7 +195,7 @@ Never bypass checks for:
 - missing primary device state
 - unverified or ambiguous device trust state
 
-The current single-device delivery policy must fail closed for pending, revoked, changed, or missing primary-device state.
+The current single-device v2 policy must fail closed: an unaccepted contact request is never a contact and gets no receipts; a key-changed contact can neither send nor receive; an identity that differs from the stored one is never trusted in either direction; unknown routing tags are never routed.
 
 Do not silently fan out to secondary devices.
 
@@ -204,15 +203,15 @@ Do not treat revocation as synchronized protocol revocation unless that protocol
 
 Do not silently create or trust unknown contacts from unauthenticated or incomplete pairing state.
 
-## Experimental crypto and session boundaries
+## Protocol v2 and release gating
 
-Do not wire disabled Signal-backed sessions into the running chat path unless explicitly requested and all required gates are satisfied.
+Protocol v2 (libsignal) is wired into debug builds with the owner's approval (DEC-019, DEC-021), after tests, a threat review, toolchain and packaging review, and a migration review. It has **not** had an independent integration review.
 
-Do not treat experimental PQXDH invitation DTOs as verified PQXDH bundles.
+Never enable v2 in release builds (`enable_v2_protocol` in main resources, or any other route) before the independent review of Phase 5 and explicit owner approval.
 
-Do not treat the disabled SignalStore spike as production Signal storage or as an official libsignal store adapter.
+Do not weaken the v2 fail-closed rules: strict identity trust, one-time pre-keys, commitment-checked invitations, contact-scoped receipts, authenticate-before-store, and relay deletion only after commit. An untrusted-identity result on receive is unauthenticated and must never change contact state.
 
-Do not enable libsignal-backed processing without explicit approval, tests, threat review, licensing review, toolchain review, JNI/ABI and packaging review, migration and rollback review, interoperability testing, and independent integration review.
+Wire-format, storage, and invitation changes of v2 follow the compatibility rules below.
 
 `PARANOIA_C4_AEAD` was removed from the codebase entirely (2026-09-27, DEC-016) rather than kept disabled. Do not reintroduce it, or any other home-grown cipher cascade, without independently reviewed primitives, test vectors, domain-separated KDF/MAC design, failure semantics, and audit.
 
@@ -348,9 +347,8 @@ Every task that changes repository files must end with:
 
 For Signal, crypto, session, or invitation work, also report explicitly:
 
-- Active normal chat path changed: yes/no
-- `SIGNAL_BACKED_SESSIONS_ENABLED` value
-- `OfficialSignalDoubleRatchetGate.MIGRATION_ENABLED` value
-- Official libsignal active in normal chats: yes/no
-- Normal v1 invitation flow changed: yes/no
-- `PARANOIA_C4_AEAD` reintroduced in any form: yes/no (must always be no; it was removed entirely, not gated)
+- v2 protocol behavior changed: yes/no
+- `enable_v2_protocol` values: release (must be `false` until Phase 5) and debug
+- libsignal reachable in release builds: yes/no (must be no until Phase 5)
+- v2 wire, invitation, or storage format changed: yes/no (and the migration story if yes)
+- Legacy prototype or `PARANOIA_C4_AEAD` reintroduced in any form: yes/no (must always be no)

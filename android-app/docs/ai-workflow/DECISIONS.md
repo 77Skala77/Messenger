@@ -40,15 +40,15 @@ When changing an accepted decision:
 | --- | --- | --- |
 | DEC-001 | GitHub default branch is the recoverable project baseline | ACCEPTED |
 | DEC-002 | The application remains an explicitly non-production MVP | ACCEPTED |
-| DEC-003 | Normal chats remain on the prototype session path until reviewed migration gates are met | ACCEPTED |
-| DEC-004 | `STANDARD_AEAD` is the only active payload-encryption suite | ACCEPTED |
+| DEC-003 | Normal chats remain on the prototype session path until reviewed migration gates are met | SUPERSEDED by DEC-021 |
+| DEC-004 | `STANDARD_AEAD` is the only active payload-encryption suite | SUPERSEDED by DEC-021 |
 | DEC-005 | The relay is an untrusted opaque transport | ACCEPTED |
 | DEC-006 | Message acceptance and delivery state require durable authenticated client evidence | ACCEPTED |
 | DEC-007 | Device delivery fails closed and targets one usable primary device | ACCEPTED |
 | DEC-008 | Local storage protects selected content, not all database metadata | ACCEPTED |
 | DEC-009 | HTTP relay access is debug-only; release cleartext is denied | ACCEPTED |
-| DEC-010 | Signal migration must use a reviewed official integration, not a handwritten ratchet | GATED |
-| DEC-011 | SignalStore and invitation v2 remain disabled experimental boundaries | ACCEPTED |
+| DEC-010 | Signal migration must use a reviewed official integration, not a handwritten ratchet | IMPLEMENTED (debug); release GATED |
+| DEC-011 | SignalStore and invitation v2 remain disabled experimental boundaries | SUPERSEDED by DEC-019, DEC-021 |
 | DEC-012 | `PARANOIA_C4_AEAD` remains disabled and cannot replace a session protocol | SUPERSEDED by DEC-016 |
 | DEC-013 | Diagnostics use minimum necessary, sanitized technical data | ACCEPTED |
 | DEC-014 | Reset and deletion must not claim forensic secure erase | ACCEPTED |
@@ -140,7 +140,7 @@ Only after production session security, transport operations, release discipline
 
 ## DEC-003 — Normal chats remain on the prototype session path until reviewed migration gates are met
 
-**Status:** ACCEPTED
+**Status:** SUPERSEDED by DEC-021 (2026-09-30) — the prototype path was removed; debug builds use v2 only, release has no chat until Phase 5.
 **Recorded from existing repository evidence:** 2026-07-26
 
 ### Context
@@ -176,7 +176,7 @@ A reviewed Signal-backed implementation is ready behind an explicit feature flag
 
 ## DEC-004 — `STANDARD_AEAD` is the only active payload-encryption suite
 
-**Status:** ACCEPTED
+**Status:** SUPERSEDED by DEC-021 (2026-09-30) — `STANDARD_AEAD` was removed with the prototype; message encryption is libsignal's.
 **Recorded from existing repository evidence:** 2026-07-26
 
 ### Context
@@ -301,7 +301,7 @@ Delivery or receipt protocol semantics change, a read-receipt feature is designe
 
 ## DEC-007 — Device delivery fails closed and targets one usable primary device
 
-**Status:** ACCEPTED
+**Status:** ACCEPTED; the legacy primary-device planner was removed with the prototype (DEC-021). v2 applies the same fail-closed rule to a single device per contact (see `../PROTOCOL_V2.md`).
 **Recorded from existing repository evidence:** 2026-07-26
 
 ### Context
@@ -426,7 +426,7 @@ A production transport architecture is reviewed, deployed, monitored, and includ
 
 ## DEC-010 — Signal migration must use a reviewed official integration, not a handwritten ratchet
 
-**Status:** GATED
+**Status:** IMPLEMENTED for debug builds (DEC-019, DEC-021, 2026-09-30) — official libsignal, no handwritten ratchet; release remains GATED on the Phase 5 independent review.
 **Recorded from existing repository evidence:** 2026-07-26
 
 ### Context
@@ -474,7 +474,7 @@ Every migration gate has current repository evidence and explicit approval.
 
 ## DEC-011 — SignalStore and invitation v2 remain disabled experimental boundaries
 
-**Status:** ACCEPTED
+**Status:** SUPERSEDED by DEC-019 and DEC-021 (2026-09-30) — the store is the active v2 store in debug builds; the experimental invitation DTO was deleted and replaced by invitation v2.
 **Recorded from existing repository evidence:** 2026-07-26
 
 ### Context
@@ -998,7 +998,7 @@ phones. Then 1f-B: v2 background sync, the reset (Room v8), legacy removal, flag
 
 ## DEC-020 — Relay-supplied message IDs are never trusted as local keys or cross-contact receipt targets
 
-**Status:** ACCEPTED
+**Status:** ACCEPTED (legacy patch). Moot since 2026-09-30: the legacy path it patched was removed (DEC-021); v2 closes the issue by design (DEC-019 T4).
 **Recorded:** 2026-09-29 (found while designing step 1e; owner chose to patch the legacy path)
 
 ### Context
