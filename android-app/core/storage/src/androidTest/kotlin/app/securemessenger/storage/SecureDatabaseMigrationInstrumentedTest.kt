@@ -142,6 +142,61 @@ class SecureDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    /**
+     * Phase 2 exit gate: a v5 install full of prototype data migrates through every step to v8. The
+     * prototype data is dropped on purpose (DEC-021); the profile, the vault's canary (DEC-023),
+     * survives byte for byte, so the vault key still opens it.
+     */
+    @Test
+    fun migrationFromFiveWithPrototypeDataReachesEightDropsItAndKeepsTheProfile() {
+        val profileBlob = "0102030405060708"
+        migrationHelper.createDatabase(TEST_DATABASE, 5).use { db ->
+            db.execSQL("INSERT INTO local_profile (profileId, encryptedDisplayName, deviceId) VALUES ('local', X'$profileBlob', 'legacy-device')")
+            db.execSQL(
+                "INSERT INTO contacts (contactId, encryptedLocalDisplayName, queueId, deviceId, encodedPublicKey, " +
+                    "fingerprint, verificationStatus) VALUES ('legacy', X'01', 'legacy-queue', 'device', X'02', 'FP', 'UNVERIFIED')",
+            )
+            db.execSQL(
+                "INSERT INTO contact_devices (contactId, deviceId, queueId, encodedPublicKey, fingerprint, approvalStatus, " +
+                    "firstSeenEpochMillis) VALUES ('legacy', 'device', 'legacy-queue', X'02', 'FP', 'PRIMARY_UNVERIFIED', 1)",
+            )
+            db.execSQL("INSERT INTO encrypted_sessions (contactId, encryptedState, updatedAtEpochMillis) VALUES ('legacy', X'0A0B', 1)")
+            db.execSQL(
+                "INSERT INTO encrypted_messages (messageId, contactId, encryptedPayload, encodedAssociatedData, outgoing, " +
+                    "status, createdAtEpochMillis, deliveryAttemptCount, nextRetryAtEpochMillis) " +
+                    "VALUES ('m1', 'legacy', X'0C', X'0D', 1, 'PENDING', 1, 0, NULL)",
+            )
+            db.execSQL("INSERT INTO accepted_replay (conversationId, senderDeviceId, messageNumber, acceptedAtEpochMillis) VALUES ('c', 's', 1, 1)")
+            db.execSQL("INSERT INTO signal_kyber_prekey_records (kyberPreKeyId, encryptedRecord) VALUES (7, X'0102')")
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            TEST_DATABASE,
+            8,
+            true,
+            SecureMessengerDatabase.MIGRATION_5_6,
+            SecureMessengerDatabase.MIGRATION_6_7,
+            SecureMessengerDatabase.MIGRATION_7_8,
+        )
+        SecureMessengerDatabase.LEGACY_TABLES.forEach { table ->
+            migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                assertEquals("legacy table $table survived", 0, cursor.count)
+            }
+        }
+        migrated.query("SELECT hex(encryptedDisplayName) FROM local_profile WHERE profileId = 'local'").use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertEquals(profileBlob.uppercase(), cursor.getString(0))
+        }
+        listOf("signal_kyber_prekey_records", "v2_contacts", "v2_messages", "signal_session_records").forEach { table ->
+            migrated.query("SELECT COUNT(*) FROM $table").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("$table is not empty", 0, cursor.getInt(0))
+            }
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE = "signal-store-migration-test"
     }

@@ -21,6 +21,8 @@ import app.securemessenger.storage.EncryptedSignalStoreRepository
 import app.securemessenger.storage.LocalProfileRepository
 import app.securemessenger.storage.RoomProtocolTransactionRunner
 import app.securemessenger.storage.SecureMessengerDatabase
+import app.securemessenger.storage.VaultKeyUnavailableException
+import app.securemessenger.storage.VaultRecordRejectedException
 import app.securemessenger.transport.RelayHttpTransportClient
 import app.securemessenger.transport.RelayServerSettings
 import java.util.concurrent.TimeUnit
@@ -33,7 +35,8 @@ internal object V2Pipeline {
      * Builds the pipeline, or returns null when no profile exists. The profile check and the
      * pipeline creation (which creates this device's libsignal identity if none exists) run under
      * the protocol lock, like [wipeLocalData], so a wipe can never leave a new identity behind.
-     * Blocking.
+     * With a lost vault key it throws `VaultKeyUnavailableException` and creates nothing, not even
+     * a key (DEC-023). Blocking.
      */
     fun createIfProfileExists(context: Context, database: SecureMessengerDatabase): ConversationV2Service? =
         ConversationV2Service.exclusively {
@@ -42,17 +45,20 @@ internal object V2Pipeline {
         }
 
     /**
-     * Deletes the profile, every conversation and libsignal record (one transaction), the vault key
-     * and the v2 queue ID. It holds the protocol lock, so a protocol step of the UI or the worker
-     * either commits before the wipe (and is wiped) or runs after it on empty state. Blocking.
+     * Deletes the vault key, then the profile and every conversation and libsignal record (one
+     * transaction), then the v2 queue ID. It holds the protocol lock, so a protocol step of the UI
+     * or the worker either commits before the wipe (and is wiped) or runs after it on empty state.
+     * The key goes first (DEC-023): if deleting it fails, nothing is deleted and the user can try
+     * again; once it is gone, the old rows and any copies left in flash cannot be decrypted, even
+     * if the row deletion then fails. Needs no key, so it also works on unreadable data. Blocking.
      */
     fun wipeLocalData(context: Context, database: SecureMessengerDatabase) {
         ConversationV2Service.exclusively {
             val vault = AndroidKeystoreVaultCipher()
+            vault.deleteKey()
             RoomProtocolTransactionRunner(database).inTransaction {
                 LocalProfileRepository(database.dao(), vault).wipeLocalData()
             }
-            vault.deleteKey()
             V2QueueIdStore(context.applicationContext).clear()
         }
     }
@@ -136,6 +142,13 @@ class V2SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: VaultKeyUnavailableException) {
+            // DEC-023: the stored data can no longer be read. Retrying cannot help, and nothing may
+            // run or create a new key; the app explains it the next time it is opened.
+            Result.failure()
+        } catch (_: VaultRecordRejectedException) {
+            // Data not authentic under the current key (a replaced key or a damaged row): same.
+            Result.failure()
         } catch (_: Exception) {
             Result.retry()
         } finally {

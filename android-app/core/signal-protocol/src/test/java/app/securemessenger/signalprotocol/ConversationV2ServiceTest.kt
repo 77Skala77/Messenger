@@ -4,6 +4,7 @@ import app.securemessenger.domain.RelayEncryptedBlob
 import app.securemessenger.signalstore.V2ContactState
 import app.securemessenger.signalstore.V2MessageKind
 import app.securemessenger.signalstore.V2MessageStatus
+import java.security.GeneralSecurityException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -182,6 +183,53 @@ class ConversationV2ServiceTest {
         bob.service.sendText(aliceOnBob, "and the session still works")
         assertEquals(listOf(IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
         assertEquals(2, alice.store.incomingTexts(bobOnAlice).size)
+    }
+
+    /**
+     * DEC-023: with the vault key lost, libsignal's own store callbacks fail. That failure must come
+     * out unchanged, as an error, never as a protocol verdict (unauthenticated, key changed): the
+     * envelope stays on the relay, no state changes, nothing is queued, and everything works once
+     * the records are readable again.
+     */
+    @Test
+    fun aLostVaultKeyInsideLibsignalCallbacksIsAnErrorNeverAVerdictAndChangesNothing() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "arrives later")
+        val queuedBefore = alice.store.outgoingKinds(bobOnAlice)
+        alice.records.failure = ::SimulatedVaultKeyLoss
+
+        // Unchecked failures cross libsignal unchanged, so callers can recognise them by type.
+        assertThrows(SimulatedVaultKeyLoss::class.java) { runBlocking { alice.service.synchronize() } }
+        assertEquals(1, relay.queued(alice.queueId).size)
+        assertTrue(alice.store.incomingTexts(bobOnAlice).isEmpty())
+        assertEquals(V2ContactState.ACTIVE, alice.store.contact(bobOnAlice)!!.state)
+
+        assertThrows(SimulatedVaultKeyLoss::class.java) { runBlocking { alice.service.sendText(bobOnAlice, "never queued") } }
+        assertEquals(queuedBefore, alice.store.outgoingKinds(bobOnAlice))
+
+        alice.records.failure = null
+        assertEquals(listOf(IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
+        assertEquals(listOf("arrives later"), alice.store.incomingTexts(bobOnAlice).map { it.text })
+        assertEquals(V2ContactState.ACTIVE, alice.store.contact(bobOnAlice)!!.state)
+    }
+
+    /**
+     * Why every vault failure is unchecked (DEC-023): libsignal 0.94.1 turns a *checked* exception
+     * from a store callback into an `AssertionError`, which `catch (Exception)` blocks miss. If this
+     * test starts failing after a libsignal update, re-check that assumption.
+     */
+    @Test
+    fun libsignalTurnsCheckedCallbackExceptionsIntoAssertionErrors() = runBlocking {
+        val (aliceOnBob, _) = pair()
+        bob.service.sendText(aliceOnBob, "arrives later")
+        alice.records.failure = { GeneralSecurityException("checked storage failure") }
+
+        val failure = runCatching { alice.service.synchronize() }.exceptionOrNull()
+        assertTrue("got $failure", failure is AssertionError && failure.cause is GeneralSecurityException)
+        assertEquals(1, relay.queued(alice.queueId).size)
+
+        alice.records.failure = null
+        assertEquals(listOf(IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
     }
 
     @Test

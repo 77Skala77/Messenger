@@ -1,7 +1,6 @@
 package app.securemessenger.storage
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import javax.crypto.AEADBadTagException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -17,9 +16,11 @@ class AndroidKeystoreInstrumentedTest {
         val aad = "record-id".toByteArray()
 
         try {
+            // DEC-023: encrypt never creates a key; a new vault creates it explicitly.
+            cipher.createKeyIfAbsent()
             val encrypted = cipher.encrypt(plaintext, aad)
             assertArrayEquals(plaintext, cipher.decrypt(encrypted, aad))
-            assertThrows(AEADBadTagException::class.java) {
+            assertThrows(VaultRecordRejectedException::class.java) {
                 cipher.decrypt(encrypted, "wrong-record".toByteArray())
             }
         } finally {

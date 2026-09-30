@@ -11,6 +11,7 @@ import app.securemessenger.signalstore.V2MessageStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -108,6 +109,47 @@ class ConversationV2RoomProofInstrumentedTest {
         assertEquals(listOf("Plaintext-Marker-From-Bob"), alice.service.texts(bobOnAlice).filter { !it.outgoing }.map { it.text })
     }
 
+    /**
+     * Phase 2 at file level: identity keys, pre-keys (EC and Kyber) and ratchet keys (root, chain,
+     * message, private ratchet keys) are only ever written vault-encrypted. Each secret is taken
+     * from the store and searched for in the raw database files; the long Kyber secret key by
+     * several 32-byte windows.
+     */
+    @Test
+    fun privateKeysPreKeysAndSessionsNeverReachTheDatabaseFilesInClear() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "one")
+        alice.service.synchronize()
+        alice.service.sendText(bobOnAlice, "two")
+        bob.service.synchronize()
+        // An unused invitation keeps its one-time EC and Kyber pre-keys and its signed pre-key.
+        alice.service.createInvitation()
+        alice.restart()
+        bob.restart()
+
+        listOf(alice, bob).forEach { device ->
+            val secrets = device.storedSecrets()
+            val labels = secrets.map { it.first }.toSet()
+            assertTrue(labels.containsAll(listOf("identity private key", "session key")))
+            if (device === alice) {
+                assertTrue(labels.containsAll(listOf("signed pre-key private key", "Kyber secret key", "one-time pre-key private key")))
+            }
+            val files = device.fileBytes()
+            assertTrue(files.isNotEmpty())
+            secrets.forEach { (label, secret) ->
+                secret.windows().forEach { window ->
+                    assertFalse("${device.name}: $label is stored in clear", files.containsSequence(window))
+                }
+            }
+        }
+    }
+
+    /** The whole secret if short; otherwise five 32-byte windows spread over it. */
+    private fun ByteArray.windows(): List<ByteArray> {
+        if (size <= 2 * WINDOW) return listOf(this)
+        return listOf(0, size / 4, size / 2, size * 3 / 4, size - WINDOW).map { start -> copyOfRange(start, start + WINDOW) }
+    }
+
     private suspend fun pair(): Pair<String, String> {
         val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
         assertEquals(listOf(IncomingV2Result.REQUEST_RECEIVED), alice.service.synchronize())
@@ -124,5 +166,9 @@ class ConversationV2RoomProofInstrumentedTest {
             return true
         }
         return false
+    }
+
+    private companion object {
+        const val WINDOW = 32
     }
 }

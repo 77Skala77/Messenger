@@ -76,12 +76,23 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
 
     MaterialTheme {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            if (state.profileKnown) {
+            val problem = state.localDataProblem
+            if (problem != null) {
+                // DEC-023: nothing else is shown or run while the stored data cannot be used.
+                LocalDataProblemScreen(
+                    problem = problem,
+                    onCheckAgain = viewModel::checkLocalData,
+                    onDeleteLocalData = viewModel::deleteLocalData,
+                )
+            } else if (state.profileKnown) {
                 when (screen) {
                     Screen.ONBOARDING -> OnboardingScreen(onCreateProfile = viewModel::createProfile)
                     Screen.MAIN ->
                         if (state.v2Available) {
-                            ConversationV2Root(onOpenSettings = { screen = Screen.SETTINGS })
+                            ConversationV2Root(
+                                onOpenSettings = { screen = Screen.SETTINGS },
+                                onLocalDataUnreadable = viewModel::checkLocalData,
+                            )
                         } else {
                             NotForMessagingScreen(onOpenSettings = { screen = Screen.SETTINGS })
                         }
@@ -143,6 +154,63 @@ private fun OnboardingScreen(onCreateProfile: (String) -> Unit) {
         }
     }
 }
+
+/**
+ * DEC-023: the stored data cannot be used. For [LocalDataProblem.UNREADABLE] the user may delete
+ * the local data (confirmed) and start over; nothing is deleted automatically, because a failure
+ * that only looked final must not cost the user their data.
+ */
+@Composable
+internal fun LocalDataProblemScreen(
+    problem: LocalDataProblem,
+    onCheckAgain: () -> Unit,
+    onDeleteLocalData: () -> Unit,
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val unreadable = problem == LocalDataProblem.UNREADABLE
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+    ) {
+        Text(
+            stringResource(if (unreadable) R.string.local_data_unreadable_title else R.string.local_data_temporary_title),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        SecurityWarning(
+            stringResource(if (unreadable) R.string.local_data_unreadable_body else R.string.local_data_temporary_body),
+        )
+        Button(onClick = onCheckAgain, modifier = Modifier.testTag(CHECK_AGAIN_TAG)) {
+            Text(stringResource(R.string.local_data_check_again))
+        }
+        if (unreadable) {
+            OutlinedButton(onClick = { showDeleteDialog = true }, modifier = Modifier.testTag(DELETE_AND_RESTART_TAG)) {
+                Text(stringResource(R.string.local_data_delete_and_restart))
+            }
+        }
+    }
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(stringResource(R.string.delete_local_data)) },
+            text = { Text(stringResource(R.string.delete_warning)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { showDeleteDialog = false; onDeleteLocalData() },
+                    modifier = Modifier.testTag(CONFIRM_DELETE_TAG),
+                ) {
+                    Text(stringResource(R.string.delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+}
+
+internal const val CHECK_AGAIN_TAG = "local_data_check_again"
+internal const val DELETE_AND_RESTART_TAG = "local_data_delete_and_restart"
+internal const val CONFIRM_DELETE_TAG = "local_data_confirm_delete"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

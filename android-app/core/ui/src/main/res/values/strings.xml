@@ -90,4 +90,10 @@
     <string name="legacy_reset_title">Old test chats were removed</string>
     <string name="legacy_reset_body">This version replaced the old prototype protocol with the new end-to-end protocol. Old test chats, contacts, and their keys were deleted on purpose and cannot be restored or reused. Pair with your contacts again using a new invitation.</string>
     <string name="legacy_reset_ok">Understood</string>
+    <string name="local_data_unreadable_title">Data on this phone cannot be read</string>
+    <string name="local_data_unreadable_body">The key that protects your conversations on this phone is missing or no longer matches them. This can happen after the key storage of the phone was reset. The messages, contacts and keys stored here cannot be decrypted again, and nothing was sent or received without the key. To use the app again, delete the local data and create a new profile. Your contacts will need a new invitation from you and will see a new safety number.</string>
+    <string name="local_data_temporary_title">Data is not available right now</string>
+    <string name="local_data_temporary_body">The secure key storage of the phone or the local database did not respond. Nothing was deleted. Check again; if this keeps happening, restart the phone.</string>
+    <string name="local_data_check_again">Check again</string>
+    <string name="local_data_delete_and_restart">Delete local data and start over</string>
 </resources>

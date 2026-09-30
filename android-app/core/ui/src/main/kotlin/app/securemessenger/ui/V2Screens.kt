@@ -53,12 +53,17 @@ private enum class V2Screen { HOME, INVITE, ADD, CONVERSATION, REQUEST_SAFETY }
 @Composable
 internal fun ConversationV2Root(
     onOpenSettings: () -> Unit,
+    onLocalDataUnreadable: () -> Unit,
     viewModel: ConversationV2ViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     DisposableEffect(viewModel) {
         viewModel.start()
         onDispose { viewModel.stop() }
+    }
+    // DEC-023: the vault key disappeared while the chat was open; the app re-checks and explains.
+    LaunchedEffect(state.localDataUnreadable) {
+        if (state.localDataUnreadable) onLocalDataUnreadable()
     }
     var screen by remember { mutableStateOf(V2Screen.HOME) }
     var requestForSafety by remember { mutableStateOf<String?>(null) }

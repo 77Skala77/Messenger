@@ -10,7 +10,9 @@ import app.securemessenger.signalstore.SignalSignedPreKeyStoreBoundary
 import java.security.MessageDigest
 import org.signal.libsignal.protocol.IdentityKey
 import org.signal.libsignal.protocol.IdentityKeyPair
+import org.signal.libsignal.protocol.InvalidKeyException
 import org.signal.libsignal.protocol.InvalidKeyIdException
+import org.signal.libsignal.protocol.InvalidMessageException
 import org.signal.libsignal.protocol.NoSessionException
 import org.signal.libsignal.protocol.ReusedBaseKeyException
 import org.signal.libsignal.protocol.SignalProtocolAddress
@@ -27,7 +29,18 @@ import org.signal.libsignal.protocol.state.SignedPreKeyStore
 import app.securemessenger.signalstore.SignalProtocolAddress as StoreAddress
 
 /**
+ * A stored libsignal record passed the vault's authentication but cannot be parsed: a local fault
+ * (DEC-023). Unchecked, so it crosses libsignal's store callbacks unchanged and is never taken for
+ * a verdict on a message.
+ */
+class StoredRecordCorruptedException(cause: Throwable) :
+    IllegalStateException("A stored libsignal record cannot be parsed", cause)
+
+/**
  * libsignal store callbacks backed by the encrypted, neutral store boundaries.
+ *
+ * Storage failures (the vault's `VaultException`s, [StoredRecordCorruptedException]) are unchecked
+ * and propagate unchanged through libsignal: they are never mapped to protocol results.
  *
  * Backs the v2 conversation pipeline, which only debug builds run until the Phase 5 independent
  * review (DEC-021).
@@ -84,7 +97,7 @@ class EncryptedSignalProtocolStore(
     }
 
     override fun getIdentity(address: SignalProtocolAddress): IdentityKey? =
-        identities.loadIdentityRecord(address.toStore())?.let { IdentityKey(it) }
+        identities.loadIdentityRecord(address.toStore())?.parseThenWipe { IdentityKey(it) }
 
     /** Not part of libsignal's interface: forgets a remote identity, e.g. for a declined request. */
     fun deleteIdentity(address: SignalProtocolAddress) = identities.deleteIdentityRecord(address.toStore())
@@ -228,9 +241,17 @@ class EncryptedSignalProtocolStore(
             }
 
         /** libsignal copies the bytes into native state, so wiping afterwards is safe. */
+        /**
+         * Parses a stored record, then wipes the buffer. A parse failure here is a local fault, not
+         * a property of any incoming message: it is rethrown as [StoredRecordCorruptedException].
+         */
         inline fun <T> ByteArray.parseThenWipe(parse: (ByteArray) -> T): T =
             try {
                 parse(this)
+            } catch (failure: InvalidMessageException) {
+                throw StoredRecordCorruptedException(failure)
+            } catch (failure: InvalidKeyException) {
+                throw StoredRecordCorruptedException(failure)
             } finally {
                 fill(0)
             }

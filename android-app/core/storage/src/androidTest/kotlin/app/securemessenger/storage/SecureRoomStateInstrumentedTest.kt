@@ -34,7 +34,7 @@ class SecureRoomStateInstrumentedTest {
         assertFalse(profiles.hasProfile())
         assertNull(profiles.readProfileName())
 
-        profiles.storeProfile("Private Display Name")
+        profiles.createProfile("Private Display Name")
 
         assertTrue(profiles.hasProfile())
         assertEquals("Private Display Name", profiles.readProfileName())
@@ -137,7 +137,7 @@ class SecureRoomStateInstrumentedTest {
     @Test
     fun localWipeClearsProfileAndEverySignalRecord() = runBlocking {
         val signalAddress = SignalProtocolAddress("wiped-contact", 1)
-        profiles.storeProfile("Test")
+        profiles.createProfile("Test")
         signalStore.saveIdentityRecord(signalAddress, "identity".toByteArray())
         signalStore.saveSessionRecord(signalAddress, "session".toByteArray())
         signalStore.createLocalIdentity(SignalLocalIdentityRecord(99, "local-identity".toByteArray()))

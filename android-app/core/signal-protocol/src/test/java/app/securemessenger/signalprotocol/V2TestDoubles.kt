@@ -314,7 +314,7 @@ class FakeRelay : TransportClient {
 
 /** One device running the v2 pipeline over in-memory stores and a shared [FakeRelay]. */
 class V2TestDevice(val name: String, relay: FakeRelay, clock: () -> Long) {
-    private val records = InMemorySignalRecords().also { LocalSignalIdentityProvisioner(it).provisionIfAbsent() }
+    val records = InMemorySignalRecords().also { LocalSignalIdentityProvisioner(it).provisionIfAbsent() }
     val signalStore = EncryptedSignalProtocolStore(records, records, records, records, records, records)
     val sessions = SignalSessions(signalStore)
     val store = InMemoryConversationV2Store()

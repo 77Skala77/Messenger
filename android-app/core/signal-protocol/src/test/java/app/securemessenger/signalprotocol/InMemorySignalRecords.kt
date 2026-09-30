@@ -9,6 +9,11 @@ import app.securemessenger.signalstore.SignalProtocolAddress
 import app.securemessenger.signalstore.SignalSessionStoreBoundary
 import app.securemessenger.signalstore.SignalSignedPreKeyStoreBoundary
 import app.securemessenger.signalstore.StoredKyberPreKey
+/**
+ * Stands in for the storage module's `VaultKeyUnavailableException` (DEC-023) in JVM tests.
+ * Unchecked, like every vault failure.
+ */
+class SimulatedVaultKeyLoss : RuntimeException("Simulated loss of the local vault key")
 
 /**
  * Test double with the same observable contract as EncryptedSignalStoreRepository, minus
@@ -24,6 +29,23 @@ class InMemorySignalRecords :
     SignalSignedPreKeyStoreBoundary,
     SignalKyberPreKeyStoreBoundary {
 
+    /**
+     * Fault injection (DEC-023): while set, every stored record fails to load with this failure and
+     * nothing can be saved, like the real store after the vault key is lost; records that were
+     * never stored still read as absent.
+     */
+    @Volatile
+    var failure: (() -> Exception)? = null
+
+    private fun <T> readable(value: T?): T? {
+        if (value != null) failure?.let { throw it() }
+        return value
+    }
+
+    private fun writable() {
+        failure?.let { throw it() }
+    }
+
     private var localIdentity: Pair<Int, ByteArray>? = null
     private val identities = mutableMapOf<SignalProtocolAddress, ByteArray>()
     private val sessions = mutableMapOf<SignalProtocolAddress, ByteArray>()
@@ -34,6 +56,7 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun createLocalIdentity(record: SignalLocalIdentityRecord): Boolean {
+        writable()
         if (localIdentity != null) return false
         localIdentity = record.registrationId to record.serializedIdentityKeyPair.copyOf()
         return true
@@ -41,15 +64,16 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun loadLocalIdentity(): SignalLocalIdentityRecord? =
-        localIdentity?.let { (registrationId, keyPair) -> SignalLocalIdentityRecord(registrationId, keyPair.copyOf()) }
+        readable(localIdentity)?.let { (registrationId, keyPair) -> SignalLocalIdentityRecord(registrationId, keyPair.copyOf()) }
 
     @Synchronized
     override fun saveIdentityRecord(address: SignalProtocolAddress, serializedRecord: ByteArray) {
+        writable()
         identities[address] = serializedRecord.copyOf()
     }
 
     @Synchronized
-    override fun loadIdentityRecord(address: SignalProtocolAddress): ByteArray? = identities[address]?.copyOf()
+    override fun loadIdentityRecord(address: SignalProtocolAddress): ByteArray? = readable(identities[address])?.copyOf()
 
     @Synchronized
     override fun deleteIdentityRecord(address: SignalProtocolAddress) {
@@ -58,11 +82,12 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun saveSessionRecord(address: SignalProtocolAddress, serializedRecord: ByteArray) {
+        writable()
         sessions[address] = serializedRecord.copyOf()
     }
 
     @Synchronized
-    override fun loadSessionRecord(address: SignalProtocolAddress): ByteArray? = sessions[address]?.copyOf()
+    override fun loadSessionRecord(address: SignalProtocolAddress): ByteArray? = readable(sessions[address])?.copyOf()
 
     @Synchronized
     override fun deleteSessionRecord(address: SignalProtocolAddress) {
@@ -80,11 +105,12 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun savePreKeyRecord(preKeyId: Int, serializedRecord: ByteArray) {
+        writable()
         preKeys[preKeyId] = serializedRecord.copyOf()
     }
 
     @Synchronized
-    override fun loadPreKeyRecord(preKeyId: Int): ByteArray? = preKeys[preKeyId]?.copyOf()
+    override fun loadPreKeyRecord(preKeyId: Int): ByteArray? = readable(preKeys[preKeyId])?.copyOf()
 
     @Synchronized
     override fun deletePreKeyRecord(preKeyId: Int) {
@@ -93,14 +119,15 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun saveSignedPreKeyRecord(signedPreKeyId: Int, serializedRecord: ByteArray) {
+        writable()
         signedPreKeys[signedPreKeyId] = serializedRecord.copyOf()
     }
 
     @Synchronized
-    override fun loadSignedPreKeyRecord(signedPreKeyId: Int): ByteArray? = signedPreKeys[signedPreKeyId]?.copyOf()
+    override fun loadSignedPreKeyRecord(signedPreKeyId: Int): ByteArray? = readable(signedPreKeys[signedPreKeyId])?.copyOf()
 
     @Synchronized
-    override fun loadAllSignedPreKeyRecords(): List<ByteArray> = signedPreKeys.values.map { it.copyOf() }
+    override fun loadAllSignedPreKeyRecords(): List<ByteArray> = signedPreKeys.values.map { readable(it)!!.copyOf() }
 
     @Synchronized
     override fun deleteSignedPreKeyRecord(signedPreKeyId: Int) {
@@ -110,16 +137,17 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun saveKyberPreKeyRecord(kyberPreKeyId: Int, serializedRecord: ByteArray, lastResort: Boolean) {
+        writable()
         kyberPreKeys[kyberPreKeyId] = serializedRecord.copyOf() to lastResort
     }
 
     @Synchronized
     override fun loadKyberPreKeyRecord(kyberPreKeyId: Int): StoredKyberPreKey? =
-        kyberPreKeys[kyberPreKeyId]?.let { (record, lastResort) -> StoredKyberPreKey(record.copyOf(), lastResort) }
+        readable(kyberPreKeys[kyberPreKeyId])?.let { (record, lastResort) -> StoredKyberPreKey(record.copyOf(), lastResort) }
 
     @Synchronized
     override fun loadAllKyberPreKeyRecords(): List<StoredKyberPreKey> =
-        kyberPreKeys.values.map { (record, lastResort) -> StoredKyberPreKey(record.copyOf(), lastResort) }
+        kyberPreKeys.values.map { stored -> readable(stored)!!.let { (record, lastResort) -> StoredKyberPreKey(record.copyOf(), lastResort) } }
 
     @Synchronized
     override fun deleteKyberPreKeyRecord(kyberPreKeyId: Int) {
@@ -164,7 +192,7 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun consumeKyberPreKey(kyberPreKeyId: Int, signedPreKeyId: Int, baseKeyDigest: ByteArray): Boolean {
-        val (_, lastResort) = kyberPreKeys[kyberPreKeyId] ?: return false
+        val (_, lastResort) = readable(kyberPreKeys[kyberPreKeyId]) ?: return false
         return if (lastResort) {
             kyberBaseKeyUses.add(Triple(kyberPreKeyId, signedPreKeyId, baseKeyDigest.joinToString("") { "%02x".format(it) }))
         } else {

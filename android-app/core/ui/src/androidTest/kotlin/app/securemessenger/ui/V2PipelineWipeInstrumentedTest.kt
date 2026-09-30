@@ -54,7 +54,7 @@ class V2PipelineWipeInstrumentedTest {
     fun theWipeWaitsForARunningProtocolStepAndRemovesWhatTheStepWrote() {
         val profiles = LocalProfileRepository(database.dao(), vault)
         val signalRecords = EncryptedSignalStoreRepository(database.dao(), vault)
-        profiles.storeProfile("Wipe Test")
+        profiles.createProfile("Wipe Test")
         assertNotNull(V2Pipeline.createIfProfileExists(context, database))
         assertNotNull(signalRecords.loadLocalIdentity())
 
@@ -65,7 +65,7 @@ class V2PipelineWipeInstrumentedTest {
                 stepHoldsLock.countDown()
                 finishStep.await(10, TimeUnit.SECONDS)
                 // The last write of a running step, committed just before it releases the lock.
-                profiles.storeProfile("Written by the step")
+                signalRecords.savePreKeyRecord(LATE_PRE_KEY_ID, "written by the step".toByteArray())
             }
         }
         assertTrue(stepHoldsLock.await(10, TimeUnit.SECONDS))
@@ -82,8 +82,15 @@ class V2PipelineWipeInstrumentedTest {
         wipe.join()
 
         assertFalse(profiles.hasProfile())
-        assertNull(signalRecords.loadLocalIdentity())
+        assertNull(database.dao().getSignalPreKeyRecord(LATE_PRE_KEY_ID))
+        assertNull(database.dao().getSignalLocalIdentity(1))
         assertNull(V2Pipeline.createIfProfileExists(context, database))
-        assertNull(signalRecords.loadLocalIdentity())
+        assertNull(database.dao().getSignalLocalIdentity(1))
+        // DEC-023: the wipe deleted the vault key, and nothing but a new profile creates one.
+        assertFalse(vault.hasKey())
+    }
+
+    private companion object {
+        const val LATE_PRE_KEY_ID = 424242
     }
 }

@@ -5,11 +5,13 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.securemessenger.storage.AndroidKeystoreVaultCipher
+import app.securemessenger.storage.LocalDataState
 import app.securemessenger.storage.LocalProfileRepository
 import app.securemessenger.storage.SecureMessengerDatabase
 import app.securemessenger.transport.RelayHealthStatus
 import app.securemessenger.transport.RelayHttpTransportClient
 import app.securemessenger.transport.RelayServerSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,9 +19,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** Why the app cannot use the stored data (DEC-023). While set, nothing else is shown or run. */
+enum class LocalDataProblem {
+    /** The vault key is missing or does not match the data: it can never be read again. */
+    UNREADABLE,
+
+    /** Android Keystore or the database did not answer. Nothing is declared lost; try again. */
+    TEMPORARY,
+}
+
 data class SecureMessengerUiState(
     val profileKnown: Boolean = false,
     val profileCreated: Boolean = false,
+    val localDataProblem: LocalDataProblem? = null,
     val relayServerUrl: String = RelayServerSettings.DEFAULT_EMULATOR_URL,
     val relayHealthStatus: RelayHealthStatus? = null,
     val allowInsecureRelayHttp: Boolean = false,
@@ -30,8 +42,9 @@ data class SecureMessengerUiState(
 )
 
 /**
- * App-level state: profile, relay settings, local wipe. Conversations are handled by
- * [ConversationV2ViewModel]; the legacy prototype path was removed (DEC-021).
+ * App-level state: profile, relay settings, local wipe, and the check that the stored data can be
+ * read (DEC-023). Conversations are handled by [ConversationV2ViewModel]; the legacy prototype
+ * path was removed (DEC-021).
  */
 class SecureMessengerViewModel(application: Application) : AndroidViewModel(application) {
     private val database = SecureMessengerDatabase.create(application)
@@ -52,20 +65,58 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     val state: StateFlow<SecureMessengerUiState> = mutableState.asStateFlow()
 
     init {
+        checkLocalData()
+    }
+
+    /**
+     * Checks that the stored data can be read before anything uses it (DEC-023). With a problem,
+     * no chat or background sync runs and no key is created; the app explains what happened.
+     */
+    fun checkLocalData() {
         viewModelScope.launch {
             // Opening the database also runs MIGRATION_7_8, the database side of the legacy reset.
-            val created = withContext(Dispatchers.IO) { profiles.hasProfile() }
-            mutableState.value = mutableState.value.copy(profileKnown = true, profileCreated = created)
-            if (created) scheduler.ensurePeriodic()
+            val checked = withContext(Dispatchers.IO) {
+                try {
+                    profiles.localDataState()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val problem = when (checked) {
+                null -> LocalDataProblem.TEMPORARY
+                LocalDataState.UNREADABLE -> LocalDataProblem.UNREADABLE
+                LocalDataState.EMPTY, LocalDataState.READABLE -> null
+            }
+            mutableState.value = mutableState.value.copy(
+                profileKnown = true,
+                profileCreated = checked != LocalDataState.EMPTY,
+                localDataProblem = problem,
+            )
+            if (checked == LocalDataState.READABLE) scheduler.ensurePeriodic() else scheduler.cancel()
         }
     }
 
     fun createProfile(displayName: String) {
         if (displayName.isBlank()) return
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { profiles.storeProfile(displayName.trim()) }
-            mutableState.value = mutableState.value.copy(profileCreated = true)
-            scheduler.ensurePeriodic()
+            val created = withContext(Dispatchers.IO) {
+                try {
+                    profiles.createProfile(displayName.trim())
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            if (created) {
+                mutableState.value = mutableState.value.copy(profileCreated = true)
+                scheduler.ensurePeriodic()
+            } else {
+                checkLocalData()
+            }
         }
     }
 
@@ -101,14 +152,32 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
 
     /**
      * Deletes the profile, every conversation and libsignal record, the vault key and the v2 queue
-     * ID, under the protocol lock ([V2Pipeline.wipeLocalData]). The relay URL is kept. Not a secure
-     * erase: flash storage can keep old blocks.
+     * ID, under the protocol lock ([V2Pipeline.wipeLocalData]). Works without the vault key, so it
+     * is also the way out of [LocalDataProblem.UNREADABLE]. The relay URL is kept. Not a secure
+     * erase: flash storage can keep old blocks, but they cannot be decrypted without the key.
      */
     fun deleteLocalData() {
         viewModelScope.launch {
             scheduler.cancel()
-            withContext(Dispatchers.IO) { V2Pipeline.wipeLocalData(getApplication(), database) }
-            mutableState.value = mutableState.value.copy(profileCreated = false, relayHealthStatus = null)
+            val wiped = withContext(Dispatchers.IO) {
+                try {
+                    V2Pipeline.wipeLocalData(getApplication(), database)
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            if (wiped) {
+                mutableState.value = mutableState.value.copy(
+                    profileCreated = false,
+                    localDataProblem = null,
+                    relayHealthStatus = null,
+                )
+            } else {
+                checkLocalData()
+            }
         }
     }
 

@@ -12,6 +12,7 @@ import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2StoredMessage
 import app.securemessenger.storage.SecureMessengerDatabase
+import app.securemessenger.storage.VaultKeyUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,6 +48,8 @@ data class ConversationV2UiState(
     val messages: List<V2StoredMessage> = emptyList(),
     val safetyNumber: String? = null,
     val notice: V2Notice? = null,
+    /** DEC-023: the vault key disappeared while the chat was open; the app must re-check its data. */
+    val localDataUnreadable: Boolean = false,
 )
 
 /**
@@ -74,7 +77,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         if (!available) return
         pollJob?.cancel()
         service = null
-        mutableState.value = mutableState.value.copy(ready = false)
+        mutableState.value = mutableState.value.copy(ready = false, localDataUnreadable = false)
         pollJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val application = getApplication<Application>()
@@ -91,6 +94,8 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
                         refresh()
                     } catch (cancelled: CancellationException) {
                         throw cancelled
+                    } catch (lost: VaultKeyUnavailableException) {
+                        throw lost
                     } catch (_: Exception) {
                         // The relay may be unreachable; try again on the next tick.
                     }
@@ -98,6 +103,8 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: VaultKeyUnavailableException) {
+                localDataLost()
             } catch (_: Exception) {
                 mutableState.value = mutableState.value.copy(notice = V2Notice.FAILED)
             }
@@ -184,6 +191,9 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
                 V2Notice.INVALID_CODE
             } catch (_: java.io.IOException) {
                 V2Notice.RELAY_ERROR
+            } catch (_: VaultKeyUnavailableException) {
+                localDataLost()
+                return@launch
             } catch (_: Exception) {
                 V2Notice.FAILED
             }
@@ -209,9 +219,17 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: VaultKeyUnavailableException) {
+            localDataLost()
         } catch (_: Exception) {
             mutableState.value = mutableState.value.copy(notice = V2Notice.FAILED)
         }
+    }
+
+    /** DEC-023: stop everything and hand over to the app, which shows why the data is unreadable. */
+    private fun localDataLost() {
+        mutableState.value = mutableState.value.copy(ready = false, localDataUnreadable = true)
+        stop()
     }
 
     private companion object {

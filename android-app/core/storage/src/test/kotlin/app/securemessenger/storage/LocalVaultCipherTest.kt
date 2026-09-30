@@ -1,10 +1,10 @@
 package app.securemessenger.storage
 
 import java.io.File
-import javax.crypto.AEADBadTagException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalVaultCipherTest {
@@ -17,8 +17,46 @@ class LocalVaultCipherTest {
 
         assertFalse(blob.toString(Charsets.UTF_8).contains("local stored plaintext"))
         assertArrayEquals(plaintext, cipher.decrypt(blob, aad))
-        assertThrows(AEADBadTagException::class.java) {
+        assertThrows(VaultRecordRejectedException::class.java) {
             cipher.decrypt(blob, "wrong-message-id".toByteArray())
+        }
+    }
+
+    /** DEC-023: a damaged blob is a rejected record, never mistaken for a temporary failure. */
+    @Test
+    fun `truncated malformed or altered vault blobs are rejected`() {
+        val cipher = JcaLocalVaultCipher(ByteArray(32) { 3 })
+        val aad = "row".toByteArray()
+        val blob = cipher.encrypt("value".toByteArray(), aad)
+        val flipped = blob.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
+
+        listOf(
+            ByteArray(0),
+            blob.copyOf(3),
+            blob.copyOf(10),
+            blob.copyOf(blob.size - 1),
+            blob + byteArrayOf(0),
+            flipped,
+        ).forEach { damaged ->
+            assertThrows(VaultRecordRejectedException::class.java) { cipher.decrypt(damaged, aad) }
+        }
+        assertThrows(VaultRecordRejectedException::class.java) { JcaLocalVaultCipher(ByteArray(32) { 4 }).decrypt(blob, aad) }
+    }
+
+    /**
+     * Vault calls also run inside libsignal's store callbacks. libsignal passes unchecked exceptions
+     * back unchanged but turns checked ones into an AssertionError (see ConversationV2ServiceTest),
+     * so every vault failure must stay unchecked.
+     */
+    @Test
+    fun `every vault failure is unchecked`() {
+        listOf(
+            VaultException::class.java,
+            VaultKeyUnavailableException::class.java,
+            VaultRecordRejectedException::class.java,
+            VaultTemporarilyUnavailableException::class.java,
+        ).forEach { type ->
+            assertTrue("${type.simpleName} must be unchecked", RuntimeException::class.java.isAssignableFrom(type))
         }
     }
 
