@@ -59,7 +59,7 @@ mutable against the code before relying on it.
 6. **`Delivered`** = an authenticated receipt from the *same contact* naming the inner message ID.
    `Sent to delivery server` = relay acceptance only. Neither is a read receipt. WorkManager sync
    is best effort, never a timing guarantee.
-7. Invitations (`smp-invite-v2:`): one-time EC and Kyber pre-keys per invitation, digest-committed
+7. Invitations (`smp-invite-v3:`, v2 refused): one-time EC and Kyber pre-keys per invitation, digest-committed
    sealed bundle, strict parsing, expiry, one-sided pairing with explicit accept (TOFU). Kyber:
    only `KEMKeyType.KYBER_1024`. One-time Kyber keys are deleted on use; base-key reuse is rejected.
 8. Secrets: never log plaintext, keys, ciphertext, full queue IDs. Message bodies, names and QR text
@@ -106,14 +106,18 @@ mutable against the code before relying on it.
   minSdk 31, Room 2.8.5 (KAPT), Compose BOM 2025.10.01. Libraries needing compileSdk 37 wait.
 - Device tests: Samsung S24 Ultra `R5CXA09HX0X` and Redmi A3x `EE421L001242` (Android 16 arm64),
   `adb` = `D:\Tools\Android\Sdk\platform-tools\adb.exe`. Wake the screens first (a dark screen
-  makes Compose tests time out). Relay: `node D:\Tools\probe\relay-run.mjs` (a wrapper, because
-  `server.mjs` does not start directly on Windows), then `adb -s <serial> reverse tcp:8787 tcp:8787`.
+  makes Compose tests time out). Relay: from `android-app\server\relay` run `node src/server.mjs` (starts directly on Windows since
+  Phase 3; `HOST=127.0.0.1` to bind locally), then `adb -s <serial> reverse tcp:8787 tcp:8787`;
+  relay tests: `node --test` in that folder.
   Airplane mode does not cut the USB relay; stop the relay process to simulate an outage.
 - PowerShell 5.1 traps: `Set-Content -Encoding utf8` writes a BOM (breaks TOML/properties; write
   with `[IO.File]::WriteAllText` and `UTF8Encoding($false)`); backticks inside double-quoted
-  strings are escapes; files with Cyrillic need a UTF-8 BOM to be read as UTF-8.
+  strings are escapes (they silently mangled Kotlin/SQL text twice: edit code with the Edit tool,
+  not with PowerShell string replacement); a one-pair array needs `(,@(a,b))`; `Start-Process`
+  has no `-Environment`; files with Cyrillic need a UTF-8 BOM to be read as UTF-8; `git commit -m`
+  with a multi-line here-string breaks, use `git commit -F file`.
 - Room schemas are exported to `core/storage/schemas` and must be committed with every version
-  (currently 8.json). Migrations have instrumented tests.
+  (currently 9.json). Migrations have instrumented tests.
 
 ## Findings and owner ideas worth remembering
 
@@ -131,6 +135,46 @@ mutable against the code before relying on it.
 - Phase 2 found that libsignal wraps *checked* exceptions from store callbacks in `AssertionError`:
   keep every vault/storage failure unchecked (`VaultException`).
 
+## Decision log (details in `docs/ai-workflow/DECISIONS.md`)
+
+DEC-018 strict identity trust; DEC-019 invitation/pairing design; DEC-020 relay message IDs never
+trusted; DEC-021 legacy prototype removed, v2 debug-only, release has no chat until Phase 5;
+DEC-022 AGP 8.13.2 / compileSdk 36; DEC-023 vault key never replaced silently; DEC-024 relay API v3
++ invitation v3 + Room v9; DEC-025 multi-device deferred. Design docs: `docs/PROTOCOL_V2.md`,
+`docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md` (deferred).
+
+## Working cycle that has worked (repeat it)
+
+1. On the owner's "go": model check (see above), then read the plan section and the code first.
+2. For protocol, storage or API changes: write the design and the compatibility checklist, ask the
+   owner the decisions with plain-language options and a recommendation, record them in `DECISIONS.md`.
+3. Implement; run unit tests, then device tests on BOTH phones, lint, and the release build (check
+   `enable_v2_protocol` is `false` in the APK with `aapt2 dump resources`); the owner checks the
+   build by hand on the phones ("всё проверил, можешь коммитить").
+4. Only then commit: code and docs as separate commits, message file + `git commit -F`, trailer of
+   the current model. Update `HANDOFF.md`, `REWRITE_PLAN.md`, this file. Stop Gradle
+   (`gradlew --stop`) and the relay afterwards so the owner can play games (RAM).
+5. Tell the owner how many commits are ahead of `origin/main` and give the push command:
+   `git -C D:\Messenger push origin main` (the session cannot push).
+6. Final report in Russian with the `AGENTS.md` fields (incl. v2 / `enable_v2_protocol` / libsignal
+   in release / format changes / legacy reintroduced).
+
+## Open items and next steps
+
+- **Phase 5 — security test pass** (next): list every untrusted input (invitation code and bundle,
+  envelope, inner payload, relay JSON responses, vault blobs, stored records) and the property each
+  test must prove; fuzz decoders (reject cleanly, never crash, never partially trust); replay /
+  tamper / downgrade matrix for v2; optionally an external review of the libsignal integration.
+  Revisit key hardening (StrongBox / unlocked-device keys), relay TTL, and whether lint-disabled
+  checks or pinned libraries need attention.
+- **Phase 6** Telegram-style UI (own Compose code, not Telegram's GPL code); ideas to design with
+  it: disappearing messages, app lock. **Phase 7** release readiness (signing, SBOM, HTTPS relay)
+  is out of scope until the owner wants to ship.
+- Other open tasks: TQ-006 clean-clone and CI run, TQ-007 (signing, `lintRelease`, manifest audit),
+  TQ-008 dependency verification/SBOM, `qaMinified` build not re-run after TQ-009, libraries that
+  need compileSdk 37 (Compose 1.12, core 1.19, lifecycle 2.11), Kotlin/coroutines pinned to libsignal.
+- Owner's environment: Windows laptop with ~3.9 GB RAM; the owner plays Hidden Deep on it and the
+  Samsung, so stop Gradle/relay when idle; the owner pushes to GitHub themselves.
 ## Where things stand (update when it changes)
 
 - Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done;
@@ -138,4 +182,4 @@ mutable against the code before relying on it.
   queues, invitation v3, Room v9). Phase 4 multi-device DEFERRED by the owner (DEC-025; version 1
   is one device per person; draft design kept). Next: Phase 5 security test pass (fuzzing, replay /
   tamper / downgrade matrix; Opus 5.5 · High), then Phase 6 Telegram-style UI.
-- Not production-ready; no independent audit; do not claim otherwise.
+- Verified state at the end of Phase 3 (2026-10-01): relay tests 8; JVM tests green; per phone\n  storage 27, ui 21, signal-protocol 49, transport 7; lint 0 errors; release has no chat.\n- Not production-ready; no independent audit; do not claim otherwise.
