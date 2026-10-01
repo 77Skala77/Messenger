@@ -325,6 +325,11 @@ Goal: only after Phases 0–5 have a passing exit gate.
 Exit gate: usability pass — someone who's never seen the app can send a first
 message within a minute of opening it, no explanation needed.
 
+**Status 2026-10-01: IN PROGRESS** (plan: `../PHASE6_UI_PLAN.md`, DEC-027). Step 6a done: the
+repository is AGPL-3.0 (`LICENSE`, `THIRD_PARTY_NOTICES.md`); Telegram for Android's code may be
+reused only from files whose header says "GPL v2 or later" (416 of 1,836; the bubble drawable is
+not among them); unread counters on Room v10; notifications without message text.
+
 ## Phase 7 — Release readiness (only if you want to actually ship it)
 
 - Dependency locking / SBOM, reproducible release build, signing key management.

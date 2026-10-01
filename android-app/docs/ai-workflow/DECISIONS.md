@@ -64,6 +64,7 @@ When changing an accepted decision:
 | DEC-024 | Phase 3: self-certifying relay queues, server message IDs, invitation v3, reset of v2 test chats | ACCEPTED |
 | DEC-025 | Phase 4 (multi-device) deferred; version 1 is one device per person | ACCEPTED |
 | DEC-026 | Phase 5: rejected envelopes deleted and rolled back, relay pages, ordered sending, strict invitations; paid audit before release | ACCEPTED |
+| DEC-027 | Phase 6: AGPL-3.0 `LICENSE`; port only "GPL v2 or later" Telegram files; unread counters (Room v10); notifications without text | ACCEPTED |
 
 ---
 
@@ -1217,6 +1218,57 @@ its only way out in landscape (F12); and smaller issues (F4, F6–F11).
 `RelayHostileResponseInstrumentedTest`, `RelayHttpTransportInstrumentedTest`,
 `ConversationV2StorageInstrumentedTest`, `LegacyResetInstrumentedTest`, relay `node --test`.
 Results: `REWRITE_PLAN.md`, Phase 5.
+
+---
+
+## DEC-027 — Phase 6: license, reuse of Telegram for Android's code, unread counters, notifications
+
+**Status:** ACCEPTED
+**Recorded:** 2026-10-01. Owner decisions in chat (plan: `../PHASE6_UI_PLAN.md`).
+
+### Decision
+
+- The repository is licensed **AGPL-3.0** (`LICENSE` at the root, the official text; stated as
+  AGPL-3.0-only like libsignal) with `THIRD_PARTY_NOTICES.md`. This formalises owner decision 2 of
+  `REWRITE_PLAN.md` ("publishing the source under AGPL-3.0").
+- **Telegram for Android's code may be reused**, as the owner wants a Telegram-like UI and accepts
+  publishing everything: isolated, strong pieces are translated to Kotlin/Compose from files whose
+  header says "GPL v. 2 or later" (416 of 1,836 checked files), used under GPL v3 and combined with
+  this AGPL-3.0 work, keeping the original header and listed in the notices. The 54 files with an
+  Apache-2.0 header keep that license. Files without a header (1,366, among them the bubble
+  drawable `MessageDrawable.java`) may also be ported, **at the owner's accepted legal risk** (see
+  below). Pieces tied to Telegram's data model are rebuilt from screenshots and screen recordings.
+  Never the Telegram name, logo, icons, sounds, fonts or images. This replaces the earlier "do not
+  copy Telegram's code" note in `CLAUDE.md` and `TASK_QUEUE.md`.
+- A read-only reference copy of Telegram's Java sources lives outside the repository
+  (`D:\Tools\reference\Telegram`, commit `f2908b1`).
+- **Unread counters:** Room v10 adds a nullable `lastReadAtEpochMillis` to `v2_contacts`; a local
+  time only, never sent (not a read receipt).
+- **Notifications for new messages, without message text** ("New message from <local name>").
+
+### Accepted legal risk (owner, 2026-10-01, later the same day)
+
+The owner asked to use Telegram files **without a header** too (1,366 of 1,836 checked; the
+repository states GPL v2, neither "or later" nor "only"; no file carries an explicit "v2 only"
+marking). Under GPLv2 section 9 a program that does not specify a version may be used under any
+published version, so such files could be used under GPLv3 and combined with AGPL-3.0; but whether
+the repository's GPL v2 statement counts as "not specifying a version" is an **open legal
+question**. No lawyer's opinion exists: two documents received that day are not one (the first says
+it was prepared by ChatGPT and requires a specialist's check; the second carries no author, and both
+state that a headerless file must be checked against the project's general terms). The owner
+**knowingly accepts the risk**: a rights holder might object, and the affected code would then have
+to be removed or rewritten. Consequences: headerless files may be ported one by one, each listed in
+`THIRD_PARTY_NOTICES.md` as "no header; GPL v2 repository; used under GPLv3 at the owner's accepted
+risk"; where a file is also easy to write anew, doing so is preferred; the 54 Apache-2.0 files keep
+their own license and notices; a file with an explicit "GPL v2 only" marking is excluded.
+Nobody may describe this as legally cleared or lawyer-approved. A real written opinion would
+replace this paragraph.
+
+### Consequences
+
+- Anyone who receives the app may ask for its source; all derived files must keep their notices.
+- The unread marker is a Room schema change with a migration test; notifications need the Android
+  13+ permission and must never carry message text (a test pins it).
 
 ---
 

@@ -62,12 +62,14 @@ release (TQ-106), a second AI review (done), "Share invitation" plus "Copy" with
 **Model check first (owner rule, `CLAUDE.md`):** on the owner's "go", compare the active model
 with the recommendation below; if it differs, warn and ask before starting.
 
-**Phase 6 — Telegram-style UI** (`REWRITE_PLAN.md`): own Compose code, never Telegram's (GPL);
-visual only, the v2 formats stay unchanged. It also carries TQ-108 (receive-queue secret loss
-screen, `FLAG_SECURE` decision, telling a second scanner, pruning envelope digests). Recommended
-model: **Opus 5.5 · High** for the plan and the owner's decisions, then **Sonnet 5.5 · High** for
-the screens (say when to switch); back to Opus for TQ-108's security parts. Commit policy: one
-commit round at the end of each phase, step or task (owner, 2026-09-30).
+**Phase 6 — Telegram-style UI** is in progress: step 6a (plan, the owner's decisions, `LICENSE`,
+`THIRD_PARTY_NOTICES.md`) is done; see `../PHASE6_UI_PLAN.md` and DEC-027. Ported code only from
+Telegram files with a "GPL v2 or later" header; the read-only reference copy is at
+`D:\Tools\reference\Telegram`. Next: **step 6b** (map each wanted piece to its Telegram file, check
+every header, write porting notes), then 6c theme and components. Recommended model: **Sonnet 5.5 ·
+High** for 6b, 6c, 6e, 6f; **Opus 5.5 · High** for the Room v10 migration (6d), the notification
+privacy rules (6f') and TQ-108 (6g). Commit policy: one commit round at the end of each phase,
+step or task (owner, 2026-09-30).
 
 ## Operational constraints
 

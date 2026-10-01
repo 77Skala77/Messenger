@@ -24,9 +24,10 @@ mutable against the code before relying on it.
   number varies per message and has no known mapping to Low/Medium/High/Extra/Max): never claim
   the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
-  Current recommendations: Phase 6 (Telegram-style UI): **Opus 5.5 · High** for the plan and the
-  owner's decisions, then **Sonnet 5.5 · High** for the screens; Opus again for TQ-108's security
-  parts. Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
+  Current recommendations: Phase 6 (Telegram-style UI), step 6a done on Opus; next **6b and the
+  screens on Sonnet 5.5 · High**; back to **Opus 5.5 · High** for the Room v10 migration (6d), the
+  notification privacy rules (6f') and TQ-108 (6g). Routine test cases, docs, dependency updates:
+  Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -134,9 +135,17 @@ mutable against the code before relying on it.
   against someone who can also use the Keystore key. Mitigations to design later: shorter relay
   TTL (now 24 h), hardware-bound/unlocked-device keys (Phase 5), app lock, disappearing messages.
 - Owner ideas, not yet tasks (recorded in `TASK_QUEUE.md`, "Deferred"): disappearing messages, app
-  lock, and a Telegram-style UI shell on top of this core. Telegram's Android client is GPL and
-  speaks Telegram's own protocol; libsignal is AGPL-3.0 — do not copy its code; re-implement the
-  look in this project's own Compose UI, after an owner decision and a legal check.
+  lock.
+- **Telegram for Android's code (DEC-027):** the project is AGPL-3.0 (`LICENSE`,
+  `THIRD_PARTY_NOTICES.md` at the repository root). Check the header of every Telegram file before
+  using it: 416 of 1,836 say "GPL v. 2 or later" (fine), 54 are Apache-2.0 (keep their notices), and
+  1,366 have no header: those MAY be used **at the owner's knowingly accepted legal risk**, NOT
+  confirmed by any lawyer (two documents the owner received were not lawyer's opinions) — never say
+  "legally cleared"; list each such file in the notices as "no header; accepted risk"; prefer
+  writing a piece anew when that is easy. An explicit "GPL v2 only" marking would exclude a file
+  (none found). Keep original headers; never their name, logo, icons, sounds, fonts or images.
+  Reference copies (read only, outside the repo): `D:\Tools\reference\Telegram` (commit `f2908b1`)
+  and `D:\Tools\reference\themes` (five `.attheme` color files).
 - Phase 2 found that libsignal wraps *checked* exceptions from store callbacks in `AssertionError`:
   keep every vault/storage failure unchecked (`VaultException`).
 - Phase 5 found (tests prove it): libsignal raises only its checked protocol exceptions on hostile
@@ -185,8 +194,9 @@ ordered sending, strict invitations; paid audit before release). Design docs: `d
   DEC-026). Still open after it: TQ-108 (with Phase 6), key hardening (StrongBox /
   unlocked-device keys), relay TTL, lint-disabled checks, pinned libraries. The paid external
   audit (TQ-106) is planned before any release.
-- **Phase 6** Telegram-style UI (next; own Compose code, not Telegram's GPL code); ideas to design
-  with it: disappearing messages, app lock; it also carries TQ-108. **Phase 7** release readiness
+- **Phase 6** Telegram-style UI (in progress, `docs/PHASE6_UI_PLAN.md`, DEC-027: Compose; ported
+  pieces only from "GPL v2 or later" Telegram files; unread counters on Room v10; notifications
+  without text); it also carries TQ-108. Ideas to design with it: disappearing messages, app lock. **Phase 7** release readiness
   (signing, SBOM, HTTPS relay) is out of scope until the owner wants to ship.
 - Other open tasks: TQ-006 clean-clone and CI run, TQ-007 (signing, `lintRelease`, manifest audit),
   TQ-008 dependency verification/SBOM, `qaMinified` build not re-run after TQ-009, libraries that
