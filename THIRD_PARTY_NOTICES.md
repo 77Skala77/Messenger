@@ -35,7 +35,8 @@ contributors). Rules (`android-app/docs/PHASE6_UI_PLAN.md`, section 2; DEC-027):
 - Every derived file keeps the original header (if any) and says what it was derived from.
 - The Telegram name, logo, icons, stickers, sounds, fonts and images are not used.
 - Colors taken from Telegram's bundled theme files (`day`, `night`, `arctic`, `darkblue`,
-  `bluebubbles`) are plain values (numbers) used in this project's own theme files.
+  `bluebubbles`) and from its built-in classic defaults (`ui/ActionBar/ThemeColors.java`, no
+  header) are plain values (numbers) used in this project's own theme files.
 
 | Our file | Derived from (Telegram for Android, commit `f2908b1`) | Original header |
 | --- | --- | --- |

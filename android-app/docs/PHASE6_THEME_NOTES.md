@@ -60,6 +60,41 @@ The files hold 186 (`bluebubbles`) to 498 (`night`) keys each (every control of 
 Gaps (`-` in the extraction): the day theme leaves some keys unset because they inherit another
 key's value in Telegram's theme engine. Our theme sets every color itself.
 
+## 2a. The owner's choice: the classic palette (2026-10-01)
+
+The owner chose Telegram's **classic** look (not "Day"): green outgoing and white incoming bubbles
+on a light pattern of our own, with a dark theme that follows the system and an in-app switch.
+Classic values come from Telegram's built-in defaults (`ui/ActionBar/ThemeColors.java`, no header,
+values only; DEC-027):
+
+| Role | Classic light | Key |
+| --- | --- | --- |
+| Accent (unread badge, send button, switches, links) | `#229AF0` | `TELEGRAM_COLOR` |
+| Primary text, top bar title and icons | `#1A1D21` | `DEFAULT_BLACK_TEXT` |
+| Top bar, list background | `#FFFFFF` | `actionBarDefault`, `windowBackgroundWhite` |
+| Section background | `#F1F1F3` | `windowBackgroundGray` |
+| Chat-list name / last message / time | `#1A1D21` / `#75787A` / `#848688` | `chats_name`, `chats_message`, `chats_date` |
+| Chat-list tick | `#46AA36` | `chats_sentCheck` |
+| Unread badge / muted / text | `#229AF0` / `#BEC3C7` / `#FFFFFF` | `chats_unreadCounter*` |
+| New-chat button | `#65A9E0` | `chats_actionBackground` |
+| Divider | `#D9D9D9` | `divider` |
+| Incoming bubble (selected) | `#FFFFFF` (`#ECF7FD`) | `chat_inBubble` |
+| Outgoing bubble (selected) | `#EFFFDE` (`#D9F7C5`) | `chat_outBubble` |
+| Message text, both sides | `#000000` | `chat_messageText*` |
+| Time: incoming / outgoing | `#A1AAB3` / `#70B15C` | `chat_inTimeText`, `chat_outTimeText` |
+| Ticks / clock in outgoing bubble | `#5DB050` / `#75BD5E` | `chat_outSentCheck`, `chat_outSentClock` |
+| Bubble shadows (low alpha) | incoming `#1D3753`, outgoing `#1E750C` | `chat_*BubbleShadow` |
+| Reply line: incoming / outgoing | `#599FD8` / `#6EB969` | `chat_*ReplyLine` |
+| Input bar / text / hint / icons | `#FFFFFF` / `#000000` / `#858A84` / `#8E959B` | `chat_messagePanel*` |
+| Date chip | semi-transparent darker tone of the wallpaper, white text | `chat_serviceBackground` (computed from the wallpaper in Telegram), `chat_serviceText` `#FFFFFF` |
+
+- **Wallpaper:** our own light pattern (simple vector doodles drawn in Compose at low contrast) over a
+  soft green-gray base; the exact color is chosen in step 6c on the phones, by eye.
+- **Dark theme:** Telegram has no dark variant of the classic green; the dark theme uses the Night
+  values of section 2 (dark gray surfaces, blue outgoing bubbles), unless the owner's screenshots ask
+  for something else.
+- **Theme switch** in Settings: Light, Dark, System (default System).
+
 ## 3. How this maps to our app
 
 - Our two themes follow Material 3 color roles; the table gives starting values, not a copy of

@@ -10,7 +10,7 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 4. [`../PROTOCOL_V2.md`](../PROTOCOL_V2.md)
 5. [`REWRITE_PLAN.md`](REWRITE_PLAN.md)
 6. [`TASK_QUEUE.md`](TASK_QUEUE.md)
-7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-026)
+7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-027)
 8. The checklist relevant to the task
 
 ## Source-of-truth warning
@@ -23,7 +23,7 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 
 **Date:** 2026-10-01
 
-**Workstream:** `REWRITE_PLAN.md` — Phases 1–3 done, Phase 4 deferred, Phase 5 (security test pass) in progress
+**Workstream:** `REWRITE_PLAN.md` — Phases 1–3 and 5 done, Phase 4 deferred, Phase 6 (Telegram-style UI) in progress
 
 **Status:** Phase 1 (steps 1a–1f) done; the Phase 1 exit gate is met. Evidence:
 `PHASE_1E_PREP.md` ("Step 1f evidence") and `REWRITE_PLAN.md` (progress list).
@@ -63,13 +63,18 @@ release (TQ-106), a second AI review (done), "Share invitation" plus "Copy" with
 with the recommendation below; if it differs, warn and ask before starting.
 
 **Phase 6 — Telegram-style UI** is in progress: step 6a (plan, the owner's decisions, `LICENSE`,
-`THIRD_PARTY_NOTICES.md`) is done; see `../PHASE6_UI_PLAN.md` and DEC-027. Ported code only from
-Telegram files with a "GPL v2 or later" header; the read-only reference copy is at
-`D:\Tools\reference\Telegram`. Next: **step 6b** (map each wanted piece to its Telegram file, check
-every header, write porting notes), then 6c theme and components. Recommended model: **Sonnet 5.5 ·
-High** for 6b, 6c, 6e, 6f; **Opus 5.5 · High** for the Room v10 migration (6d), the notification
-privacy rules (6f') and TQ-108 (6g). Commit policy: one commit round at the end of each phase,
-step or task (owner, 2026-09-30).
+`THIRD_PARTY_NOTICES.md`) is done; see `../PHASE6_UI_PLAN.md` and DEC-027. Telegram code may be
+reused per DEC-027 ("GPL v2 or later" files; headerless files at the owner's accepted legal risk);
+the read-only reference copy is at `D:\Tools\reference\Telegram`. **TQ-109** (system Back button) is implemented in the working tree,
+not committed: it waits for the device run and the owner's hand check. **Step 6b is done**
+(`../PHASE6_PORTING_NOTES.md`: metrics, rules and colors per piece; the reworked steps 6c–6h; almost
+nothing needs Telegram code copied, our Compose code is written from the notes). The owner chose the
+classic palette (green outgoing bubbles), an own light wallpaper pattern, and a dark theme with an
+in-app switch (notes, section 4; theme notes, 2a). Next: **6c** (theme with the switch, type scale,
+avatar, badge, ticks, bubble shape, date chip, wallpaper pattern, a preview screen). Recommended
+model: **Sonnet 5.5 · High** for 6c, 6e, 6f, 6h; **Opus 5.5 · High** for the Room v10 migration
+(6d), the notification privacy rules (6f') and TQ-108 (6g). Commit policy: one commit round at the
+end of each phase, step or task (owner, 2026-09-30).
 
 ## Operational constraints
 

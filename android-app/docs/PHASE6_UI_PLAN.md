@@ -1,7 +1,8 @@
 # Phase 6 — Telegram-style UI: plan
 
 Status: **ACCEPTED** (2026-10-01, step 6a done: the owner's decisions are in section 7, DEC-027).
-Next: step 6b. Plan section: `ai-workflow/REWRITE_PLAN.md`, Phase 6.
+Steps 6a and 6b done (6b: `PHASE6_PORTING_NOTES.md`); next: step 6c. Plan section:
+`ai-workflow/REWRITE_PLAN.md`, Phase 6.
 Visual only: protocol v2, wire, invitation and storage formats stay as they are; release builds keep
 the chat closed until the external audit (TQ-106).
 
@@ -44,9 +45,9 @@ Telegram for Android (github.com/DrKLO/Telegram) is open source. Checked on 2026
 Rules for this project, decided by the owner (we publish everything, under AGPL-3.0):
 
 1. **Port isolated, strong pieces** (bubble shape, chat-list row layout, avatar initials and colors,
-   date rules, ticks, small animations) by translating them to Kotlin/Compose, **only from files
-   whose header says "GPL v. 2 or later"**: GPL v2-or-later code can be used under GPL v3, which may
-   be combined with AGPL-3.0. Keep the original header and copyright in every derived file, mark it
+   date rules, ticks, small animations) by translating them to Kotlin/Compose, **from files whose
+   header says "GPL v. 2 or later"** (and headerless files under rule 2): GPL v2-or-later code can be
+   used under GPL v3, which may be combined with AGPL-3.0. Keep the original header and copyright in every derived file, mark it
    as derived from Telegram for Android, and list it in `THIRD_PARTY_NOTICES.md`.
 2. **Files without a header** (1,366 files, e.g. `CounterView.java`, `MessageDrawable.java`): the
    repository states GPL v2 for them without "or later" and without "only". Using them under GPL v3
@@ -100,12 +101,47 @@ authenticate.
   owner's approval (`AGENTS.md` compatibility rules).
 - Avatar colors from a hash of the local contact ID (never sent anywhere).
 
+## 5a. Requirement from the owner's hand check: the system Back button (2026-10-01)
+
+**Found:** the app has no handling of Android's system Back button (checked: no `BackHandler`, no
+navigation component; the screens switch through `screen` state variables in
+`SecureMessengerApp.kt` (onboarding, main, settings) and `V2Screens.kt` (list, invitation, add
+contact, conversation, safety number)). Pressing system Back from a chat or from settings therefore
+leaves or minimizes the app instead of going one screen back, unlike the app's own "Back" button.
+
+**Wanted (owner):** system Back (the button or the gesture) behaves exactly like the app's own
+Back: it goes one level back.
+
+| From | System Back goes to |
+| --- | --- |
+| Conversation, invitation, add contact, safety number | the chat list |
+| Settings | the main screen |
+| An open dialog (delete confirmation, notices) | closes the dialog first |
+| Chat list (the main screen), onboarding, "data cannot be read" screen | nothing to go back to: Android's normal behavior (minimize or leave) |
+
+**How:** a `BackHandler` on every screen that has a parent, enabled only on those screens; one place
+for the screen stack so the app's Back button and the system Back cannot disagree; the new Phase 6
+screens are built on the same rule from the start. Optional: Android 13+ predictive-back animation
+(`android:enableOnBackInvokedCallback`), decided with the visual work.
+**Implemented (2026-10-01):** `BackHandler` in `ConversationV2Root` (`goHome`, shared by the app's
+Back button and the system Back) and in `SecureMessengerApp` (settings to main).
+**Tests:** `SystemBackInstrumentedTest` opens the invitation, add-contact and settings screens,
+sends system Back through the activity's back dispatcher and checks that the app stays open at the
+parent, and that no handler is registered at the roots (list, onboarding), where the system acts as
+usual; run on both phones.
+Small and independent of the Phase 6 visuals, so it can be done first (Sonnet 5.5 · High) and
+before step 6b. Queued as TQ-109 in `ai-workflow/TASK_QUEUE.md`.
+
 ## 6. Steps and models
+
+Step 6b is done: the per-piece notes (metrics, rules, colors, header status) and the reworked
+steps 6c–6h are in `PHASE6_PORTING_NOTES.md`, which supersedes the table below where they differ.
 
 | Step | Work | Model |
 | --- | --- | --- |
 | 6a | This plan, the owner's decisions, `LICENSE`, `THIRD_PARTY_NOTICES.md` | Opus 5.5 · High |
-| 6b | Study Telegram's sources: map each wanted piece to its file, check every header, write the porting notes | Sonnet 5.5 · High |
+| 6a' | System Back button (TQ-109, section 5a) | Sonnet 5.5 · High |
+| 6b | Study Telegram's sources: map each wanted piece to its file, check every header, write the porting notes; rework steps 6c–6h for the owner's accepted licensing risk | Opus 5.5 · High |
 | 6c | Theme (light, dark; starting colors in `PHASE6_THEME_NOTES.md`), typography, avatar, badge, ticks | Sonnet 5.5 · High |
 | 6d | Chat list (and unread marker, if approved) | Sonnet 5.5 · High; Opus for the Room migration |
 | 6e | Conversation: bubbles, grouping, dates, input bar | Sonnet 5.5 · High |
@@ -134,3 +170,7 @@ authenticate.
    `bluebubbles` `.attheme`, headerless) are studied for colors; the analysis is in
    `PHASE6_THEME_NOTES.md`. The colors are used as plain values for our own light and dark themes.
    Copies for study: `D:\Tools\reference\themes` (outside the repository).
+7. **Style (after step 6b):** Telegram's classic palette (light green outgoing, white incoming
+   bubbles), a light wallpaper pattern of our own, and a dark theme (Night values) that follows the
+   system with an in-app switch Light/Dark/System from the start (`PHASE6_THEME_NOTES.md`, 2a;
+   `PHASE6_PORTING_NOTES.md`, section 4).

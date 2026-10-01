@@ -701,6 +701,24 @@ Historical VPS success is not production evidence.
 
 ---
 
+## TQ-109 — System Back button goes one screen back
+
+**Priority:** P1 (owner, 2026-10-01, found in the hand check)
+**Status:** IN PROGRESS (implemented in the working tree on 2026-10-01; waits for the device run
+on both phones and the owner's hand check, then a commit)
+**Type:** UI
+**Security-sensitive:** No
+
+### Objective
+
+Android's system Back (button or gesture) behaves like the app's own Back button: conversation,
+invitation, add contact and safety number go back to the chat list; settings goes back to the main
+screen; an open dialog closes first; from the root screens (chat list, onboarding, "data cannot be
+read") the normal system behavior stays. Details, current state of the code and tests:
+`../PHASE6_UI_PLAN.md`, section 5a. Model: Sonnet 5.5 · High.
+
+---
+
 ## TQ-108 — Phase 5 follow-ups accepted for later
 
 **Priority:** P2

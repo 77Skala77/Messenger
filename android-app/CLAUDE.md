@@ -24,10 +24,10 @@ mutable against the code before relying on it.
   number varies per message and has no known mapping to Low/Medium/High/Extra/Max): never claim
   the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
-  Current recommendations: Phase 6 (Telegram-style UI), step 6a done on Opus; next **6b and the
-  screens on Sonnet 5.5 · High**; back to **Opus 5.5 · High** for the Room v10 migration (6d), the
-  notification privacy rules (6f') and TQ-108 (6g). Routine test cases, docs, dependency updates:
-  Sonnet 5.5 · High.
+  Current recommendations: Phase 6 (Telegram-style UI), steps 6a and 6b done. Next **6c (theme and
+  components) on Sonnet 5.5 · High**, then 6e and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
+  migration (6d), the notification privacy rules (6f') and TQ-108 (6g). TQ-109 (system Back) waits
+  for the device run. Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -169,8 +169,12 @@ trusted; DEC-021 legacy prototype removed, v2 debug-only, release has no chat un
 DEC-022 AGP 8.13.2 / compileSdk 36; DEC-023 vault key never replaced silently; DEC-024 relay API v3
 + invitation v3 + Room v9; DEC-025 multi-device deferred; DEC-026 Phase 5 fixes (rejected
 envelopes deleted and rolled back, relay pages of 100 and canonical base64, bounded transport,
-ordered sending, strict invitations; paid audit before release). Design docs: `docs/PROTOCOL_V2.md`,
-`docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md` (deferred).
+ordered sending, strict invitations; paid audit before release); DEC-027 Phase 6 (AGPL-3.0
+`LICENSE`, reuse of Telegram for Android code incl. headerless files at the owner's accepted legal
+risk, unread counters on Room v10, notifications without text). Design docs:
+`docs/PROTOCOL_V2.md`, `docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md`
+(deferred), `docs/PHASE5_SECURITY_TEST_PLAN.md`, `docs/PHASE6_UI_PLAN.md`,
+`docs/PHASE6_THEME_NOTES.md`.
 
 ## Working cycle that has worked (repeat it)
 
@@ -195,9 +199,30 @@ ordered sending, strict invitations; paid audit before release). Design docs: `d
   unlocked-device keys), relay TTL, lint-disabled checks, pinned libraries. The paid external
   audit (TQ-106) is planned before any release.
 - **Phase 6** Telegram-style UI (in progress, `docs/PHASE6_UI_PLAN.md`, DEC-027: Compose; ported
-  pieces only from "GPL v2 or later" Telegram files; unread counters on Room v10; notifications
-  without text); it also carries TQ-108. Ideas to design with it: disappearing messages, app lock. **Phase 7** release readiness
-  (signing, SBOM, HTTPS relay) is out of scope until the owner wants to ship.
+  Telegram code per the licensing rules above; unread counters on Room v10; notifications without
+  text); it also carries TQ-108. Order of work: **TQ-109** (system Back button goes one screen back;
+  Sonnet 5.5 · High; implemented, device tests pending the phones, then the owner's hand check and
+  a commit). **Step 6b done** (`docs/PHASE6_PORTING_NOTES.md`: bubble geometry 17/6 dp radii and
+  tail, series = same direction within 5 minutes, time-on-last-line rule, avatar initials and 7
+  gradients, chat-list row 70 dp / avatar 52 / badge 20.67 dp, date rules, header and input bar
+  sizes; we write Compose code from these notes, nearly no Telegram code is copied). Owner's style:
+  **classic palette** (outgoing `#EFFFDE` green ticks, incoming white, accent `#229AF0`), **own light
+  wallpaper pattern**, **dark theme (Night values) with an in-app switch** Light/Dark/System. Next:
+  6c theme and components, 6d chat list with
+  unread marker (Room v10, Opus for the migration), 6e conversation, 6f screens and 6f'
+  notifications, 6g TQ-108, 6h usability check. The owner will send screenshots and screen
+  recordings of Telegram for the parts that are rebuilt, not ported. Ideas to design with it:
+  disappearing messages, app lock. **Phase 7** release readiness (signing, SBOM, HTTPS relay) is
+  out of scope until the owner wants to ship.
+- **Owner facts worth keeping:** the owner (not a crypto or legal specialist) wants a UI that looks
+  and behaves like Telegram; is relaxed about licensing but accepted the risk knowingly; pushes to
+  GitHub themselves (last push: all commits up to `996a004`); the phones are often disconnected
+  between sessions (ask them to connect Samsung `R5CXA09HX0X` and Redmi `EE421L001242` and wake the
+  screens before device tests); expects every session answer in Russian, short when asked.
+- **Legal documents trap:** the owner received two `.docx` "Telegram GPLv3" papers (2026-10-01);
+  neither is a lawyer's opinion (one says it was prepared by ChatGPT and needs a specialist's check,
+  the other has no author and contradicts itself). Do not record or say that a lawyer cleared
+  anything. Only a signed written opinion would change that.
 - Other open tasks: TQ-006 clean-clone and CI run, TQ-007 (signing, `lintRelease`, manifest audit),
   TQ-008 dependency verification/SBOM, `qaMinified` build not re-run after TQ-009, libraries that
   need compileSdk 37 (Compose 1.12, core 1.19, lifecycle 2.11), Kotlin/coroutines pinned to libsignal.
@@ -208,12 +233,21 @@ ordered sending, strict invitations; paid audit before release). Design docs: `d
 - Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done;
   Phase 2 storage hardening done (DEC-023); Phase 3 relay hardening done (DEC-024: self-certifying
   queues, invitation v3, Room v9). Phase 4 multi-device DEFERRED by the owner (DEC-025; version 1
-  is one device per person; draft design kept). Phase 5 security test pass done (DEC-026). Next:
-  Phase 6 Telegram-style UI.
+  is one device per person; draft design kept). Phase 5 security test pass done (DEC-026). Phase 6
+  Telegram-style UI in progress: step 6a done (plan, `LICENSE`, `THIRD_PARTY_NOTICES.md`, DEC-027,
+  committed `996a004`); TQ-109 (system Back) implemented in the working tree.
 - Verified state at the end of Phase 5 (2026-10-01): relay tests 11; JVM tests green
   (signal-protocol 73, storage 5, ui 13, domain 3); per phone storage 29, transport 12,
   signal-protocol 73, ui 24; lint 0 errors (16 warnings); release with R8, no chat; the owner's hand
   check passed, the clipboard case led to "Share" + "Copy" with a warning (DEC-026).
 - Device tests: a phone lying sideways runs the tests in landscape (that is how F12 was found);
   `LanguageSwitchHarnessActivity` follows the sensor.
+- Reference material outside the repo (read only): Telegram for Android Java sources
+  `D:\Tools\reference\Telegram` (sparse shallow clone of `org/telegram/ui` and
+  `org/telegram/messenger`, commit `f2908b1`; other blobs can be read with `git show HEAD:<path>`)
+  and `D:\Tools\reference\themes` (five `.attheme` color files). Survey of 1,836 Java files:
+  416 "GPL v. 2 or later" header, 54 Apache-2.0, 1,366 no header, 0 marked "v2 only".
+- Back navigation: no navigation component; screens are state variables (`Screen` in
+  `SecureMessengerApp.kt`, `V2Screen` in `V2Screens.kt`); system Back is handled with `BackHandler`
+  enabled only on screens that have a parent (`SystemBackInstrumentedTest` pins it).
 - Not production-ready; no independent audit; do not claim otherwise.

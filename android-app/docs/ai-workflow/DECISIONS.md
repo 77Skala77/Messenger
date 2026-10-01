@@ -1264,6 +1264,13 @@ their own license and notices; a file with an explicit "GPL v2 only" marking is 
 Nobody may describe this as legally cleared or lawyer-approved. A real written opinion would
 replace this paragraph.
 
+### Style decisions (owner, 2026-10-01, after step 6b)
+
+Telegram's classic palette (light green outgoing and white incoming bubbles); a light wallpaper
+pattern of our own; a dark theme with Telegram's Night values that follows the system, plus an
+in-app switch (Light, Dark, System) from the start. Details: `../PHASE6_THEME_NOTES.md` (2a) and
+`../PHASE6_PORTING_NOTES.md`.
+
 ### Consequences
 
 - Anyone who receives the app may ask for its source; all derived files must keep their notices.

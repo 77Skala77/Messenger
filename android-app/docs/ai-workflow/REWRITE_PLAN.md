@@ -327,8 +327,11 @@ message within a minute of opening it, no explanation needed.
 
 **Status 2026-10-01: IN PROGRESS** (plan: `../PHASE6_UI_PLAN.md`, DEC-027). Step 6a done: the
 repository is AGPL-3.0 (`LICENSE`, `THIRD_PARTY_NOTICES.md`); Telegram for Android's code may be
-reused only from files whose header says "GPL v2 or later" (416 of 1,836; the bubble drawable is
-not among them); unread counters on Room v10; notifications without message text.
+reused from files whose header says "GPL v2 or later" (416 of 1,836) and, at the owner's accepted
+legal risk, from headerless files (1,366, among them the bubble drawable); unread counters on Room
+v10; notifications without message text. Step 6b done (`../PHASE6_PORTING_NOTES.md`: metrics,
+rules and colors; Compose code is written anew from them). Style chosen by the owner: Telegram's
+classic palette, a light wallpaper pattern of our own, a dark theme with an in-app switch.
 
 ## Phase 7 — Release readiness (only if you want to actually ship it)
 
