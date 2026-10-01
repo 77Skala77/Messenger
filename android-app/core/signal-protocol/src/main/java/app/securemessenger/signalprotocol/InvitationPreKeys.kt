@@ -97,7 +97,10 @@ class InvitationPreKeyFactory(
         )
     }
 
-    /** Deletes whatever is left of an invitation's pre-keys, e.g. when it expires unused. */
+    /** True while the one-time Kyber pre-key is unused: libsignal deletes it when a session uses it. */
+    fun hasKyberPreKey(kyberPreKeyId: Int): Boolean = store.containsKyberPreKey(kyberPreKeyId)
+
+    /** Deletes whatever is left of an invitation's pre-keys: when it expires unused, or once it is used. */
     fun delete(signedPreKeyId: Int, oneTimePreKeyId: Int, kyberPreKeyId: Int) {
         store.removePreKey(oneTimePreKeyId)
         store.removeKyberPreKey(kyberPreKeyId)

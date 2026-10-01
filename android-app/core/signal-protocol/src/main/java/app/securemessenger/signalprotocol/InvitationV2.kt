@@ -109,7 +109,7 @@ object InvitationV2 {
     private const val SEAL_VERSION = 1
     private const val NONCE_BYTES = 12
     private const val TAG_BITS = 128
-    private const val CLOCK_SKEW_MILLIS = 10 * 60 * 1000L
+    internal const val CLOCK_SKEW_MILLIS = 10 * 60 * 1000L
     private val SEAL_AAD = "smp-invite-v3/sealed-bundle".toByteArray()
     private val DIGEST_DOMAIN = "smp-invite-v3/sealed-bundle-digest\u0000".toByteArray()
 
@@ -140,12 +140,13 @@ object InvitationV2 {
         }
         val payload = text.removePrefix(PREFIX)
         val body = try {
-            // Padding is never produced; rejecting it keeps one canonical text per invitation.
-            if (payload.contains('=')) throw IllegalArgumentException("Padded base64")
             Base64.getUrlDecoder().decode(payload)
         } catch (failure: IllegalArgumentException) {
             throw InvitationRejectedException(InvitationRejection.MALFORMED, failure)
         }
+        // One text per invitation: no padding, and no other spelling of the last character (the
+        // decoder ignores the unused low bits there, so four spellings would decode alike).
+        if (base64Url(body) != payload) throw InvitationRejectedException(InvitationRejection.MALFORMED)
         if (body.size != CODE_BODY_BYTES) throw InvitationRejectedException(InvitationRejection.MALFORMED)
         if (body[0].toInt() != FORMAT_VERSION) throw InvitationRejectedException(InvitationRejection.UNSUPPORTED_VERSION)
         var offset = 1

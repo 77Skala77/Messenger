@@ -1,5 +1,12 @@
 package app.securemessenger.ui
 
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.PersistableBundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,10 +40,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -249,8 +255,8 @@ private fun V2RequestCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun V2Invite(code: String?, onCreate: () -> Unit, onBack: () -> Unit) {
-    val clipboard = LocalClipboardManager.current
+internal fun V2Invite(code: String?, onCreate: () -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
     Scaffold(topBar = { NavigationTopBar(stringResource(R.string.v2_my_invitation), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -266,14 +272,42 @@ private fun V2Invite(code: String?, onCreate: () -> Unit, onBack: () -> Unit) {
                 item { QrCode(code, stringResource(R.string.v2_invitation_qr_description)) }
                 item {
                     SelectionContainer { Text(code, style = MaterialTheme.typography.bodySmall) }
+                    Button(
+                        onClick = { shareInvitationCode(context, code) },
+                        modifier = Modifier.testTag("v2_share_invitation"),
+                    ) { Text(stringResource(R.string.share_invitation_code)) }
                     OutlinedButton(
-                        onClick = { clipboard.setText(AnnotatedString(code)) },
+                        onClick = { copyInvitationCode(context, code) },
                         modifier = Modifier.testTag("v2_copy_invitation"),
                     ) { Text(stringResource(R.string.copy_invitation_code)) }
+                    Text(stringResource(R.string.copy_invitation_warning), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
     }
+}
+
+/**
+ * Hands the code straight to the app the user picks, without the clipboard: the safer way to send
+ * an invitation from a distance (owner decision, DEC-026).
+ */
+private fun shareInvitationCode(context: Context, code: String) {
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, code)
+    context.startActivity(Intent.createChooser(send, context.getString(R.string.share_invitation_code)))
+}
+
+/**
+ * The code carries the invitation secret. Copying stays possible by the owner's choice (DEC-026),
+ * with a warning on screen: the clip is marked sensitive, which Android 13+ and keyboards such as
+ * Gboard honour (hidden preview, no history), but the Samsung keyboard keeps it in its history
+ * anyway (seen in the Phase 5 hand check).
+ */
+private fun copyInvitationCode(context: Context, code: String) {
+    val clip = ClipData.newPlainText(context.getString(R.string.v2_my_invitation), code)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+    }
+    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

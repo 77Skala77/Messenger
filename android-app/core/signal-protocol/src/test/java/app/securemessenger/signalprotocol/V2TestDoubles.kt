@@ -98,6 +98,9 @@ class InMemoryConversationV2Store : ConversationV2Store {
     }
 
     @Synchronized
+    override fun invitationUsedBy(requestId: String) = invitations.values.firstOrNull { it.usedByRequestId == requestId }
+
+    @Synchronized
     override fun expiredUnusedInvitations(nowEpochMillis: Long) =
         invitations.values.filter { it.usedByRequestId == null && it.expiresAtEpochMillis <= nowEpochMillis }
 
@@ -198,9 +201,8 @@ class InMemoryConversationV2Store : ConversationV2Store {
     override fun outgoing(messageId: String) = messages[messageId]?.takeIf { it.stored.outgoing }?.toEnvelope()
 
     @Synchronized
-    override fun dueOutgoing(nowEpochMillis: Long) = messages.values.filter {
-        it.stored.outgoing && it.status in setOf(V2MessageStatus.PENDING, V2MessageStatus.FAILED) &&
-            it.envelope != null && (it.nextRetryAt == null || it.nextRetryAt!! <= nowEpochMillis)
+    override fun unsentOutgoing() = messages.values.filter {
+        it.stored.outgoing && it.status in setOf(V2MessageStatus.PENDING, V2MessageStatus.FAILED) && it.envelope != null
     }.mapNotNull { it.toEnvelope() }
 
     @Synchronized
@@ -248,9 +250,33 @@ class InMemoryConversationV2Store : ConversationV2Store {
     fun outgoingKinds(contactId: String): List<V2MessageKind> =
         messages.values.filter { it.stored.outgoing && it.stored.contactId == contactId }.map { it.kind }
 
+    /** Each invitation's routing tag and whether it was used. */
+    @Synchronized
+    fun invitationStates(): List<String> =
+        invitations.values.map { "invitation ${it.localRoutingTagHex} used=${it.usedByRequestId != null}" }
+
+    /** Every stored value as text, for tests that prove an operation changed nothing at all. */
+    @Synchronized
+    fun dump(): List<String> = buildList {
+        invitations.values.forEach { add("invitation ${it.invitationId} ${it.localRoutingTagHex} ${it.usedByRequestId}") }
+        requests.values.forEach {
+            add("request ${it.requestId} ${it.localRoutingTagHex} ${it.peerRoutingTagHex} ${it.peerQueueId} ${hexOf(it.identityKey)} ${it.claimedDisplayName}")
+        }
+        contacts.values.forEach {
+            add("contact ${it.contactId} ${it.state} ${it.localRoutingTagHex} ${it.peerRoutingTagHex} ${it.peerQueueId} ${hexOf(it.identityKey)}")
+        }
+        messages.values.forEach {
+            add(
+                "message ${it.stored.messageId} ${it.stored.contactId} ${it.kind} ${it.status} ${it.stored.innerMessageIdHex} " +
+                    "${it.stored.text} ${it.attemptCount} ${it.nextRetryAt} ${it.envelope?.let(::hexOf)}",
+            )
+        }
+        accepted.sorted().forEach { add("accepted $it") }
+    }
+
     private fun Message.toEnvelope(): V2OutgoingEnvelope? {
         val bytes = envelope ?: return null
-        return V2OutgoingEnvelope(stored.messageId, stored.contactId, kind, stored.innerMessageIdHex, peerQueueId!!, bytes, attemptCount)
+        return V2OutgoingEnvelope(stored.messageId, stored.contactId, kind, stored.innerMessageIdHex, peerQueueId!!, bytes, attemptCount, nextRetryAt)
     }
 
     private fun V2Invitation.copyUsed(requestId: String) = V2Invitation(
@@ -286,6 +312,9 @@ class FakeRelay : TransportClient {
     private var nextId = 0
     var failNextSends = 0
 
+    /** Like the real relay (DEC-026), a fetch returns only the oldest messages, at most this many. */
+    var pageSize = ConversationV2Service.RELAY_PAGE_SIZE
+
     override suspend fun sendMessage(queueId: String, opaqueCiphertext: ByteArray, expiresAtEpochMillis: Long): String =
         synchronized(this) {
             if (failNextSends > 0) {
@@ -298,7 +327,7 @@ class FakeRelay : TransportClient {
         }
 
     override suspend fun fetchMessages(queue: RelayQueueCredentials): List<RelayEncryptedBlob> =
-        synchronized(this) { blobs.values.filter { it.queueId == queue.queueId } }
+        synchronized(this) { blobs.values.filter { it.queueId == queue.queueId }.take(pageSize) }
 
     override suspend fun deleteMessage(queue: RelayQueueCredentials, messageId: String) {
         synchronized(this) { if (blobs[messageId]?.queueId == queue.queueId) blobs.remove(messageId) }

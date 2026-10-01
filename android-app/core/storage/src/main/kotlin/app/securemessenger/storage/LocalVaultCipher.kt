@@ -155,7 +155,8 @@ class AndroidKeystoreVaultCipher(
                     require(nonceSize == 12) { "Invalid local vault nonce" }
                     val nonce = ByteArray(nonceSize).also(input::readFully)
                     val ciphertextSize = input.readInt()
-                    require(ciphertextSize in 16..(16 * 1024 * 1024)) { "Invalid local vault blob" }
+                    // Checked against what is left before allocating, so a damaged length costs nothing.
+                    require(ciphertextSize in 16..(16 * 1024 * 1024) && ciphertextSize <= input.available()) { "Invalid local vault blob" }
                     val ciphertext = ByteArray(ciphertextSize).also(input::readFully)
                     require(input.available() == 0) { "Trailing local vault bytes" }
                     nonce to ciphertext

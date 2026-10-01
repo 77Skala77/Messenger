@@ -160,11 +160,20 @@ object InnerPayloadV2Codec {
 
     /**
      * A display name comes from the other person and is shown before they are trusted, so it may
-     * not contain control or bidirectional-override characters that could disguise it.
+     * not contain anything that could disguise it: controls, line or paragraph separators, unpaired
+     * surrogates, and invisible format characters (bidirectional overrides, zero-width spaces, tags),
+     * except the zero-width joiner that emoji sequences need. Checked per code point (Phase 5, I3).
      */
     fun isAcceptableDisplayName(value: String): Boolean =
         value.toByteArray(Charsets.UTF_8).size <= MAX_DISPLAY_NAME_BYTES &&
-            value.none { Character.isISOControl(it) || it in BIDI_CONTROLS }
+            value.codePoints().noneMatch { codePoint ->
+                val type = Character.getType(codePoint)
+                Character.isISOControl(codePoint) ||
+                    (type == Character.FORMAT.toInt() && codePoint != ZERO_WIDTH_JOINER) ||
+                    type == Character.LINE_SEPARATOR.toInt() ||
+                    type == Character.PARAGRAPH_SEPARATOR.toInt() ||
+                    type == Character.SURROGATE.toInt()
+            }
 
     private fun typeOf(payload: InnerPayloadV2): Int = when (payload) {
         is InnerPayloadV2.Hello -> TYPE_HELLO
@@ -185,9 +194,5 @@ object InnerPayloadV2Codec {
         return padded.copyOf(marker)
     }
 
-    private val BIDI_CONTROLS = setOf(
-        '؜', '‎', '‏',
-        '‪', '‫', '‬', '‭', '‮',
-        '⁦', '⁧', '⁨', '⁩',
-    )
+    private const val ZERO_WIDTH_JOINER = 0x200D
 }

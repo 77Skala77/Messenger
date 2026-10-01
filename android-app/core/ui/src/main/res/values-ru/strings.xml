@@ -11,6 +11,8 @@
     <string name="settings">Настройки</string>
     <string name="back">Назад</string>
     <string name="copy_invitation_code">Скопировать код приглашения</string>
+    <string name="share_invitation_code">Поделиться приглашением</string>
+    <string name="copy_invitation_warning">Скопированный код может остаться в истории буфера обмена или клавиатуры (клавиатура Samsung его сохраняет). Безопаснее показать QR-код при встрече или нажать «Поделиться».</string>
     <string name="scan_prompt">Отсканируйте QR-код защищённого приглашения</string>
     <string name="status_pending">Ожидает синхронизации</string>
     <string name="status_sent">Отправлено на сервер доставки</string>

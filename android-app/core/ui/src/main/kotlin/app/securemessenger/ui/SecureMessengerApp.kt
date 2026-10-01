@@ -5,15 +5,20 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.AlertDialog
@@ -57,7 +62,7 @@ private enum class Screen {
 
 /**
  * App shell: onboarding, the chat (v2, debug builds only; DEC-021), and settings. Release builds
- * show a "not for messaging" screen instead of a chat until the Phase 5 independent review.
+ * show a "not for messaging" screen instead of a chat until an independent external audit (DEC-026).
  */
 @Composable
 fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
@@ -139,13 +144,28 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     }
 }
 
+/**
+ * A full-screen column that stays centred while its content fits and scrolls once it does not
+ * (a phone in landscape, a large font, a small screen), so no button is ever out of reach.
+ */
+@Composable
+private fun CenteredScrollableColumn(
+    verticalArrangement: Arrangement.Vertical,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(24.dp),
+            verticalArrangement = verticalArrangement,
+            content = content,
+        )
+    }
+}
+
 @Composable
 private fun OnboardingScreen(onCreateProfile: (String) -> Unit) {
     var displayName by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
+    CenteredScrollableColumn(verticalArrangement = Arrangement.Center) {
         Text(stringResource(R.string.mvp_badge), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.onboarding_title), style = MaterialTheme.typography.headlineMedium)
@@ -180,10 +200,8 @@ internal fun LocalDataProblemScreen(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     val unreadable = problem == LocalDataProblem.UNREADABLE
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-    ) {
+    // Scrollable: these buttons are the only way out of this state, also in landscape (Phase 5 F12).
+    CenteredScrollableColumn(verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
         Text(
             stringResource(if (unreadable) R.string.local_data_unreadable_title else R.string.local_data_temporary_title),
             style = MaterialTheme.typography.headlineSmall,

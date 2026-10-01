@@ -4,6 +4,7 @@ import android.content.Context
 import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.storage.AndroidKeystoreVaultCipher
 import app.securemessenger.storage.LocalVaultCipher
+import app.securemessenger.storage.VaultRecordRejectedException
 import java.util.Base64
 
 /**
@@ -26,11 +27,22 @@ class V2QueueCredentialStore(
 ) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
+    /**
+     * A stored secret that is not valid base64, does not authenticate, or has the wrong length is a
+     * damaged record: [VaultRecordRejectedException] (DEC-023), never a generic failure (Phase 5 F10).
+     */
     fun getOrCreate(): RelayQueueCredentials {
         preferences.getString(READ_SECRET, null)?.let { stored ->
-            val secret = vault.decrypt(Base64.getDecoder().decode(stored), AAD)
+            val blob = try {
+                Base64.getDecoder().decode(stored)
+            } catch (failure: IllegalArgumentException) {
+                throw VaultRecordRejectedException(failure)
+            }
+            val secret = vault.decrypt(blob, AAD)
             return try {
                 RelayQueueCredentials.fromReadSecret(secret)
+            } catch (failure: IllegalArgumentException) {
+                throw VaultRecordRejectedException(failure)
             } finally {
                 secret.fill(0)
             }

@@ -85,8 +85,12 @@ class EnvelopeV2Test {
             .also { it[30 + 4] = 0xC3.toByte(); it[30 + 5] = 0x28 }
         expectMalformedPayload(invalidUtf8)
 
-        listOf("Bob‮evil", "tab\there", "new\nline", "x".repeat(InnerPayloadV2Codec.MAX_DISPLAY_NAME_BYTES + 1))
-            .forEach { name ->
+        // Phase 5 (I3): zero-width space, line separator, byte-order mark, a tag character (a
+        // supplementary code point), and an unpaired surrogate are refused too.
+        listOf(
+            "Bob‮evil", "tab\there", "new\nline", "x".repeat(InnerPayloadV2Codec.MAX_DISPLAY_NAME_BYTES + 1),
+            "Bo​b", "Bob ", "﻿Bob", "Bob󠁁", "Bob\uD83D",
+        ).forEach { name ->
                 assertFalse(InnerPayloadV2Codec.isAcceptableDisplayName(name))
                 assertThrows(IllegalArgumentException::class.java) {
                     InnerPayloadV2Codec.encode(
@@ -94,6 +98,10 @@ class EnvelopeV2Test {
                     )
                 }
             }
+        // Ordinary names stay possible, emoji joined by the zero-width joiner included.
+        listOf("Алиса", "Bob Smith", "👨‍👩‍👧 Семья", "李雷").forEach { name ->
+            assertTrue(name, InnerPayloadV2Codec.isAcceptableDisplayName(name))
+        }
         assertThrows(IllegalArgumentException::class.java) {
             InnerPayloadV2Codec.encode(InnerPayloadV2.Text(RandomId.random(random), NOW, ""))
         }

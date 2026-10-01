@@ -76,11 +76,28 @@ class RelayHttpTransportInstrumentedTest {
         transport.deleteMessage(queue, messageId)
     }
 
-    private fun rawStatus(method: String, path: String, bearer: String?): Int {
+    /** DEC-026: a sender cannot plant an item that the reader would fail to parse. */
+    @Test
+    fun theRelayRefusesCiphertextThatIsNotCanonicalBase64() = runBlocking {
+        val queue = RelayQueueCredentials.generate()
+        val expiresAt = System.currentTimeMillis() + 60_000
+        for (ciphertext in listOf("not base64!", "AQI", "AQJ=")) {
+            val body = """{"expiresAtEpochMillis":$expiresAt,"opaqueCiphertext":"$ciphertext"}"""
+            assertEquals(ciphertext, 400, rawStatus("POST", "/v1/queues/${queue.queueId}/messages", null, body))
+        }
+        assertTrue(transport.fetchMessages(queue).isEmpty())
+    }
+
+    private fun rawStatus(method: String, path: String, bearer: String?, body: String? = null): Int {
         val connection = URL("http://127.0.0.1:8787$path").openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = method
             if (bearer != null) connection.setRequestProperty("Authorization", "Bearer $bearer")
+            if (body != null) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            }
             connection.responseCode
         } finally {
             connection.disconnect()

@@ -6,12 +6,15 @@ import android.security.keystore.KeyProperties
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.securemessenger.storage.JcaLocalVaultCipher
+import app.securemessenger.storage.VaultRecordRejectedException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.spec.ECGenParameterSpec
+import java.util.Base64
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -89,6 +92,18 @@ class LegacyResetInstrumentedTest {
         val stored = queuePreferences().all.values.joinToString()
         assertFalse("the bearer secret is stored in clear", stored.contains(created.bearer()))
         assertFalse(stored.contains(created.queueId))
+    }
+
+    /** Phase 5 F10: a damaged stored secret is a rejected record (DEC-023), never a generic failure. */
+    @Test
+    fun aDamagedQueueSecretIsARejectedRecord() {
+        val vault = JcaLocalVaultCipher(ByteArray(32) { 9 })
+        val wrongLength = Base64.getEncoder().encodeToString(vault.encrypt(ByteArray(16), V2QueueCredentialStore.AAD))
+        val notAuthentic = Base64.getEncoder().encodeToString(ByteArray(40))
+        for (damaged in listOf("not base64!", notAuthentic, wrongLength)) {
+            queuePreferences().edit().putString(V2QueueCredentialStore.READ_SECRET, damaged).commit()
+            assertThrows(damaged, VaultRecordRejectedException::class.java) { V2QueueCredentialStore(context, vault).getOrCreate() }
+        }
     }
 
     private fun queuePreferences() = context.getSharedPreferences(V2QueueCredentialStore.PREFERENCES, Context.MODE_PRIVATE)

@@ -126,6 +126,72 @@ test("oversized bodies, full queues and floods are refused", async () => {
   });
 });
 
+test("only canonical base64 is stored, so no sender can plant an item the reader cannot parse", async () => {
+  await withRelay({}, async (base) => {
+    const queue = newQueue();
+    for (const opaqueCiphertext of ["", "not base64!", "YmxvYg", "YmxvYh==", " YmxvYg==", "YmxvYg==\n", "Ym-xYg==", "Ym_xYg=="]) {
+      const response = await send(base, queue.id, { ...envelope(), opaqueCiphertext });
+      assert.equal(response.status, 400, JSON.stringify(opaqueCiphertext));
+    }
+    assert.equal((await send(base, queue.id, { ...envelope(), opaqueCiphertext: "YmxvYg==" })).status, 201);
+    assert.equal((await (await read(base, queue)).json()).length, 1);
+  });
+});
+
+test("a read returns the oldest page only; deleting it reveals the rest", async () => {
+  const store = new RelayStore({ maxListMessages: 3 });
+  const sendLimiter = new RateLimiter({ capacity: 100, refillPerMinute: 0 });
+  await withRelay({ store, sendLimiter }, async (base) => {
+    const queue = newQueue();
+    const sent = [];
+    for (let index = 0; index < 5; index++) sent.push((await (await send(base, queue.id, envelope())).json()).messageId);
+    const first = await (await read(base, queue)).json();
+    assert.deepEqual(first.map((item) => item.messageId), sent.slice(0, 3));
+    for (const item of first) assert.equal((await remove(base, queue, item.messageId)).status, 204);
+    assert.deepEqual((await (await read(base, queue)).json()).map((item) => item.messageId), sent.slice(3));
+  });
+});
+
+test("hostile requests get a 4xx and the relay keeps serving", async () => {
+  const permissive = () => new RateLimiter({ capacity: 10_000, refillPerMinute: 0 });
+  await withRelay({ sendLimiter: permissive(), readLimiter: permissive() }, async (base) => {
+    const queue = newQueue();
+    const raw = (path, init = {}) => fetch(`${base}${path}`, init);
+    const post = (body) => raw(`/v1/queues/${queue.id}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    const valid = envelope();
+    const attempts = [
+      post(""), post("{"), post("null"), post("[]"), post("42"), post('"text"'), post("{}"),
+      post(Buffer.from([0xff, 0xfe, 0x00, 0x80])),
+      post(JSON.stringify({ ...valid, opaqueCiphertext: 7 })),
+      post(JSON.stringify({ ...valid, opaqueCiphertext: { nested: true } })),
+      post(JSON.stringify({ opaqueCiphertext: valid.opaqueCiphertext })),
+      post(JSON.stringify({ ...valid, expiresAtEpochMillis: "soon" })),
+      post(JSON.stringify({ ...valid, expiresAtEpochMillis: -1 })),
+      post(JSON.stringify({ ...valid, expiresAtEpochMillis: 1e300 })),
+      post(JSON.stringify({ ...valid, expiresAtEpochMillis: Date.now() + 30 * 24 * 60 * 60 * 1000 })),
+      post(JSON.stringify({ ...valid, expiresAtEpochMillis: 1.5 })),
+      raw(`/v1/queues/${queue.id.toUpperCase()}/messages`, { method: "POST", body: JSON.stringify(valid) }),
+      raw(`/v1/queues/${encodeURIComponent(queue.id).replace("q", "%71")}/messages`, { method: "POST", body: JSON.stringify(valid) }),
+      raw("/v1/queues//messages", { method: "POST", body: JSON.stringify(valid) }),
+      raw(`/v1/queues/${queue.id}/messages/x/y`),
+      raw(`/v1/queues/${queue.id}/messages`, { method: "PUT", body: JSON.stringify(valid) }),
+      raw(`/v1/queues/${queue.id}/messages`, { method: "DELETE", headers: { authorization: `Bearer ${queue.bearer}` } }),
+      raw(`/v1/queues/${queue.id}/messages/AAAAAAAAAAAAAAAAAAAAAA`, { headers: { authorization: `Bearer ${queue.bearer}` } }),
+      raw(`/v1/queues/${queue.id}/messages`, { headers: { authorization: "Bearer" } }),
+      raw(`/v1/queues/${queue.id}/messages`, { headers: { authorization: `Bearer ${"A".repeat(10_000)}` } }),
+      raw(`/v1/queues/${queue.id}/messages`, { headers: { authorization: `Basic ${queue.bearer}` } }),
+      raw(`/v1/queues/${queue.id}/messages`, { headers: { authorization: `Bearer ${queue.bearer}=` } }),
+      raw("/v2/anything"),
+    ];
+    for (const [index, response] of (await Promise.all(attempts)).entries()) {
+      assert.ok(response.status >= 400 && response.status < 500, `attempt ${index} got ${response.status}`);
+    }
+    assert.equal((await raw("/health")).status, 200);
+    assert.equal((await send(base, queue.id, valid)).status, 201);
+    assert.equal((await (await read(base, queue)).json()).length, 1);
+  });
+});
+
 test("expires pending encrypted messages by TTL and caps the TTL", () => {
   let time = 10_000;
   const store = new RelayStore({ now: () => time, maxTtlMs: 1_000 });

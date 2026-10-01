@@ -89,15 +89,18 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
                 mutableState.value = mutableState.value.copy(ready = true)
                 while (true) {
                     try {
-                        service?.synchronize()
+                        // Expiry first, so a failing sync cannot keep expired invitations alive.
                         service?.expireInvitations()
+                        service?.synchronize()
                         refresh()
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (lost: VaultKeyUnavailableException) {
                         throw lost
                     } catch (_: Exception) {
-                        // The relay may be unreachable; try again on the next tick.
+                        // The relay may be unreachable, or one envelope failed: show what did arrive
+                        // and try again on the next tick.
+                        refresh()
                     }
                     delay(POLL_INTERVAL_MILLIS)
                 }

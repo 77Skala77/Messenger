@@ -5,9 +5,9 @@ import { RateLimiter, RelayError, RelayStore, QUEUE_ID_PATTERN, readSecretMatche
 const MAX_BODY_BYTES = 80 * 1024;
 
 /**
- * Relay API v3 (DEC-024):
- *   POST   /v1/queues/{queueId}/messages              anyone; body {expiresAtEpochMillis, opaqueCiphertext}
- *   GET    /v1/queues/{queueId}/messages              Authorization: Bearer <read secret>
+ * Relay API v3 (DEC-024, limits DEC-026):
+ *   POST   /v1/queues/{queueId}/messages              anyone; body {expiresAtEpochMillis, opaqueCiphertext (canonical base64)}
+ *   GET    /v1/queues/{queueId}/messages              Authorization: Bearer <read secret>; the oldest 100 at most
  *   DELETE /v1/queues/{queueId}/messages/{messageId}  Authorization: Bearer <read secret>
  *   GET    /health
  */

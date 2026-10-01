@@ -13,6 +13,7 @@ import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.InvalidKeyException
 import org.signal.libsignal.protocol.InvalidKeyIdException
 import org.signal.libsignal.protocol.InvalidMessageException
+import org.signal.libsignal.protocol.InvalidSessionException
 import org.signal.libsignal.protocol.NoSessionException
 import org.signal.libsignal.protocol.ReusedBaseKeyException
 import org.signal.libsignal.protocol.SignalProtocolAddress
@@ -137,10 +138,14 @@ class EncryptedSignalProtocolStore(
     override fun deleteAllSessions(name: String) = sessions.deleteAllSessionRecords(name)
 
     // --- PreKeyStore ---
+    //
+    // Key IDs in a PreKey message are attacker-chosen u32 values, and libsignal passes the ones
+    // above 2^31 as negative ints. No key of ours has such an ID, so a negative ID means "no such
+    // key": a clean rejection, never a storage error that would stall the queue (Phase 5, R1).
 
     @Throws(InvalidKeyIdException::class)
     override fun loadPreKey(preKeyId: Int): PreKeyRecord =
-        preKeys.loadPreKeyRecord(preKeyId)?.parseThenWipe { PreKeyRecord(it) }
+        ownKeyId(preKeyId)?.let(preKeys::loadPreKeyRecord)?.parseThenWipe { PreKeyRecord(it) }
             ?: throw InvalidKeyIdException("No such pre-key")
 
     override fun storePreKey(preKeyId: Int, record: PreKeyRecord) {
@@ -153,15 +158,17 @@ class EncryptedSignalProtocolStore(
     }
 
     override fun containsPreKey(preKeyId: Int): Boolean =
-        preKeys.loadPreKeyRecord(preKeyId)?.also { it.fill(0) } != null
+        ownKeyId(preKeyId)?.let(preKeys::loadPreKeyRecord)?.also { it.fill(0) } != null
 
-    override fun removePreKey(preKeyId: Int) = preKeys.deletePreKeyRecord(preKeyId)
+    override fun removePreKey(preKeyId: Int) {
+        ownKeyId(preKeyId)?.let(preKeys::deletePreKeyRecord)
+    }
 
     // --- SignedPreKeyStore ---
 
     @Throws(InvalidKeyIdException::class)
     override fun loadSignedPreKey(signedPreKeyId: Int): SignedPreKeyRecord =
-        signedPreKeys.loadSignedPreKeyRecord(signedPreKeyId)?.parseThenWipe { SignedPreKeyRecord(it) }
+        ownKeyId(signedPreKeyId)?.let(signedPreKeys::loadSignedPreKeyRecord)?.parseThenWipe { SignedPreKeyRecord(it) }
             ?: throw InvalidKeyIdException("No such signed pre-key")
 
     override fun loadSignedPreKeys(): List<SignedPreKeyRecord> =
@@ -177,15 +184,17 @@ class EncryptedSignalProtocolStore(
     }
 
     override fun containsSignedPreKey(signedPreKeyId: Int): Boolean =
-        signedPreKeys.loadSignedPreKeyRecord(signedPreKeyId)?.also { it.fill(0) } != null
+        ownKeyId(signedPreKeyId)?.let(signedPreKeys::loadSignedPreKeyRecord)?.also { it.fill(0) } != null
 
-    override fun removeSignedPreKey(signedPreKeyId: Int) = signedPreKeys.deleteSignedPreKeyRecord(signedPreKeyId)
+    override fun removeSignedPreKey(signedPreKeyId: Int) {
+        ownKeyId(signedPreKeyId)?.let(signedPreKeys::deleteSignedPreKeyRecord)
+    }
 
     // --- KyberPreKeyStore ---
 
     @Throws(InvalidKeyIdException::class)
     override fun loadKyberPreKey(kyberPreKeyId: Int): KyberPreKeyRecord =
-        kyberPreKeys.loadKyberPreKeyRecord(kyberPreKeyId)?.serializedRecord?.parseThenWipe { KyberPreKeyRecord(it) }
+        ownKeyId(kyberPreKeyId)?.let(kyberPreKeys::loadKyberPreKeyRecord)?.serializedRecord?.parseThenWipe { KyberPreKeyRecord(it) }
             ?: throw InvalidKeyIdException("No such Kyber pre-key")
 
     override fun loadKyberPreKeys(): List<KyberPreKeyRecord> =
@@ -203,16 +212,18 @@ class EncryptedSignalProtocolStore(
         saveKyber(kyberPreKeyId, record, lastResort = true)
 
     /** Not part of libsignal's interface: deletes an unused key, e.g. of an expired invitation. */
-    fun removeKyberPreKey(kyberPreKeyId: Int) = kyberPreKeys.deleteKyberPreKeyRecord(kyberPreKeyId)
+    fun removeKyberPreKey(kyberPreKeyId: Int) {
+        ownKeyId(kyberPreKeyId)?.let(kyberPreKeys::deleteKyberPreKeyRecord)
+    }
 
     override fun containsKyberPreKey(kyberPreKeyId: Int): Boolean =
-        kyberPreKeys.loadKyberPreKeyRecord(kyberPreKeyId)?.also { it.serializedRecord.fill(0) } != null
+        ownKeyId(kyberPreKeyId)?.let(kyberPreKeys::loadKyberPreKeyRecord)?.also { it.serializedRecord.fill(0) } != null
 
     @Throws(ReusedBaseKeyException::class)
     override fun markKyberPreKeyUsed(kyberPreKeyId: Int, signedPreKeyId: Int, baseKey: ECPublicKey) {
-        if (!kyberPreKeys.consumeKyberPreKey(kyberPreKeyId, signedPreKeyId, baseKeyDigest(baseKey))) {
-            throw ReusedBaseKeyException("Kyber pre-key was already used")
-        }
+        val consumed = ownKeyId(kyberPreKeyId) != null && ownKeyId(signedPreKeyId) != null &&
+            kyberPreKeys.consumeKyberPreKey(kyberPreKeyId, signedPreKeyId, baseKeyDigest(baseKey))
+        if (!consumed) throw ReusedBaseKeyException("Kyber pre-key was already used")
     }
 
     private fun saveKyber(kyberPreKeyId: Int, record: KyberPreKeyRecord, lastResort: Boolean) {
@@ -230,6 +241,9 @@ class EncryptedSignalProtocolStore(
 
     private fun SignalProtocolAddress.toStore(): StoreAddress = StoreAddress(name, deviceId)
 
+    /** The ID if it can be one of ours (non-negative), else null. */
+    private fun ownKeyId(id: Int): Int? = id.takeIf { it >= 0 }
+
     private companion object {
         const val PRIMARY_DEVICE_ID = 1
         val BASE_KEY_DIGEST_DOMAIN = "secure-messenger-kyber-base-key-v1".toByteArray()
@@ -240,10 +254,11 @@ class EncryptedSignalProtocolStore(
                 digest(baseKey.serialize())
             }
 
-        /** libsignal copies the bytes into native state, so wiping afterwards is safe. */
         /**
-         * Parses a stored record, then wipes the buffer. A parse failure here is a local fault, not
-         * a property of any incoming message: it is rethrown as [StoredRecordCorruptedException].
+         * Parses a stored record, then wipes the buffer (libsignal copies the bytes into native
+         * state, so wiping afterwards is safe). A parse failure here is a local fault, not a property
+         * of any incoming message: it is rethrown as [StoredRecordCorruptedException]. That includes
+         * libsignal's unchecked [InvalidSessionException] for a damaged session record (Phase 5 F7).
          */
         inline fun <T> ByteArray.parseThenWipe(parse: (ByteArray) -> T): T =
             try {
@@ -251,6 +266,8 @@ class EncryptedSignalProtocolStore(
             } catch (failure: InvalidMessageException) {
                 throw StoredRecordCorruptedException(failure)
             } catch (failure: InvalidKeyException) {
+                throw StoredRecordCorruptedException(failure)
+            } catch (failure: InvalidSessionException) {
                 throw StoredRecordCorruptedException(failure)
             } finally {
                 fill(0)

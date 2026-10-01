@@ -137,8 +137,9 @@ class V2SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         val database = SecureMessengerDatabase.create(applicationContext)
         return try {
             val service = V2Pipeline.createIfProfileExists(applicationContext, database) ?: return Result.success()
-            service.synchronize()
+            // Expiry first, so a failing sync cannot keep expired invitations alive.
             service.expireInvitations()
+            service.synchronize()
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled

@@ -44,6 +44,39 @@ class LocalVaultCipherTest {
     }
 
     /**
+     * Phase 5: every single-byte change, truncation, and extension of a stored blob, plus random
+     * bytes, is a rejected record (DEC-023) and nothing else; a damaged length allocates nothing.
+     */
+    @Test
+    fun `fuzzed vault blobs are only ever rejected records`() {
+        val cipher = JcaLocalVaultCipher(ByteArray(32) { 3 })
+        val aad = "row".toByteArray()
+        val blob = cipher.encrypt("a stored value".toByteArray(), aad)
+        val random = java.util.Random(31)
+        val inputs = buildList {
+            for (position in blob.indices) {
+                for (value in intArrayOf(0x00, 0x01, 0x7F, 0x80, 0xFF)) {
+                    if (blob[position] != value.toByte()) add(blob.copyOf().also { it[position] = value.toByte() })
+                }
+                add(blob.copyOf().also { it[position] = (it[position].toInt() xor (1 shl random.nextInt(8))).toByte() })
+                add(blob.copyOf(position))
+            }
+            add(blob + byteArrayOf(0))
+            repeat(500) { add(ByteArray(random.nextInt(200)).also(random::nextBytes)) }
+            // A length field claiming 16 MB behind a short blob.
+            add(java.nio.ByteBuffer.allocate(4 + 12 + 4 + 20).putInt(12).put(ByteArray(12)).putInt(16 * 1024 * 1024).array())
+        }
+        inputs.forEachIndexed { index, damaged ->
+            try {
+                cipher.decrypt(damaged, aad)
+                throw AssertionError("input $index was accepted")
+            } catch (_: VaultRecordRejectedException) {
+                // Expected.
+            }
+        }
+    }
+
+    /**
      * Vault calls also run inside libsignal's store callbacks. libsignal passes unchecked exceptions
      * back unchanged but turns checked ones into an AssertionError (see ConversationV2ServiceTest),
      * so every vault failure must stay unchecked.

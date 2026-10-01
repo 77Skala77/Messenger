@@ -11,6 +11,8 @@
     <string name="settings">Settings</string>
     <string name="back">Back</string>
     <string name="copy_invitation_code">Copy invitation code</string>
+    <string name="share_invitation_code">Share invitation</string>
+    <string name="copy_invitation_warning">A copied code can stay in the clipboard or keyboard history (the Samsung keyboard keeps it). Showing the QR code in person, or Share, is safer.</string>
     <string name="scan_prompt">Scan a secure invitation QR code</string>
     <string name="status_pending">Waiting for sync</string>
     <string name="status_sent">Sent to delivery server</string>

@@ -96,6 +96,8 @@ class V2OutgoingEnvelope(
     val peerQueueId: String,
     val envelope: ByteArray,
     val attemptCount: Int,
+    /** Earliest time of the next attempt after a failure; null means now. */
+    val nextAttemptAtEpochMillis: Long? = null,
 )
 
 class V2StoredMessage(
@@ -126,6 +128,9 @@ interface ConversationV2Store {
 
     /** Atomic: returns false if the invitation is unknown or already used. */
     fun markInvitationUsed(invitationId: String, requestId: String): Boolean
+
+    /** The invitation whose HELLO created this request (and, once accepted, contact), or null. */
+    fun invitationUsedBy(requestId: String): V2Invitation?
 
     fun expiredUnusedInvitations(nowEpochMillis: Long): List<V2Invitation>
 
@@ -169,7 +174,11 @@ interface ConversationV2Store {
 
     fun outgoing(messageId: String): V2OutgoingEnvelope?
 
-    fun dueOutgoing(nowEpochMillis: Long): List<V2OutgoingEnvelope>
+    /**
+     * Every envelope not sent yet, due or not, in insertion order (never by timestamp, which can
+     * move backwards): the sender keeps each contact's envelopes in this order (DEC-026).
+     */
+    fun unsentOutgoing(): List<V2OutgoingEnvelope>
 
     fun recordSent(messageId: String, attemptCount: Int)
 

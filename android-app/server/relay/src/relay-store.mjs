@@ -29,9 +29,16 @@ export class RelayError extends Error {
   }
 }
 
+/** True only for standard base64 in its one canonical spelling (padding, zero tail bits). */
+export function isCanonicalBase64(value) {
+  return typeof value === "string" && value.length > 0 && Buffer.from(value, "base64").toString("base64") === value;
+}
+
 /**
  * In-memory store of opaque envelopes. The relay is untrusted: it never sees plaintext, keeps no
  * per-queue secrets, and assigns message IDs itself so no client can overwrite another's record.
+ * Phase 5 (DEC-026): it stores only canonical base64, so a sender cannot plant an item that the
+ * reader fails to parse, and a read returns at most `maxListMessages` of the oldest messages.
  */
 export class RelayStore {
   constructor({
@@ -39,11 +46,13 @@ export class RelayStore {
     maxTtlMs = 7 * 24 * 60 * 60 * 1000,
     maxPendingPerQueue = 1000,
     maxCiphertextChars = 64 * 1024,
+    maxListMessages = 100,
   } = {}) {
     this.now = now;
     this.maxTtlMs = maxTtlMs;
     this.maxPendingPerQueue = maxPendingPerQueue;
     this.maxCiphertextChars = maxCiphertextChars;
+    this.maxListMessages = maxListMessages;
     this.queues = new Map();
   }
 
@@ -57,8 +66,8 @@ export class RelayStore {
       typeof input !== "object" ||
       "messageId" in input ||
       typeof input.opaqueCiphertext !== "string" ||
-      input.opaqueCiphertext.length === 0 ||
       input.opaqueCiphertext.length > this.maxCiphertextChars ||
+      !isCanonicalBase64(input.opaqueCiphertext) ||
       !Number.isSafeInteger(expiresAtEpochMillis) ||
       expiresAtEpochMillis <= currentTime ||
       expiresAtEpochMillis > currentTime + this.maxTtlMs
@@ -74,9 +83,10 @@ export class RelayStore {
     return record;
   }
 
+  /** The oldest pending messages, at most `maxListMessages`; the reader deletes them to see more. */
   list(queueId) {
     this.purgeExpired();
-    return [...(this.queues.get(queueId)?.values() ?? [])];
+    return [...(this.queues.get(queueId)?.values() ?? [])].slice(0, this.maxListMessages);
   }
 
   /** Deletes only a message of this queue. */

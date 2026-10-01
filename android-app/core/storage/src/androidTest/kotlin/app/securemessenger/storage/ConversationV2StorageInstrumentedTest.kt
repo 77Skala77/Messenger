@@ -119,16 +119,20 @@ class ConversationV2StorageInstrumentedTest {
     fun outgoingQueueRetriesThenDropsCiphertextAndReceiptsStayContactScoped() {
         repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_1), "hi", 1)
         repository.enqueueOutgoing(outgoing("rcpt-1", "contact-1", V2MessageKind.RECEIPT, INNER_2), null, 2)
-        assertEquals(listOf("out-1", "rcpt-1"), repository.dueOutgoing(0).map { it.messageId })
+        assertEquals(listOf("out-1", "rcpt-1"), repository.unsentOutgoing().map { it.messageId })
 
+        // A failed envelope stays first, with its retry time: the sender keeps the order (DEC-026).
         repository.recordFailed("out-1", attemptCount = 1, nextAttemptAtEpochMillis = 5_000)
-        assertEquals(listOf("rcpt-1"), repository.dueOutgoing(4_999).map { it.messageId })
-        assertEquals(1, repository.dueOutgoing(5_000).single { it.messageId == "out-1" }.attemptCount)
+        val unsent = repository.unsentOutgoing()
+        assertEquals(listOf("out-1", "rcpt-1"), unsent.map { it.messageId })
+        assertEquals(5_000L, unsent.first().nextAttemptAtEpochMillis)
+        assertEquals(1, unsent.first().attemptCount)
+        assertNull(unsent.last().nextAttemptAtEpochMillis)
 
         repository.recordSent("out-1", attemptCount = 2)
         assertNull(dao.getV2OutgoingMessage("out-1")!!.envelope)
         assertNull(repository.outgoing("out-1"))
-        assertEquals(listOf("rcpt-1"), repository.dueOutgoing(Long.MAX_VALUE).map { it.messageId })
+        assertEquals(listOf("rcpt-1"), repository.unsentOutgoing().map { it.messageId })
 
         assertFalse(repository.markDelivered("contact-2", INNER_1))
         assertFalse(repository.markDelivered("contact-1", INNER_2))
@@ -141,6 +145,18 @@ class ConversationV2StorageInstrumentedTest {
         assertThrows(IllegalStateException::class.java) {
             repository.enqueueOutgoing(outgoing("dup", "contact-1", V2MessageKind.TEXT, INNER_1), "duplicate inner ID", 4)
         }
+    }
+
+    /**
+     * Unsent envelopes come back in insertion order: within one millisecond (an ACCEPT and its
+     * receipts), and also when the wall clock moved back in between (second review R4).
+     */
+    @Test
+    fun unsentEnvelopesKeepTheirInsertionOrderWhateverTheClockSays() {
+        repository.enqueueOutgoing(outgoing("z-first", "contact-1", V2MessageKind.ACCEPT, INNER_1), null, 7)
+        repository.enqueueOutgoing(outgoing("a-second", "contact-1", V2MessageKind.RECEIPT, INNER_2), null, 7)
+        repository.enqueueOutgoing(outgoing("m-third", "contact-1", V2MessageKind.RECEIPT, INNER_3), null, 3)
+        assertEquals(listOf("z-first", "a-second", "m-third"), repository.unsentOutgoing().map { it.messageId })
     }
 
     @Test

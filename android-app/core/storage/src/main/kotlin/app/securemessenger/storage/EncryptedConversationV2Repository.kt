@@ -72,6 +72,8 @@ class EncryptedConversationV2Repository(
     override fun markInvitationUsed(invitationId: String, requestId: String): Boolean =
         dao.markV2InvitationUsed(invitationId, requestId) == 1
 
+    override fun invitationUsedBy(requestId: String): V2Invitation? = dao.getV2InvitationUsedBy(requestId)?.let(::readInvitation)
+
     override fun expiredUnusedInvitations(nowEpochMillis: Long): List<V2Invitation> =
         dao.getExpiredUnusedV2Invitations(nowEpochMillis).map(::readInvitation)
 
@@ -183,8 +185,7 @@ class EncryptedConversationV2Repository(
     override fun outgoing(messageId: String): V2OutgoingEnvelope? =
         dao.getV2OutgoingMessage(messageId)?.let(::readOutgoing)
 
-    override fun dueOutgoing(nowEpochMillis: Long): List<V2OutgoingEnvelope> =
-        dao.getDueV2OutgoingMessages(nowEpochMillis).mapNotNull(::readOutgoing)
+    override fun unsentOutgoing(): List<V2OutgoingEnvelope> = dao.getUnsentV2OutgoingMessages().mapNotNull(::readOutgoing)
 
     override fun recordSent(messageId: String, attemptCount: Int) = dao.markV2MessageSent(messageId, attemptCount)
 
@@ -257,6 +258,7 @@ class EncryptedConversationV2Repository(
             peerQueueId = peerQueueId,
             envelope = envelope,
             attemptCount = entity.deliveryAttemptCount,
+            nextAttemptAtEpochMillis = entity.nextRetryAtEpochMillis,
         )
     }
 

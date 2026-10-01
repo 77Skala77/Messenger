@@ -46,6 +46,9 @@ class InMemorySignalRecords :
         failure?.let { throw it() }
     }
 
+    /** Like `EncryptedSignalStoreRepository`: record IDs are never negative. */
+    private fun validId(id: Int): Int = id.also { require(it >= 0) }
+
     private var localIdentity: Pair<Int, ByteArray>? = null
     private val identities = mutableMapOf<SignalProtocolAddress, ByteArray>()
     private val sessions = mutableMapOf<SignalProtocolAddress, ByteArray>()
@@ -106,44 +109,44 @@ class InMemorySignalRecords :
     @Synchronized
     override fun savePreKeyRecord(preKeyId: Int, serializedRecord: ByteArray) {
         writable()
-        preKeys[preKeyId] = serializedRecord.copyOf()
+        preKeys[validId(preKeyId)] = serializedRecord.copyOf()
     }
 
     @Synchronized
-    override fun loadPreKeyRecord(preKeyId: Int): ByteArray? = readable(preKeys[preKeyId])?.copyOf()
+    override fun loadPreKeyRecord(preKeyId: Int): ByteArray? = readable(preKeys[validId(preKeyId)])?.copyOf()
 
     @Synchronized
     override fun deletePreKeyRecord(preKeyId: Int) {
-        preKeys.remove(preKeyId)
+        preKeys.remove(validId(preKeyId))
     }
 
     @Synchronized
     override fun saveSignedPreKeyRecord(signedPreKeyId: Int, serializedRecord: ByteArray) {
         writable()
-        signedPreKeys[signedPreKeyId] = serializedRecord.copyOf()
+        signedPreKeys[validId(signedPreKeyId)] = serializedRecord.copyOf()
     }
 
     @Synchronized
-    override fun loadSignedPreKeyRecord(signedPreKeyId: Int): ByteArray? = readable(signedPreKeys[signedPreKeyId])?.copyOf()
+    override fun loadSignedPreKeyRecord(signedPreKeyId: Int): ByteArray? = readable(signedPreKeys[validId(signedPreKeyId)])?.copyOf()
 
     @Synchronized
     override fun loadAllSignedPreKeyRecords(): List<ByteArray> = signedPreKeys.values.map { readable(it)!!.copyOf() }
 
     @Synchronized
     override fun deleteSignedPreKeyRecord(signedPreKeyId: Int) {
-        signedPreKeys.remove(signedPreKeyId)
+        signedPreKeys.remove(validId(signedPreKeyId))
         kyberBaseKeyUses.removeAll { it.second == signedPreKeyId }
     }
 
     @Synchronized
     override fun saveKyberPreKeyRecord(kyberPreKeyId: Int, serializedRecord: ByteArray, lastResort: Boolean) {
         writable()
-        kyberPreKeys[kyberPreKeyId] = serializedRecord.copyOf() to lastResort
+        kyberPreKeys[validId(kyberPreKeyId)] = serializedRecord.copyOf() to lastResort
     }
 
     @Synchronized
     override fun loadKyberPreKeyRecord(kyberPreKeyId: Int): StoredKyberPreKey? =
-        readable(kyberPreKeys[kyberPreKeyId])?.let { (record, lastResort) -> StoredKyberPreKey(record.copyOf(), lastResort) }
+        readable(kyberPreKeys[validId(kyberPreKeyId)])?.let { (record, lastResort) -> StoredKyberPreKey(record.copyOf(), lastResort) }
 
     @Synchronized
     override fun loadAllKyberPreKeyRecords(): List<StoredKyberPreKey> =
@@ -151,7 +154,7 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun deleteKyberPreKeyRecord(kyberPreKeyId: Int) {
-        kyberPreKeys.remove(kyberPreKeyId)
+        kyberPreKeys.remove(validId(kyberPreKeyId))
         kyberBaseKeyUses.removeAll { it.first == kyberPreKeyId }
     }
 
@@ -165,6 +168,24 @@ class InMemorySignalRecords :
         signedPreKeys.forEach { (id, record) -> copy.signedPreKeys[id] = record.copyOf() }
         kyberPreKeys.forEach { (id, stored) -> copy.kyberPreKeys[id] = stored.first.copyOf() to stored.second }
         copy.kyberBaseKeyUses.addAll(kyberBaseKeyUses)
+    }
+
+    /** Digest of every record, for tests that prove an operation changed nothing at all. */
+    @Synchronized
+    fun fingerprint(): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        fun add(label: String, bytes: ByteArray = ByteArray(0)) {
+            digest.update("$label/${bytes.size}/".toByteArray())
+            digest.update(bytes)
+        }
+        localIdentity?.let { (registrationId, keyPair) -> add("local $registrationId", keyPair) }
+        identities.entries.sortedBy { it.key.toString() }.forEach { (address, record) -> add("identity $address", record) }
+        sessions.entries.sortedBy { it.key.toString() }.forEach { (address, record) -> add("session $address", record) }
+        preKeys.entries.sortedBy { it.key }.forEach { (id, record) -> add("pre-key $id", record) }
+        signedPreKeys.entries.sortedBy { it.key }.forEach { (id, record) -> add("signed $id", record) }
+        kyberPreKeys.entries.sortedBy { it.key }.forEach { (id, stored) -> add("kyber $id ${stored.second}", stored.first) }
+        kyberBaseKeyUses.map { it.toString() }.sorted().forEach { add("use $it") }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /** Copy of every map, for a test transaction runner that must roll back like Room does. */
@@ -192,7 +213,7 @@ class InMemorySignalRecords :
 
     @Synchronized
     override fun consumeKyberPreKey(kyberPreKeyId: Int, signedPreKeyId: Int, baseKeyDigest: ByteArray): Boolean {
-        val (_, lastResort) = readable(kyberPreKeys[kyberPreKeyId]) ?: return false
+        val (_, lastResort) = readable(kyberPreKeys[validId(kyberPreKeyId)]) ?: return false
         return if (lastResort) {
             kyberBaseKeyUses.add(Triple(kyberPreKeyId, signedPreKeyId, baseKeyDigest.joinToString("") { "%02x".format(it) }))
         } else {

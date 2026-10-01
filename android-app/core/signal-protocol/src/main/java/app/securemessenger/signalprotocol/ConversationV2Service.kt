@@ -37,22 +37,29 @@ enum class IncomingV2Result {
     /** Authenticated but not acted on (unexpected kind, unknown receipt, repeated inner ID). */
     AUTHENTICATED_IGNORED,
 
-    /** No contact, request, or unused invitation has this routing tag. Kept on the relay. */
+    /** No contact, request, or unused invitation has this routing tag. Deleted from the relay (DEC-026). */
     UNROUTABLE,
 
-    /** Malformed, forged, replayed at the protocol level, or from a blocked contact. Kept on the relay. */
+    /**
+     * Malformed, forged, replayed at the protocol level, from a blocked contact, or anything but a
+     * HELLO with exactly its invitation's pre-keys. Nothing it caused is kept, and it is deleted
+     * from the relay (DEC-026).
+     */
     UNAUTHENTICATED,
 }
 
-class ConversationV2Exception(message: String) : Exception(message)
+class ConversationV2Exception(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * The v2 conversation pipeline (DEC-019): invitations, one-sided pairing with an explicit request,
  * messages, and receipts over libsignal sessions and the untrusted relay.
  *
  * Every protocol step runs under one process-wide lock and inside one storage transaction together
- * with the libsignal store writes it causes (DEC-019 T2). The relay copy of an envelope is deleted
- * only after that transaction committed. Methods block on storage: call them off the main thread.
+ * with the libsignal store writes it causes (DEC-019 T2). An envelope that is not accepted commits
+ * nothing (the transaction is rolled back). The relay copy of an envelope is deleted only once it
+ * reached a verdict: after the accepting transaction committed, or after a rejection; a storage
+ * failure reaches no verdict and keeps it (DEC-026). Methods block on storage: call them off the
+ * main thread.
  *
  * The app's only conversation path. Debug builds only until the Phase 5 independent review
  * (DEC-021); release builds never construct it.
@@ -202,40 +209,104 @@ class ConversationV2Service(
         return messageId
     }
 
-    /** Fetches this device's queue, processes every envelope, then sends what is due (receipts too). */
+    /**
+     * Fetches this device's queue page by page (the relay returns the oldest [RELAY_PAGE_SIZE]),
+     * processes every envelope, then sends what is due (receipts too). Every envelope that reaches a
+     * verdict is deleted, so a full page means more may be waiting (DEC-026).
+     *
+     * An envelope that reaches no verdict (a storage failure, or an unexpected failure it caused)
+     * stays on the relay and does not stop the others: one bad envelope must never stall the queue.
+     * The first such failure is thrown at the end, after sending, so callers still see it (a lost
+     * vault key, DEC-023).
+     */
     suspend fun synchronize(): List<IncomingV2Result> {
-        val results = transport.fetchMessages(localReceiveQueue).map { processIncoming(it) }
+        val results = ArrayList<IncomingV2Result>()
+        var firstFailure: Throwable? = null
+        var pages = 0
+        do {
+            val page = transport.fetchMessages(localReceiveQueue)
+            var decided = 0
+            for (blob in page) {
+                try {
+                    results += processIncoming(blob)
+                    decided++
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (firstFailure == null) firstFailure = failure
+                } catch (failure: AssertionError) {
+                    // libsignal reports its own unexpected failures this way.
+                    if (firstFailure == null) firstFailure = failure
+                }
+            }
+            pages++
+        } while (page.size >= RELAY_PAGE_SIZE && decided > 0 && pages < MAX_PAGES_PER_SYNC)
         sendDue()
+        firstFailure?.let { failure ->
+            throw failure as? Exception ?: ConversationV2Exception("An envelope could not be processed", failure)
+        }
         return results
     }
 
+    /**
+     * Decides one envelope. Only an accepted envelope commits anything; whatever a rejected one
+     * caused on the way is rolled back. The relay copy is deleted once there is a verdict, accepted
+     * or not: a rejected envelope can never become valid, and keeping it would let anyone who knows
+     * the queue ID fill it (DEC-026). A storage failure throws before that and keeps the copy.
+     */
     suspend fun processIncoming(blob: RelayEncryptedBlob): IncomingV2Result {
         val bytes = blob.opaqueCiphertext
-        val digestHex = hexOf(EnvelopeV2Codec.digest(bytes))
         val envelope = try {
             EnvelopeV2Codec.decode(bytes)
         } catch (_: MalformedV2Exception) {
-            return IncomingV2Result.UNAUTHENTICATED
+            null
         }
-        val result = atomically {
-            if (store.isEnvelopeAccepted(digestHex)) return@atomically IncomingV2Result.DUPLICATE
-            val outcome = when (val route = store.findRoute(envelope.routingTag.toHex())) {
-                null -> IncomingV2Result.UNROUTABLE
-                is V2Route.ToContact -> fromContact(route.contact, envelope)
-                is V2Route.ToRequest -> fromPendingRequest(route.request, envelope)
-                is V2Route.ToInvitation -> helloForInvitation(route.invitation, envelope)
+        val result = if (envelope == null) {
+            IncomingV2Result.UNAUTHENTICATED
+        } else {
+            val digestHex = hexOf(EnvelopeV2Codec.digest(bytes))
+            try {
+                atomically {
+                    if (store.isEnvelopeAccepted(digestHex)) return@atomically IncomingV2Result.DUPLICATE
+                    val outcome = when (val route = store.findRoute(envelope.routingTag.toHex())) {
+                        null -> IncomingV2Result.UNROUTABLE
+                        is V2Route.ToContact -> fromContact(route.contact, envelope)
+                        is V2Route.ToRequest -> fromPendingRequest(route.request, envelope)
+                        is V2Route.ToInvitation ->
+                            // Expired is expired, even before the cleanup ran (second review R3).
+                            if (now() > route.invitation.expiresAtEpochMillis + InvitationV2.CLOCK_SKEW_MILLIS) {
+                                IncomingV2Result.UNROUTABLE
+                            } else {
+                                helloForInvitation(route.invitation, envelope)
+                            }
+                    }
+                    if (!outcome.authenticated) throw Rejected(outcome)
+                    store.recordAcceptedEnvelope(digestHex, now())
+                    outcome
+                }
+            } catch (rejected: Rejected) {
+                rejected.result
             }
-            if (outcome.authenticated) store.recordAcceptedEnvelope(digestHex, now())
-            outcome
         }
-        if (result.authenticated) transport.deleteMessage(localReceiveQueue, blob.messageId)
+        transport.deleteMessage(localReceiveQueue, blob.messageId)
         return result
     }
 
-    /** Sends every due envelope once; failures are rescheduled with exponential backoff. */
+    /**
+     * Sends due envelopes in order per contact: an envelope waits while an older one to the same
+     * contact is unsent, so the relay holds a contact's messages in the order they were made and a
+     * text never overtakes its HELLO. Failures are rescheduled with exponential backoff.
+     */
     suspend fun sendDue(): Int {
         var sent = 0
-        atomically { store.dueOutgoing(now()) }.forEach { outgoing ->
+        val waiting = HashSet<String>()
+        for (outgoing in atomically { store.unsentOutgoing() }) {
+            if (outgoing.contactId in waiting) continue
+            val notBefore = outgoing.nextAttemptAtEpochMillis
+            if (notBefore != null && notBefore > now()) {
+                waiting += outgoing.contactId
+                continue
+            }
             val attempt = outgoing.attemptCount + 1
             try {
                 // The relay assigns its own message ID; it is never used as a local key (DEC-020).
@@ -246,6 +317,7 @@ class ConversationV2Service(
                 throw cancelled
             } catch (_: Exception) {
                 atomically { store.recordFailed(outgoing.messageId, attempt, now() + retryDelay(attempt)) }
+                waiting += outgoing.contactId
             }
         }
         return sent
@@ -267,6 +339,7 @@ class ConversationV2Service(
 
     private fun fromContact(contact: V2Contact, envelope: EnvelopeV2): IncomingV2Result {
         if (contact.state == V2ContactState.KEY_CHANGED) return IncomingV2Result.UNAUTHENTICATED
+        if (!isOwnSessionStart(envelope) { store.invitationUsedBy(contact.contactId) }) return IncomingV2Result.UNAUTHENTICATED
         val payload = when (val decrypted = decrypt(contact.contactId, envelope.ciphertext)) {
             Decrypted.Failed -> return IncomingV2Result.UNAUTHENTICATED
             Decrypted.Unparseable -> return IncomingV2Result.AUTHENTICATED_IGNORED
@@ -303,9 +376,28 @@ class ConversationV2Service(
         }
     }
 
+    /**
+     * Once a session exists, the only PreKey messages that may still arrive are the peer's first
+     * ones, sent before it heard back, which name the pre-keys of the invitation this pairing used.
+     * Any other PreKey message would make libsignal start a new session from other pre-keys of ours,
+     * spending another invitation; the scanner's side receives no PreKey messages at all (second
+     * review R2). [pairingInvitation] is only looked up for a PreKey message.
+     */
+    private fun isOwnSessionStart(envelope: EnvelopeV2, pairingInvitation: () -> V2Invitation?): Boolean {
+        if (envelope.ciphertext.type != CiphertextMessage.PREKEY_TYPE) return true
+        val invitation = pairingInvitation() ?: return false
+        val header = try {
+            SignalSessions.readPreKeyHeader(envelope.ciphertext.bytes)
+        } catch (_: SignalSessionException) {
+            return false
+        }
+        return header.oneTimePreKeyId == invitation.oneTimePreKeyId && header.signedPreKeyId == invitation.signedPreKeyId
+    }
+
     /** Texts sent before the request is accepted are held, without receipts. */
-    private fun fromPendingRequest(request: V2ContactRequest, envelope: EnvelopeV2): IncomingV2Result =
-        when (val decrypted = decrypt(request.requestId, envelope.ciphertext)) {
+    private fun fromPendingRequest(request: V2ContactRequest, envelope: EnvelopeV2): IncomingV2Result {
+        if (!isOwnSessionStart(envelope) { store.invitation(request.invitationId) }) return IncomingV2Result.UNAUTHENTICATED
+        return when (val decrypted = decrypt(request.requestId, envelope.ciphertext)) {
             Decrypted.Failed -> IncomingV2Result.UNAUTHENTICATED
             Decrypted.Unparseable -> IncomingV2Result.AUTHENTICATED_IGNORED
             is Decrypted.Payload -> {
@@ -319,6 +411,7 @@ class ConversationV2Service(
                 }
             }
         }
+    }
 
     private fun helloForInvitation(invitation: V2Invitation, envelope: EnvelopeV2): IncomingV2Result {
         if (envelope.ciphertext.type != CiphertextMessage.PREKEY_TYPE) return IncomingV2Result.UNAUTHENTICATED
@@ -332,13 +425,21 @@ class ConversationV2Service(
             return IncomingV2Result.UNAUTHENTICATED
         }
         val requestId = newLocalId()
-        val decrypted = decrypt(requestId, envelope.ciphertext)
-        if (decrypted == Decrypted.Failed) return IncomingV2Result.UNAUTHENTICATED
-        // The one-time pre-keys are spent now: whatever follows, this invitation is burned.
+        val hello = (decrypt(requestId, envelope.ciphertext) as? Decrypted.Payload)?.payload as? InnerPayloadV2.Hello
+        // Only a HELLO opens an invitation, and only with its own Kyber pre-key too (the header names
+        // just the EC ones; libsignal deleted the Kyber key it used). Anything else is rejected and
+        // rolled back, so the invitation and its keys stay unused: a text that overtook its HELLO, or
+        // a HELLO borrowing another invitation's Kyber key, burns nothing (Phase 5 F3, F6).
+        if (hello == null || invitationKeys.hasKyberPreKey(invitation.kyberPreKeyId)) {
+            return IncomingV2Result.UNAUTHENTICATED
+        }
+        // The one-time pre-keys are spent now: whatever follows, this invitation is burned. Its
+        // signed pre-key goes too: later PreKey messages of this session use the session, not the
+        // pre-keys (Phase 5 F8).
         check(store.markInvitationUsed(invitation.invitationId, requestId)) { "Invitation already used" }
-        val hello = (decrypted as? Decrypted.Payload)?.payload as? InnerPayloadV2.Hello
+        invitationKeys.delete(invitation.signedPreKeyId, invitation.oneTimePreKeyId, invitation.kyberPreKeyId)
         val identity = sessions.identityOf(requestId)
-        if (hello == null || identity == null || store.contactWithIdentity(identity.serialize()) != null) {
+        if (identity == null || store.contactWithIdentity(identity.serialize()) != null) {
             sessions.forget(requestId)
             return IncomingV2Result.AUTHENTICATED_IGNORED
         }
@@ -422,6 +523,9 @@ class ConversationV2Service(
     private val IncomingV2Result.authenticated: Boolean
         get() = this != IncomingV2Result.UNAUTHENTICATED && this != IncomingV2Result.UNROUTABLE
 
+    /** Carries a rejection out of the transaction, which rolls back whatever the step wrote. */
+    private class Rejected(val result: IncomingV2Result) : RuntimeException("Envelope rejected: $result")
+
     private sealed class Decrypted {
         object Failed : Decrypted()
         object Unparseable : Decrypted()
@@ -434,6 +538,12 @@ class ConversationV2Service(
         private const val RELAY_TTL_MILLIS = 24 * 60 * 60 * 1000L
         private const val INITIAL_RETRY_DELAY_MILLIS = 5_000L
         private const val MAX_RETRY_DELAY_MILLIS = 15 * 60_000L
+
+        /** The relay returns at most this many of the oldest messages per fetch (DEC-026). */
+        const val RELAY_PAGE_SIZE = 100
+
+        /** A sync stops after this many pages; the rest waits for the next one. */
+        private const val MAX_PAGES_PER_SYNC = 10
 
         /**
          * Runs [block] under the process-wide protocol lock, so no protocol step can commit while it

@@ -2,11 +2,16 @@ package app.securemessenger.ui
 
 import android.content.Context
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
@@ -69,17 +74,20 @@ class LocalKeyLossInstrumentedTest {
     fun theAppExplainsTheLossAndOnlyAConfirmedDeletionStartsOver() {
         loseTheKeyOfAnExistingInstall()
         val activity = composeRule.activity
-        composeRule.runOnUiThread { activity.setContent { SecureMessengerApp() } }
+        composeRule.runOnUiThread {
+            // A short window, like a small phone in landscape: the way out must still be reachable.
+            activity.setContent { Box(Modifier.height(SHORT_WINDOW)) { SecureMessengerApp() } }
+        }
         val unreadableTitle = activity.getString(R.string.local_data_unreadable_title)
         composeRule.waitUntil(TIMEOUT_MILLIS) { displayed(unreadableTitle) }
 
         // Checking again changes nothing and never creates a key.
-        composeRule.onNodeWithTag(CHECK_AGAIN_TAG).performClick()
+        composeRule.onNodeWithTag(CHECK_AGAIN_TAG).performScrollTo().performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText(unreadableTitle).assertIsDisplayed()
+        composeRule.onNodeWithText(unreadableTitle).assertExists()
         assertFalse(vault.hasKey())
 
-        composeRule.onNodeWithTag(DELETE_AND_RESTART_TAG).performClick()
+        composeRule.onNodeWithTag(DELETE_AND_RESTART_TAG).performScrollTo().performClick()
         composeRule.onNodeWithTag(CONFIRM_DELETE_TAG).performClick()
         composeRule.waitUntil(TIMEOUT_MILLIS) { displayed(activity.getString(R.string.onboarding_title)) }
 
@@ -115,5 +123,6 @@ class LocalKeyLossInstrumentedTest {
 
     private companion object {
         const val TIMEOUT_MILLIS = 10_000L
+        val SHORT_WINDOW = 320.dp
     }
 }

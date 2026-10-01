@@ -82,7 +82,7 @@ class ConversationV2ServiceTest {
 
         assertEquals(listOf(IncomingV2Result.UNAUTHENTICATED), alice.service.synchronize())
         assertTrue(alice.store.incomingTexts(bobOnAlice).isEmpty())
-        assertEquals(1, relay.queued(alice.queueId).size)
+        assertTrue("a rejected envelope is deleted (DEC-026)", relay.queued(alice.queueId).isEmpty())
 
         val legacyInvitation = "smp-invite-v1:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(120) { 3 })
         val rejected = assertThrows(InvitationRejectedException::class.java) {
@@ -224,8 +224,14 @@ class ConversationV2ServiceTest {
         bob.service.sendText(aliceOnBob, "arrives later")
         alice.records.failure = { GeneralSecurityException("checked storage failure") }
 
+        // synchronize() finishes the rest of the queue, then reports it as an exception whose cause
+        // is libsignal's AssertionError around the checked failure (Phase 5).
         val failure = runCatching { alice.service.synchronize() }.exceptionOrNull()
-        assertTrue("got $failure", failure is AssertionError && failure.cause is GeneralSecurityException)
+        val libsignalError = failure?.cause
+        assertTrue(
+            "got $failure",
+            failure is ConversationV2Exception && libsignalError is AssertionError && libsignalError.cause is GeneralSecurityException,
+        )
         assertEquals(1, relay.queued(alice.queueId).size)
 
         alice.records.failure = null
@@ -265,15 +271,15 @@ class ConversationV2ServiceTest {
 
         assertEquals(listOf(IncomingV2Result.UNAUTHENTICATED), alice.service.synchronize())
         assertEquals(V2ContactState.ACTIVE, alice.store.contact(bobOnAlice)!!.state)
-        assertEquals(1, relay.queued(alice.queueId).size)
-        relay.take(alice.queueId)
+        assertTrue(relay.queued(alice.queueId).isEmpty())
 
         bob.service.sendText(aliceOnBob, "still trusted")
         assertEquals(listOf(IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
     }
 
+    /** DEC-026: what can never become valid is rejected and deleted, so it cannot fill the queue. */
     @Test
-    fun garbageAndUnknownTagsStayOnTheRelayUnauthenticated() = runBlocking {
+    fun garbageAndUnknownTagsAreRejectedAndDeleted() = runBlocking {
         val (_, bobOnAlice) = pair()
         val knownTag = RandomId.fromHex(alice.store.contact(bobOnAlice)!!.localRoutingTagHex)
         val unknownTag = EnvelopeV2Codec.encode(
@@ -290,7 +296,7 @@ class ConversationV2ServiceTest {
             listOf(IncomingV2Result.UNAUTHENTICATED, IncomingV2Result.UNROUTABLE, IncomingV2Result.UNAUTHENTICATED),
             alice.service.synchronize(),
         )
-        assertEquals(3, relay.queued(alice.queueId).size)
+        assertTrue(relay.queued(alice.queueId).isEmpty())
     }
 
     @Test

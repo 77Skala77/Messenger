@@ -283,6 +283,9 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM v2_invitations WHERE localRoutingTagHex = :tag AND usedByRequestId IS NULL LIMIT 1")
     fun getUnusedV2InvitationByTag(tag: String): V2InvitationEntity?
 
+    @Query("SELECT * FROM v2_invitations WHERE usedByRequestId = :requestId LIMIT 1")
+    fun getV2InvitationUsedBy(requestId: String): V2InvitationEntity?
+
     @Query(
         """
         SELECT * FROM v2_invitations
@@ -354,17 +357,20 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM v2_messages WHERE messageId = :messageId AND outgoing = 1 LIMIT 1")
     fun getV2OutgoingMessage(messageId: String): V2MessageEntity?
 
+    /**
+     * In insertion order (rowid), not by timestamp: the wall clock can move backwards, and the
+     * sender's per-contact order must not (Phase 5, second review R4).
+     */
     @Query(
         """
         SELECT * FROM v2_messages
         WHERE outgoing = 1
           AND status IN ('PENDING', 'FAILED')
           AND envelope IS NOT NULL
-          AND (nextRetryAtEpochMillis IS NULL OR nextRetryAtEpochMillis <= :nowEpochMillis)
-        ORDER BY createdAtEpochMillis
+        ORDER BY rowid
         """,
     )
-    fun getDueV2OutgoingMessages(nowEpochMillis: Long): List<V2MessageEntity>
+    fun getUnsentV2OutgoingMessages(): List<V2MessageEntity>
 
     @Query(
         """
@@ -450,7 +456,22 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
                 )
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
+                .addCallback(DURABLE_AND_SECURE_DELETE)
                 .build()
+
+        /**
+         * Phase 5, second review (R5, I6), measured on both test phones: Android opened this
+         * database in WAL mode with `synchronous` NORMAL, so a commit could be lost on power loss
+         * after the relay copy was already deleted; and one phone ran `secure_delete` FAST, which
+         * can leave deleted (vault-encrypted) ratchet states in free pages. Every connection, now
+         * and later, gets FULL and ON (`execPerConnectionSQL`; a plain `execSQL` would set one).
+         */
+        private val DURABLE_AND_SECURE_DELETE = object : RoomDatabase.Callback() {
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                db.execPerConnectionSQL("PRAGMA synchronous = FULL", null)
+                db.execPerConnectionSQL("PRAGMA secure_delete = ON", null)
+            }
+        }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
