@@ -280,6 +280,33 @@ Goal: earn the right to call this "reviewed", not just "written".
 Exit gate: fuzz/replay/tamper suite green; review findings triaged (fixed or
 explicitly accepted with reasoning recorded).
 
+**Status 2026-10-01: DONE, exit gate met** (DEC-026; inputs, matrix, findings and results:
+`../PHASE5_SECURITY_TEST_PLAN.md`). The paid external audit was moved by the owner to before any
+release (TQ-106); until then release builds keep the chat closed. Owner chose: delete junk and page the relay, fix all findings
+now, a paid external audit before any release (not now), and a second AI review with a fresh
+context.
+
+- Fuzz and attack suites written first; their first run held for libsignal and every decoder and
+  turned four findings red. Twelve findings in total (F1–F12), all fixed or documented: junk could
+  stall or crash a receiver (relay pages and canonical base64, bounded transport, rejected envelopes
+  deleted and rolled back); a text could overtake its HELLO and burn the invitation (ordered
+  sending, only a HELLO opens an invitation); a HELLO could borrow another invitation's Kyber key;
+  used invitations kept their signed pre-key; four spellings of one QR text; two local damage cases
+  had the wrong failure type; the key-loss screen cut off its only way out in landscape (found by
+  the device run).
+- Second review (fresh-context AI): 7 findings and 6 notes, triaged in the plan's section 8. The
+  top one (R1, High) was real and confirmed by a red test: a PreKey message naming a key ID above
+  2^31 threw out of the store and could stall the whole receive queue; fixed together with R2–R5,
+  R7 (partly), I3 and I6; R6, I2, I5 and `FLAG_SECURE` are queued (TQ-108).
+- Evidence (2026-10-01): JVM signal-protocol 73 (49 before), storage 5, ui 13, domain 3; relay 11
+  (8 before); on SM-S928B and 24048RN6CG each: storage 29/29, transport 12/12, signal-protocol
+  73/73, ui 24/24; `lintDebug` 0 errors (16 warnings, unchanged since TQ-009); release build with
+  R8 (0 warnings, 357.6 MB, `enable_v2_protocol` false in the APK).
+- The owner's hand check on both phones (2026-10-01): upgrade, messages, restart, and the relay
+  switched off and on (messages queued during the outage arrived in order). It showed the Samsung
+  keyboard keeping a copied invitation code in its history despite the sensitive flag; owner
+  decision: add "Share invitation" and keep "Copy" with a warning (DEC-026).
+
 ## Phase 6 — UI/UX rewrite (Telegram-style)
 
 Goal: only after Phases 0–5 have a passing exit gate.

@@ -1,6 +1,6 @@
 # Current Project State — Secure Messenger MVP
 
-Last repository verification: 2026-09-30
+Last repository verification: 2026-10-01 (end of Phase 5, DEC-026)
 
 This file records the current recoverable state of Secure Messenger as verified against the
 repository. It is a mutable factual snapshot, not a roadmap, decision log, task queue, release
@@ -34,8 +34,9 @@ defined in `AGENTS.md`. Do not infer implementation from documentation, interfac
 - **ACTIVE (debug builds only):** protocol v2 — official libsignal 0.94.1 PQXDH (Kyber-1024) +
   Double Ratchet, through the project's encrypted store adapter. Design: `../PROTOCOL_V2.md`.
 - **DISABLED in release builds:** `enable_v2_protocol` is `false` in main resources; release shows a
-  "not for messaging" screen and never constructs the pipeline. Enabling it requires the Phase 5
-  independent review and owner approval.
+  "not for messaging" screen and never constructs the pipeline. Enabling it requires an independent
+  external audit (TQ-106, planned before release, DEC-026) and owner approval; the Phase 5 test pass
+  is internal and does not replace it.
 - **REMOVED (2026-09-30):** the legacy prototype (`SimplifiedSessionManager`, `STANDARD_AEAD`, v1
   invitations, legacy delivery pipeline, device-approval states, delivery diagnostics screen) and
   the modules `:core:crypto` and `:core:delivery`. Legacy data is deleted once on upgrade
@@ -51,6 +52,8 @@ defined in `AGENTS.md`. Do not infer implementation from documentation, interfac
   delivery with the receiving app closed verified by hand on 2026-09-30).
 - Incoming: decrypt + store + envelope digest commit in one Room transaction under a process-wide
   lock; relay deletion after commit; byte-identical re-deliveries recognised without decryption.
+  A rejected envelope commits nothing (rolled back) and is deleted as well; only a local failure
+  keeps an envelope on the relay (DEC-026). Outgoing envelopes leave in order per contact.
 - `Sent to delivery server` = relay acceptance. `Delivered` = authenticated receipt from the same
   contact naming the inner message ID. Not a read receipt. **NOT IMPLEMENTED:** read receipts.
 
@@ -63,9 +66,10 @@ Release rejects cleartext relay URLs.
 
 ## 6. Storage and trust
 
-- Room schema **v8**: `local_profile`, the libsignal record tables (`signal_*`), and the v2 tables
+- Room schema **v9**: `local_profile`, the libsignal record tables (`signal_*`), and the v2 tables
   (`v2_invitations`, `v2_contact_requests`, `v2_contacts`, `v2_messages`, `v2_accepted_envelopes`).
-  Exported schemas 1–8 are committed. Legacy tables were dropped by `MIGRATION_7_8`.
+  Exported schemas 1–9 are committed. Legacy tables were dropped by `MIGRATION_7_8`;
+  `MIGRATION_8_9` reset the v2 test conversations for relay API v3 (DEC-024).
 - Message bodies, names, and invitation text are vault-encrypted (Keystore AES-GCM, row-bound AAD);
   libsignal records likewise. Not SQLCipher: structure and metadata are visible.
 - The libsignal identity private key is a software key encrypted at rest (DEC-019 O3).
@@ -73,8 +77,8 @@ Release rejects cleartext relay URLs.
   is the canary. If it no longer decrypts, the app runs nothing and offers "Check again" and a
   confirmed "Delete local data and start over". Vault failures are unchecked and never become
   protocol verdicts.
-- Contact states: `AWAITING_ACCEPTANCE`, `ACTIVE`, `KEY_CHANGED` (blocked). Pending requests are
-  not contacts. Strict identity trust in both directions (DEC-018). Single device per contact; no
+- Contact states: `AWAITING_ACCEPTANCE`, `ACTIVE`, `KEY_CHANGED` (blocked; no code path sets it
+  today, see `../PROTOCOL_V2.md`). Pending requests are not contacts. Strict identity trust in both directions (DEC-018). Single device per contact; no
   synchronized revocation.
 - Flash storage gives no secure-deletion guarantee.
 
@@ -82,7 +86,8 @@ Release rejects cleartext relay URLs.
 
 - **ACTIVE for development/QA:** Node relay in `android-app/server/relay`, API v3 (DEC-024):
   `POST /v1/queues/{queueId}/messages`, `GET` and `DELETE` on the same path with a Bearer read
-  secret, `GET /health`. Queue IDs are self-certifying; the relay assigns message IDs.
+  secret, `GET /health`. Queue IDs are self-certifying; the relay assigns message IDs; it stores
+  only canonical base64 and returns at most the 100 oldest messages per read (DEC-026).
 - The relay is untrusted, has QA-level limits only (not production abuse control), and observes
   IPs, queue IDs, routing tags, timing, sizes, and the initiator's identity key in PreKey headers.
 - Two-phone QA on 2026-09-30 used a relay on the laptop reached over USB (`adb reverse`).

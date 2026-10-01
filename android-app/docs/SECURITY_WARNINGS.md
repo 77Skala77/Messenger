@@ -11,9 +11,10 @@ server or privacy audit.
 ## Explicitly Unsafe Or Incomplete For Production
 
 - Chats use official libsignal PQXDH + Double Ratchet (protocol v2, `PROTOCOL_V2.md`), but only
-  in debug builds. Release builds have no chat until the independent review of Phase 5
-  (`enable_v2_protocol = false`). The project's store adapter, invitation format, and pipeline
-  around libsignal are unaudited.
+  in debug builds. Release builds have no chat until an independent external audit, planned before
+  any release (`enable_v2_protocol = false`, DEC-026). The project's store adapter, invitation
+  format, and pipeline around libsignal are unaudited; Phase 5 tested them internally (fuzzing,
+  attack matrix, a second AI review), which is not an audit.
 - Trust on first use: the inviter accepts a contact request after seeing an unverified claimed
   name and a safety number. Comparing safety numbers in person is the only identity check.
 - Single device per contact; no multi-device fan-out and no synchronized revocation.

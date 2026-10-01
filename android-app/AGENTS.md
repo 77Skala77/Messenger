@@ -27,7 +27,7 @@ This is an MVP for architecture review and testing.
 
 It is not production-ready and must not be represented as ready for real sensitive communications.
 
-Since 2026-09-30 (DEC-021) the only chat path is protocol v2: official libsignal PQXDH + Double Ratchet sessions (`docs/PROTOCOL_V2.md`). It is **active in debug builds only**, controlled by the `enable_v2_protocol` resource (`false` in main/release, `true` in debug). Release builds never construct it and show a "not for messaging" screen until the independent review of Phase 5. v2 has not been independently reviewed.
+Since 2026-09-30 (DEC-021) the only chat path is protocol v2: official libsignal PQXDH + Double Ratchet sessions (`docs/PROTOCOL_V2.md`). It is **active in debug builds only**, controlled by the `enable_v2_protocol` resource (`false` in main/release, `true` in debug). Release builds never construct it and show a "not for messaging" screen until an independent external audit (TQ-106, planned before any release, DEC-026). v2 has not been independently reviewed; the Phase 5 security test pass and its second AI review are internal checks, not that audit.
 
 The legacy prototype session layer and `STANDARD_AEAD` were removed entirely (modules `:core:crypto` and `:core:delivery`, Room tables dropped by `MIGRATION_7_8`, Keystore key and preferences by `LegacyReset`). Do not reintroduce them. `PARANOIA_C4_AEAD` was removed from the codebase entirely on 2026-09-27 and no longer exists in any form (see `docs/ai-workflow/DECISIONS.md` DEC-016).
 
@@ -118,6 +118,8 @@ Persist security-sensitive material only when required by the design and only th
 
 Never duplicate secrets into plaintext Room columns, ordinary preferences, unprotected DataStore values, temporary files, copied reports, clipboard content, or committed fixtures.
 
+One owner-approved exception (DEC-026, 2026-10-01): the explicit "Copy invitation code" button may put the user's own invitation code on the clipboard, marked sensitive and with an on-screen warning that keyboards may keep a clipboard history; "Share invitation", which bypasses the clipboard, sits next to it as the safer path. Nothing else may copy QR or pairing secrets to the clipboard.
+
 Changes to key ownership, vault behavior, key invalidation, backup/restore, reset, or deletion semantics require explicit security review and tests.
 
 Logs and copied diagnostics must be safe to share.
@@ -207,7 +209,7 @@ Do not silently create or trust unknown contacts from unauthenticated or incompl
 
 Protocol v2 (libsignal) is wired into debug builds with the owner's approval (DEC-019, DEC-021), after tests, a threat review, toolchain and packaging review, and a migration review. It has **not** had an independent integration review.
 
-Never enable v2 in release builds (`enable_v2_protocol` in main resources, or any other route) before the independent review of Phase 5 and explicit owner approval.
+Never enable v2 in release builds (`enable_v2_protocol` in main resources, or any other route) before the independent external audit (TQ-106) and explicit owner approval.
 
 Do not weaken the v2 fail-closed rules: strict identity trust, one-time pre-keys, commitment-checked invitations, contact-scoped receipts, authenticate-before-store, and relay deletion only after commit. An untrusted-identity result on receive is unauthenticated and must never change contact state.
 
@@ -348,7 +350,7 @@ Every task that changes repository files must end with:
 For Signal, crypto, session, or invitation work, also report explicitly:
 
 - v2 protocol behavior changed: yes/no
-- `enable_v2_protocol` values: release (must be `false` until Phase 5) and debug
-- libsignal reachable in release builds: yes/no (must be no until Phase 5)
+- `enable_v2_protocol` values: release (must be `false` until the independent audit, TQ-106) and debug
+- libsignal reachable in release builds: yes/no (must be no until the independent audit, TQ-106)
 - v2 wire, invitation, or storage format changed: yes/no (and the migration story if yes)
 - Legacy prototype or `PARANOIA_C4_AEAD` reintroduced in any form: yes/no (must always be no)

@@ -323,8 +323,8 @@ receiver-app acceptance, decryption и durable storage. Это не read receipt
 - повторная синхронизация не должна создавать duplicate plaintext;
 - receipt не должен отображаться как chat message;
 - повторный authenticated envelope должен подавляться;
-- malformed или unauthenticated envelope не должен отображаться и может остаться на relay
-  до TTL или внешнего удаления;
+- malformed или unauthenticated envelope не должен отображаться; после проверки приложение
+  удаляет его с relay (DEC-026);
 - ручное изменение ciphertext не требуется для обычного QA.
 
 ## 14. Диагностика И Logcat

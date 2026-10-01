@@ -63,6 +63,7 @@ When changing an accepted decision:
 | DEC-023 | Phase 2: vault key never replaced silently; a lost key fails closed; the user decides | ACCEPTED |
 | DEC-024 | Phase 3: self-certifying relay queues, server message IDs, invitation v3, reset of v2 test chats | ACCEPTED |
 | DEC-025 | Phase 4 (multi-device) deferred; version 1 is one device per person | ACCEPTED |
+| DEC-026 | Phase 5: rejected envelopes deleted and rolled back, relay pages, ordered sending, strict invitations; paid audit before release | ACCEPTED |
 
 ---
 
@@ -1144,6 +1145,78 @@ lets it be deleted, never decrypted.
   `PROTOCOL_V2.md`). No revocation protocol is needed while only one device exists.
 - Adding multi-device later changes the protocol again and needs its own security review; the
   Phase 5 review does not cover it.
+
+---
+
+## DEC-026 — Phase 5: rejected envelopes are deleted, relay pages, ordered sending, strict invitations
+
+**Status:** ACCEPTED
+**Recorded:** 2026-10-01. Owner decisions in chat after the Phase 5 findings
+(`../PHASE5_SECURITY_TEST_PLAN.md`): delete junk and page the relay (recommended option), fix all
+findings in this phase, a paid external audit before any release, and a second AI review pass with
+a fresh context now.
+
+### Context
+
+The Phase 5 fuzz and attack tests held for libsignal and every decoder, but found weaknesses around
+them: anyone who knows a queue ID could stall or crash a receiver with junk (F1, F2, F5); a text
+that overtook its HELLO burned the invitation and broke pairing (F3); the key-loss screen cut off
+its only way out in landscape (F12); and smaller issues (F4, F6–F11).
+
+### Decision
+
+- **Every envelope that reaches a verdict is deleted from the relay**, accepted or rejected
+  (malformed, unknown routing tag, failed authentication, not a valid HELLO). Only a local failure
+  (storage, vault) reaches no verdict and keeps the envelope. Rejected envelopes commit nothing: the
+  protocol transaction is rolled back. This replaces "unauthenticated envelopes stay on the relay".
+- **Relay (still QA-level):** stores only canonical standard base64; a read returns at most the
+  100 oldest messages; the reader deletes what it decided and fetches again (up to 10 pages per
+  sync).
+- **App transport:** a response may be at most 8 MB, 200 messages, and 30 s of reading; each item
+  is parsed on its own and an unreadable item is skipped; an invalid answer is a relay error.
+- **Ordered sending:** a contact's envelopes leave in the order they were made; one that failed
+  holds back the later ones until it is sent (a text never overtakes its HELLO).
+- **Invitations:** only a HELLO that uses exactly its invitation's pre-keys (EC one-time, signed,
+  and Kyber) opens it; anything else is rejected and rolled back, so the invitation stays usable.
+  Once used, all of its private pre-keys are deleted (the signed one too). Only the canonical QR
+  text is accepted.
+- Local damage gets local-fault types: `StoredRecordCorruptedException` for libsignal's
+  `InvalidSessionException`, `VaultRecordRejectedException` for a damaged stored queue secret.
+- The key-loss screen (DEC-023) and onboarding scroll, so their buttons stay reachable in
+  landscape or with a large font (F12, found by the device run).
+- The external human audit is required before v2 may be enabled in a release build (unchanged
+  `AGENTS.md` rule); it is planned before release, not now.
+- After the second (fresh-context AI) review, the same day: key IDs above 2^31 from a PreKey
+  message are unknown keys, never storage errors (R1, High); an envelope that reaches no verdict no
+  longer stops the rest of the queue, sending still runs, and the failure is reported afterwards;
+  on a contact or request route only PreKey messages naming the pairing's own invitation pre-keys
+  reach libsignal, and the scanner's side accepts none (R2); an expired invitation is unroutable
+  even before cleanup (R3); send order is insertion order, not timestamps (R4); the copied
+  invitation code is marked sensitive (R7); display names are checked per code point (I3); every
+  database connection runs `synchronous` FULL and `secure_delete` ON (R5, I6: both phones ran WAL
+  with NORMAL, one ran `secure_delete` FAST). Accepted for later with reasons: R6, `FLAG_SECURE`,
+  I2, I5 (TQ-108) and I4.
+- Invitation code and the clipboard (owner, after the hand check showed the Samsung keyboard keeping
+  the copied code in its history despite the sensitive flag): add "Share invitation" (no
+  clipboard) and keep "Copy invitation code" with an on-screen warning. This is a deliberate,
+  narrow exception to the `AGENTS.md` clipboard rule, recorded there.
+
+### Consequences
+
+- No wire, invitation, or Room schema change; the relay API keeps its routes and JSON, with a page
+  limit and a stricter upload check. Existing installs need nothing. Used invitations from before
+  this change keep their signed pre-key until local data is deleted.
+- A relay that reorders a text before its HELLO now causes that text to be rejected (lost), never
+  the invitation; a relay can always drop messages anyway.
+- Residual: anyone who knows a queue ID can still send junk faster than the receiver deletes it,
+  within the relay's per-IP limits; a production relay needs real abuse control (Phase 7).
+
+### Evidence
+
+`V2DecoderFuzzTest`, `V2AttackMatrixTest`, `ConversationV2ServiceTest`, `LocalVaultCipherTest`,
+`RelayHostileResponseInstrumentedTest`, `RelayHttpTransportInstrumentedTest`,
+`ConversationV2StorageInstrumentedTest`, `LegacyResetInstrumentedTest`, relay `node --test`.
+Results: `REWRITE_PLAN.md`, Phase 5.
 
 ---
 

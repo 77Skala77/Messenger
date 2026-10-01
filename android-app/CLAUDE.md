@@ -24,8 +24,9 @@ mutable against the code before relying on it.
   number varies per message and has no known mapping to Low/Medium/High/Extra/Max): never claim
   the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
-  Current recommendations: Phase 5 (security test pass: list untrusted inputs, fuzz and attack
-  matrix): **Opus 5.5 · High**. Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
+  Current recommendations: Phase 6 (Telegram-style UI): **Opus 5.5 · High** for the plan and the
+  owner's decisions, then **Sonnet 5.5 · High** for the screens; Opus again for TQ-108's security
+  parts. Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -38,14 +39,16 @@ mutable against the code before relying on it.
 
 1. **v2 (official libsignal PQXDH + Double Ratchet) is the only chat path and is debug-only.**
    `enable_v2_protocol` is `false` in `core/ui/src/main/res/values/transport_policy.xml` (release)
-   and `true` only in `src/debug`. Never turn it on for release before the Phase 5 independent
-   review and explicit owner approval. Release must never construct the pipeline.
+   and `true` only in `src/debug`. Never turn it on for release before the independent external
+   audit (TQ-106, planned before any release, DEC-026) and explicit owner approval. Release must never construct the pipeline.
 2. The legacy prototype (`SimplifiedSessionManager`, `STANDARD_AEAD`, v1 invitations, modules
    `:core:crypto`/`:core:delivery`) and `PARANOIA_C4_AEAD` are **deleted; never reintroduce** them
    or any home-grown cipher/cascade. Legacy data is wiped once (`MIGRATION_7_8`, `LegacyReset`).
 3. **The relay is untrusted.** Never trust relay-supplied message IDs (DEC-020), ordering,
-   availability or content. Relay copy is deleted **only after** the local transaction commits.
-   Byte-identical re-deliveries are recognised by envelope digest without decryption.
+   availability or content. An accepted envelope's relay copy is deleted **only after** the local
+   transaction commits; a rejected one commits nothing (rolled back) and is deleted too; only a
+   local failure keeps it (DEC-026). Byte-identical re-deliveries are recognised by envelope digest
+   without decryption. A contact's envelopes are sent strictly in order.
 4. **Strict identity trust in both directions.** An identity that differs from the stored one is
    never trusted. An untrusted-identity result on *receive* means "unauthenticated" and **must not
    change contact state** (otherwise a relay could block contacts with forged envelopes).
@@ -59,9 +62,11 @@ mutable against the code before relying on it.
 6. **`Delivered`** = an authenticated receipt from the *same contact* naming the inner message ID.
    `Sent to delivery server` = relay acceptance only. Neither is a read receipt. WorkManager sync
    is best effort, never a timing guarantee.
-7. Invitations (`smp-invite-v3:`, v2 refused): one-time EC and Kyber pre-keys per invitation, digest-committed
-   sealed bundle, strict parsing, expiry, one-sided pairing with explicit accept (TOFU). Kyber:
-   only `KEMKeyType.KYBER_1024`. One-time Kyber keys are deleted on use; base-key reuse is rejected.
+7. Invitations (`smp-invite-v3:`, v2 refused, one canonical text): one-time EC and Kyber pre-keys per
+   invitation, digest-committed sealed bundle, strict parsing, expiry, one-sided pairing with
+   explicit accept (TOFU). Kyber: only `KEMKeyType.KYBER_1024`. Only a HELLO using exactly the
+   invitation's three pre-keys opens it; all its private pre-keys are deleted once used (DEC-026).
+   One-time Kyber keys are deleted on use; base-key reuse is rejected.
 8. Secrets: never log plaintext, keys, ciphertext, full queue IDs. Message bodies, names and QR text
    are vault-encrypted (Keystore AES-GCM, row-bound AAD); libsignal records likewise. The identity
    private key is a software key encrypted at rest. Flash gives no secure-erase guarantee.
@@ -134,13 +139,28 @@ mutable against the code before relying on it.
   look in this project's own Compose UI, after an owner decision and a legal check.
 - Phase 2 found that libsignal wraps *checked* exceptions from store callbacks in `AssertionError`:
   keep every vault/storage failure unchecked (`VaultException`).
+- Phase 5 found (tests prove it): libsignal raises only its checked protocol exceptions on hostile
+  ciphertext and writes nothing on a failed decrypt; but a damaged *stored* session record gives
+  the unchecked `InvalidSessionException` (`IllegalStateException`), now mapped to
+  `StoredRecordCorruptedException`. A PreKey message's outer fields (e.g. registration ID) are not
+  covered by its MAC: a changed copy can decrypt, but only to the original plaintext.
+- Design lesson (Phase 5): never keep "not yet valid" envelopes on a paged relay queue; someone who
+  can produce them blocks the head of the queue. Fix ordering at the sender instead.
+- Second review lessons (Phase 5): libsignal hands PreKey key IDs above 2^31 to the store as
+  negative ints, and the Room repository's `require(id >= 0)` turned one crafted message into a
+  queue-stalling exception (R1, High). Test doubles must enforce the production rules, and attack
+  tests must craft fields directly (`PreKeyMessageFields`), since byte mutations never produce
+  them. Android opened Room in WAL with `synchronous` NORMAL on both phones (one had
+  `secure_delete` FAST): measure platform defaults on the device before relying on them.
 
 ## Decision log (details in `docs/ai-workflow/DECISIONS.md`)
 
 DEC-018 strict identity trust; DEC-019 invitation/pairing design; DEC-020 relay message IDs never
 trusted; DEC-021 legacy prototype removed, v2 debug-only, release has no chat until Phase 5;
 DEC-022 AGP 8.13.2 / compileSdk 36; DEC-023 vault key never replaced silently; DEC-024 relay API v3
-+ invitation v3 + Room v9; DEC-025 multi-device deferred. Design docs: `docs/PROTOCOL_V2.md`,
++ invitation v3 + Room v9; DEC-025 multi-device deferred; DEC-026 Phase 5 fixes (rejected
+envelopes deleted and rolled back, relay pages of 100 and canonical base64, bounded transport,
+ordered sending, strict invitations; paid audit before release). Design docs: `docs/PROTOCOL_V2.md`,
 `docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md` (deferred).
 
 ## Working cycle that has worked (repeat it)
@@ -161,15 +181,13 @@ DEC-022 AGP 8.13.2 / compileSdk 36; DEC-023 vault key never replaced silently; D
 
 ## Open items and next steps
 
-- **Phase 5 — security test pass** (next): list every untrusted input (invitation code and bundle,
-  envelope, inner payload, relay JSON responses, vault blobs, stored records) and the property each
-  test must prove; fuzz decoders (reject cleanly, never crash, never partially trust); replay /
-  tamper / downgrade matrix for v2; optionally an external review of the libsignal integration.
-  Revisit key hardening (StrongBox / unlocked-device keys), relay TTL, and whether lint-disabled
-  checks or pinned libraries need attention.
-- **Phase 6** Telegram-style UI (own Compose code, not Telegram's GPL code); ideas to design with
-  it: disappearing messages, app lock. **Phase 7** release readiness (signing, SBOM, HTTPS relay)
-  is out of scope until the owner wants to ship.
+- **Phase 5 — security test pass: DONE** (2026-10-01, `docs/PHASE5_SECURITY_TEST_PLAN.md`,
+  DEC-026). Still open after it: TQ-108 (with Phase 6), key hardening (StrongBox /
+  unlocked-device keys), relay TTL, lint-disabled checks, pinned libraries. The paid external
+  audit (TQ-106) is planned before any release.
+- **Phase 6** Telegram-style UI (next; own Compose code, not Telegram's GPL code); ideas to design
+  with it: disappearing messages, app lock; it also carries TQ-108. **Phase 7** release readiness
+  (signing, SBOM, HTTPS relay) is out of scope until the owner wants to ship.
 - Other open tasks: TQ-006 clean-clone and CI run, TQ-007 (signing, `lintRelease`, manifest audit),
   TQ-008 dependency verification/SBOM, `qaMinified` build not re-run after TQ-009, libraries that
   need compileSdk 37 (Compose 1.12, core 1.19, lifecycle 2.11), Kotlin/coroutines pinned to libsignal.
@@ -180,6 +198,12 @@ DEC-022 AGP 8.13.2 / compileSdk 36; DEC-023 vault key never replaced silently; D
 - Phase 1 of `docs/ai-workflow/REWRITE_PLAN.md` is done (exit gate met, 2026-09-30); TQ-009 done;
   Phase 2 storage hardening done (DEC-023); Phase 3 relay hardening done (DEC-024: self-certifying
   queues, invitation v3, Room v9). Phase 4 multi-device DEFERRED by the owner (DEC-025; version 1
-  is one device per person; draft design kept). Next: Phase 5 security test pass (fuzzing, replay /
-  tamper / downgrade matrix; Opus 5.5 · High), then Phase 6 Telegram-style UI.
-- Verified state at the end of Phase 3 (2026-10-01): relay tests 8; JVM tests green; per phone\n  storage 27, ui 21, signal-protocol 49, transport 7; lint 0 errors; release has no chat.\n- Not production-ready; no independent audit; do not claim otherwise.
+  is one device per person; draft design kept). Phase 5 security test pass done (DEC-026). Next:
+  Phase 6 Telegram-style UI.
+- Verified state at the end of Phase 5 (2026-10-01): relay tests 11; JVM tests green
+  (signal-protocol 73, storage 5, ui 13, domain 3); per phone storage 29, transport 12,
+  signal-protocol 73, ui 24; lint 0 errors (16 warnings); release with R8, no chat; the owner's hand
+  check passed, the clipboard case led to "Share" + "Copy" with a warning (DEC-026).
+- Device tests: a phone lying sideways runs the tests in landscape (that is how F12 was found);
+  `LanguageSwitchHarnessActivity` follows the sensor.
+- Not production-ready; no independent audit; do not claim otherwise.

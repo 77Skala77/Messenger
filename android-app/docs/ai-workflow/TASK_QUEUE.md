@@ -661,16 +661,18 @@ This cannot activate existing normal chats or justify real sensitive use.
 ## TQ-106 — Independent cryptographic and application security audit
 
 **Priority:** P1
-**Status:** BLOCKED — this is Phase 5 of `REWRITE_PLAN.md`. Until it passes, release builds
-have no chat (`enable_v2_protocol = false`, DEC-021).
-**Blockers:** Phases 2–4, funding, and a qualified reviewer.
+**Status:** PLANNED BEFORE RELEASE (owner, 2026-10-01, DEC-026). Phase 5 of `REWRITE_PLAN.md`
+replaced it for now with an internal security test pass and a second AI review
+(`../PHASE5_SECURITY_TEST_PLAN.md`); neither is an independent audit. Until this audit passes,
+release builds have no chat (`enable_v2_protocol = false`, DEC-021).
+**Blockers:** funding and a qualified reviewer; the owner's decision to ship.
 
-### Candidate scope (updated 2026-09-30 for protocol v2)
+### Candidate scope (updated 2026-10-01 for protocol v2 and Phase 5)
 
 - the libsignal store adapter (identity trust, one-time pre-key and Kyber handling);
-- invitation v2 (commitment, sealing, expiry), the request/TOFU flow, safety numbers;
-- the v2 pipeline: parsing, replay and dedupe, receipts, transaction atomicity, relay deletion
-  ordering;
+- invitation v3 (commitment, sealing, HKDF, expiry), the request/TOFU flow, safety numbers;
+- the v2 pipeline: parsing, replay and dedupe, receipts, transaction atomicity and rollback, relay
+  deletion of accepted and rejected envelopes, ordered sending;
 - Keystore, vault, Room, migrations (including `MIGRATION_7_8`), backup, reset;
 - relay and metadata exposure;
 - dependencies (libsignal, AGPL obligations), build, release gating, R8 keep rules.
@@ -696,6 +698,31 @@ have no chat (`enable_v2_protocol = false`, DEC-021).
 - infrastructure ownership and access control.
 
 Historical VPS success is not production evidence.
+
+---
+
+## TQ-108 — Phase 5 follow-ups accepted for later
+
+**Priority:** P2
+**Status:** READY AFTER Phase 5 (most belong with the Phase 6 UI work)
+**Type:** runtime / UI / storage
+**Security-sensitive:** Yes
+
+### Objective
+
+Close the second-review items that Phase 5 accepted with reasoning (`../PHASE5_SECURITY_TEST_PLAN.md`,
+section 8; DEC-026).
+
+### Items
+
+- **R6:** create the receive-queue secret together with the profile and never silently replace it;
+  a missing secret while the database survives blocks like a lost vault key (DEC-023), with its own
+  explanation ("your contacts can no longer reach this phone; start over").
+- **R7:** owner decision on `FLAG_SECURE` for the invitation/QR screen (blocks screenshots and screen
+  recording, but people also screenshot a QR to share it).
+- **I2:** tell the second scanner of an already used invitation (today their contact waits forever).
+- **I5:** prune `v2_accepted_envelopes` older than about 30 days (replays are still rejected by
+  libsignal and inner message IDs).
 
 ---
 

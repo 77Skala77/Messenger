@@ -19,7 +19,9 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
   not yet received when a device is stolen keeps its (skipped) key and is readable by the thief,
   and healing after a compromise needs one full round trip.
 - The integration (store adapter, invitations, envelopes, pipeline) is project code and has not
-  been independently reviewed. Interoperability with Signal's own apps is neither a goal nor tested.
+  been independently reviewed. Phase 5 added fuzz and attack tests and a second AI review, which
+  are internal checks, not an audit; a paid external audit is required before release (DEC-026).
+  Interoperability with Signal's own apps is neither a goal nor tested.
 - The libsignal identity private key is a software key: encrypted at rest with an Android Keystore
   key, but present in app memory while in use (as in Signal-Android). The removed legacy identity
   was a hardware-backed, non-exportable P-256 key.
@@ -36,14 +38,22 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
   only way forward. An identity claimed by an unauthenticated message never changes contact state.
 - Single device per contact. Multi-device fan-out and synchronized revocation are not implemented
   (Phase 4).
+- "Copy invitation code" puts the invitation secret on the clipboard. The clip is marked
+  sensitive, but some keyboards keep their own clipboard history anyway (the Samsung keyboard does);
+  the screen says so and offers "Share invitation", which bypasses the clipboard (DEC-026).
+- Whoever has the QR code can also delete the sealed bundle from the relay mailbox (the code holds
+  its read secret); the intended scanner then gets "not found" and needs a new invitation. The
+  second scanner of an already used invitation is not told; their contact keeps waiting (TQ-108).
 
 ## Delivery Semantics And Availability
 
 - Foreground polling (chat open) and WorkManager sync (about every 15 minutes or later) are best
   effort. Android may delay background work; timely offline delivery is not guaranteed.
 - The relay can delete, delay, reorder, replay, or withhold encrypted blobs. Authenticated
-  encryption does not prevent denial of service. Unauthenticated or unroutable blobs are not
-  accepted and stay on the relay until expiry, which can contribute to queue filling.
+  encryption does not prevent denial of service. Unauthenticated or unroutable blobs are never
+  accepted; the app deletes them once decided (DEC-026), but anyone who knows a queue ID can still
+  send junk faster than it is deleted, within the QA relay's per-IP limits. If the relay moves a
+  text before its HELLO, that text is rejected (lost); the invitation is not affected.
 - `Delivered` means the receiving application authenticated, decrypted, and durably stored the
   message and the sender authenticated the resulting receipt from the same contact. It does not
   mean the person read the message. Read receipts are not implemented.
@@ -55,9 +65,10 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 - The debug relay may use HTTP (LAN or `adb reverse`); release builds reject cleartext.
 - Relay queues are self-certifying (DEC-024): the queue ID is the hash of a read secret that only
   the owner holds, so contacts can send but not read or delete. The relay assigns message IDs and
-  applies QA-level limits (64 KB bodies, per-IP rate, 1,000 pending per queue); this is not
-  production abuse control. Over plain HTTP (debug) the read secret travels in clear; release
-  requires HTTPS. Pending envelopes live up to 7 days on the relay.
+  applies QA-level limits (64 KB bodies of canonical base64, per-IP rate, 1,000 pending per queue,
+  at most 100 messages per read); this is not production abuse control. Over plain HTTP (debug) the
+  read secret travels in clear; release requires HTTPS. Pending envelopes live up to 7 days on the
+  relay.
 - The relay operator can observe client IP addresses, queue IDs, per-conversation routing tags,
   request timing, message sizes (padded to 160-byte blocks), traffic frequency, and the
   initiator's identity key in PreKey message headers.
@@ -71,6 +82,10 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
   (no SQLCipher). Table structure, identifiers, routing tags, statuses and timestamps are visible.
 - Stored history is not protected by forward secrecy: a compromise that includes the usable
   vault key reveals stored messages.
+- The database overwrites deleted rows (`secure_delete` ON) and syncs every commit (`synchronous`
+  FULL) on every connection (DEC-026). Old page versions can still sit in the write-ahead log
+  until a checkpoint, and flash storage can keep old blocks: deleted ratchet states are not
+  guaranteed gone from the hardware.
 - Plaintext exists in input, Compose, and process memory while messages are typed or displayed.
   Screenshots, keyboards, notifications, accessibility services, and malware are out of scope.
 - App lock, biometric unlock, encrypted backup, device transfer, and attachments are not implemented.
@@ -82,6 +97,9 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 
 ## Local Deletion And Legacy Reset
 
+- The receive queue's read secret lives in the app's preferences (vault-encrypted). If only that
+  file were lost while the database survived, the app would silently create a new queue and
+  contacts would keep sending to the old one (rare; fix planned, TQ-108).
 - "Delete local data" removes the vault key first, then the profile, conversations and libsignal
   records (one transaction, under the protocol lock), then the v2 queue ID; the relay URL is kept.
   It needs no key, so it also works when the data is unreadable. Blobs already on the relay

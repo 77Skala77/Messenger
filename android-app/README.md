@@ -13,8 +13,9 @@ in-app language; English is available from Settings.
   Kyber-1024 post-quantum key) and the Double Ratchet. Design, verified properties and limits:
   [docs/PROTOCOL_V2.md](docs/PROTOCOL_V2.md).
 - **Debug builds only.** The `enable_v2_protocol` resource is `true` only in debug resources.
-  Release builds show a "not for messaging" screen until the independent review of Phase 5
-  ([DEC-021](docs/ai-workflow/DECISIONS.md)).
+  Release builds show a "not for messaging" screen until an independent external audit, planned
+  before any release ([DEC-021, DEC-026](docs/ai-workflow/DECISIONS.md)). Phase 5 added an internal
+  security test pass ([docs/PHASE5_SECURITY_TEST_PLAN.md](docs/PHASE5_SECURITY_TEST_PLAN.md)).
 - **The legacy prototype was removed** (static-ECDH session layer, `STANDARD_AEAD`, v1
   invitations, the `:core:crypto` and `:core:delivery` modules). Old test chats are deleted once,
   explicitly, on upgrade (`MIGRATION_7_8` and `LegacyReset`), with a one-time notice.

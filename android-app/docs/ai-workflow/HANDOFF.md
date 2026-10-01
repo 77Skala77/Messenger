@@ -10,7 +10,7 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 4. [`../PROTOCOL_V2.md`](../PROTOCOL_V2.md)
 5. [`REWRITE_PLAN.md`](REWRITE_PLAN.md)
 6. [`TASK_QUEUE.md`](TASK_QUEUE.md)
-7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-021)
+7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-026)
 8. The checklist relevant to the task
 
 ## Source-of-truth warning
@@ -21,9 +21,9 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 
 ## Current handoff
 
-**Date:** 2026-09-30
+**Date:** 2026-10-01
 
-**Workstream:** `REWRITE_PLAN.md` — Phase 1 (official libsignal), TQ-009, Phase 2 (storage)
+**Workstream:** `REWRITE_PLAN.md` — Phases 1–3 done, Phase 4 deferred, Phase 5 (security test pass) in progress
 
 **Status:** Phase 1 (steps 1a–1f) done; the Phase 1 exit gate is met. Evidence:
 `PHASE_1E_PREP.md` ("Step 1f evidence") and `REWRITE_PLAN.md` (progress list).
@@ -32,8 +32,9 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 "not for messaging" screen (`enable_v2_protocol = false`, DEC-021). The legacy prototype and
 the modules `:core:crypto` and `:core:delivery` are deleted.
 
-**Room:** schema v8 (`MIGRATION_7_8` drops the legacy tables). Legacy Keystore key and
-preferences are removed once on upgrade by `LegacyReset`, with a one-time notice.
+**Room:** schema v9 (`MIGRATION_7_8` dropped the legacy tables; `MIGRATION_8_9` reset the v2 test
+conversations for relay API v3). Legacy Keystore key and preferences are removed once on upgrade by
+`LegacyReset`, with a one-time notice.
 
 **Toolchain:** TQ-009 is done (2026-09-30, DEC-022): AGP 8.13.2, Gradle 8.14.3, compileSdk 36,
 AndroidX, Compose BOM 2025.10.01, Room 2.8.5. Lint and R8 now read Kotlin 2.2 metadata cleanly.
@@ -48,21 +49,25 @@ protocol verdicts; secrets-at-rest and logging tests cover every module. Results
 secrets, relay-assigned message IDs, QA-level limits, invitation v3, Room v9 (v2 test chats reset
 once with a notice). Design: `../PHASE3_RELAY_DESIGN.md`; results: `REWRITE_PLAN.md`, Phase 3.
 
+Phase 4 (multi-device) was **deferred** by the owner (2026-10-01, DEC-025): version 1 is one device
+per person; draft design with the owner's answers in `../PHASE4_MULTIDEVICE_DESIGN.md`.
+
+**Phase 5 (security test pass) is done** (2026-10-01, DEC-026): inputs, attack matrix, findings
+F1–F12, the second AI review (R1–R7, I1–I6) and results are in `../PHASE5_SECURITY_TEST_PLAN.md`.
+Owner decisions: delete junk and page the relay, fix all findings, paid external audit before any
+release (TQ-106), a second AI review (done), "Share invitation" plus "Copy" with a warning.
+
 ### Next step
 
 **Model check first (owner rule, `CLAUDE.md`):** on the owner's "go", compare the active model
 with the recommendation below; if it differs, warn and ask before starting.
 
-Phase 4 (multi-device) was **deferred** by the owner (2026-10-01, DEC-025): version 1 is one device
-per person; draft design with the owner's answers in `../PHASE4_MULTIDEVICE_DESIGN.md`.
-
-**Phase 5 — security test pass** (`REWRITE_PLAN.md`): fuzz tests for every decoder that reads
-untrusted bytes (invitation code and bundle, envelope, inner payload, relay responses, stored vault
-blobs), and a replay / tamper / downgrade test matrix for the v2 path (malformed input must reject
-cleanly, never crash, never partially trust). Optionally an external review of the libsignal
-integration layer. Start by listing every untrusted input and the property each test must prove.
-Recommended model: **Opus 5.5 · High** (Sonnet 5.5 · High is enough later for writing routine
-cases). Commit policy: one commit at the end of each phase, step or task (owner, 2026-09-30).
+**Phase 6 — Telegram-style UI** (`REWRITE_PLAN.md`): own Compose code, never Telegram's (GPL);
+visual only, the v2 formats stay unchanged. It also carries TQ-108 (receive-queue secret loss
+screen, `FLAG_SECURE` decision, telling a second scanner, pruning envelope digests). Recommended
+model: **Opus 5.5 · High** for the plan and the owner's decisions, then **Sonnet 5.5 · High** for
+the screens (say when to switch); back to Opus for TQ-108's security parts. Commit policy: one
+commit round at the end of each phase, step or task (owner, 2026-09-30).
 
 ## Operational constraints
 
@@ -72,10 +77,8 @@ cases). Commit policy: one commit at the end of each phase, step or task (owner,
 - Test phones: Samsung S24 Ultra (SM-S928B) and Redmi A3x (24048RN6CG), Android 16, over USB.
   The relay runs on the laptop at `127.0.0.1:8787` and the phones reach it through
   `adb reverse tcp:8787 tcp:8787`.
-- Known Windows quirk: `node src/server.mjs` exits without starting, because its main-module
-  check compares `import.meta.url` with `file://` + the argv path, which never matches on
-  Windows. Start the relay with a one-line wrapper that imports `createRelayServer` from
-  `src/server.mjs` and calls `.listen(8787, "127.0.0.1")`. Not fixed yet.
+- Start the relay from `server/relay` with `node src/server.mjs` (fixed for Windows in Phase 3);
+  set `HOST=127.0.0.1` to bind it to the laptop only.
 - Instrumented Compose tests fail with `ComposeTimeoutException` if a phone's screen turns off
   during a long run (the S24 turns it off after 10 minutes): wake the screens before running
   `:core:ui:connectedDebugAndroidTest`.
