@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,11 +53,38 @@ data class ConversationV2UiState(
     val localDataUnreadable: Boolean = false,
 )
 
+/** What one refresh read. [messages] and [safetyNumber] belong to [selectedContactId]. */
+internal class V2Snapshot(
+    val contacts: List<V2Contact>,
+    val requests: List<V2RequestView>,
+    val invitationCode: String?,
+    val selectedContactId: String?,
+    val messages: List<V2StoredMessage>,
+    val safetyNumber: String?,
+)
+
+/**
+ * Applies a refresh. If another contact was selected while it read the store, its messages and
+ * safety number are dropped rather than shown under that other contact (audit SESS-01); the next
+ * refresh reads them for the new selection.
+ */
+internal fun ConversationV2UiState.withSnapshot(snapshot: V2Snapshot): ConversationV2UiState {
+    val sameContact = selectedContactId == snapshot.selectedContactId
+    return copy(
+        contacts = snapshot.contacts,
+        requests = snapshot.requests,
+        invitationCode = snapshot.invitationCode,
+        messages = if (sameContact) snapshot.messages else messages,
+        safetyNumber = if (sameContact) snapshot.safetyNumber else safetyNumber,
+    )
+}
+
 /**
  * UI state holder for the v2 pipeline (DEC-021). In a release build v2 is unavailable, and this
  * class never builds the pipeline, never creates a libsignal identity, and never touches the relay.
  * While the chat screen is open it fetches every few seconds; otherwise best-effort background
- * sync (`V2SyncWorker`) takes over.
+ * sync (`V2SyncWorker`) takes over. Several coroutines change the state, so every change is an
+ * atomic [update]: none of them may write back a stale copy over a newer one (audit SESS-01).
  */
 class ConversationV2ViewModel(application: Application) : AndroidViewModel(application) {
     private val available = V2Availability.isAvailable(application)
@@ -77,7 +105,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         if (!available) return
         pollJob?.cancel()
         service = null
-        mutableState.value = mutableState.value.copy(ready = false, localDataUnreadable = false)
+        mutableState.update { it.copy(ready = false, localDataUnreadable = false) }
         pollJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val application = getApplication<Application>()
@@ -86,7 +114,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
                 service = V2Pipeline.createIfProfileExists(application, db) ?: return@launch
                 scheduler.ensurePeriodic()
                 refresh()
-                mutableState.value = mutableState.value.copy(ready = true)
+                mutableState.update { it.copy(ready = true) }
                 while (true) {
                     try {
                         // Expiry first, so a failing sync cannot keep expired invitations alive.
@@ -109,7 +137,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             } catch (_: VaultKeyUnavailableException) {
                 localDataLost()
             } catch (_: Exception) {
-                mutableState.value = mutableState.value.copy(notice = V2Notice.FAILED)
+                mutableState.update { it.copy(notice = V2Notice.FAILED) }
             }
         }
     }
@@ -125,7 +153,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
 
     fun addContactFromCode(code: String, localName: String) {
         if (code.isBlank() || localName.isBlank()) {
-            mutableState.value = mutableState.value.copy(notice = V2Notice.INVALID_CODE)
+            mutableState.update { it.copy(notice = V2Notice.INVALID_CODE) }
             return
         }
         run(successNotice = V2Notice.REQUEST_SENT, syncAfterwards = true) { it.acceptInvitation(code, localName.trim()) }
@@ -139,7 +167,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     fun declineRequest(requestId: String) = run { it.declineRequest(requestId) }
 
     fun selectContact(contactId: String?) {
-        mutableState.value = mutableState.value.copy(selectedContactId = contactId, messages = emptyList(), safetyNumber = null)
+        mutableState.update { it.copy(selectedContactId = contactId, messages = emptyList(), safetyNumber = null) }
         viewModelScope.launch(Dispatchers.IO) { refresh() }
     }
 
@@ -152,7 +180,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     fun synchronizeNow() = run { it.synchronize() }
 
     fun clearNotice() {
-        mutableState.value = mutableState.value.copy(notice = null)
+        mutableState.update { it.copy(notice = null) }
     }
 
     override fun onCleared() {
@@ -203,7 +231,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             // Anything still queued (relay down, app about to close) is retried in the background.
             if (syncAfterwards) scheduler.requestSoon()
             refresh()
-            if (notice != null) mutableState.value = mutableState.value.copy(notice = notice)
+            if (notice != null) mutableState.update { it.copy(notice = notice) }
         }
     }
 
@@ -211,27 +239,29 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         val current = service ?: return@withContext
         try {
             val selected = mutableState.value.selectedContactId
-            mutableState.value = mutableState.value.copy(
+            val snapshot = V2Snapshot(
                 contacts = current.contacts(),
                 requests = current.requests().map { request ->
                     V2RequestView(request, current.safetyNumber(request.requestId), current.heldTexts(request.requestId).size)
                 },
                 invitationCode = current.currentInvitationCode(),
+                selectedContactId = selected,
                 messages = selected?.let(current::texts).orEmpty(),
                 safetyNumber = selected?.let(current::safetyNumber),
             )
+            mutableState.update { it.withSnapshot(snapshot) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: VaultKeyUnavailableException) {
             localDataLost()
         } catch (_: Exception) {
-            mutableState.value = mutableState.value.copy(notice = V2Notice.FAILED)
+            mutableState.update { it.copy(notice = V2Notice.FAILED) }
         }
     }
 
     /** DEC-023: stop everything and hand over to the app, which shows why the data is unreadable. */
     private fun localDataLost() {
-        mutableState.value = mutableState.value.copy(ready = false, localDataUnreadable = true)
+        mutableState.update { it.copy(ready = false, localDataUnreadable = true) }
         stop()
     }
 

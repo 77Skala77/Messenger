@@ -86,10 +86,16 @@ class RelayHttpTransportClient(
         return RelayEncryptedBlob(messageId, queueId, ciphertext, expiresAt)
     }
 
-    /** The bearer secret goes only into the Authorization header, never into the URL or logs. */
+    /**
+     * The bearer secret goes only into the Authorization header, never into the URL or logs.
+     * Redirects are not followed: the relay API has none, and a hostile relay must not be able to
+     * send the app, with or without that header, to another server (audit L1). A redirect is an
+     * unsuccessful status like any other.
+     */
     private fun request(method: String, path: String, body: String? = null, bearer: String? = null): String {
         val connection = URL(relayBaseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection
         return try {
+            connection.instanceFollowRedirects = false
             connection.requestMethod = method
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000

@@ -31,6 +31,8 @@ enum class LocalDataProblem {
 data class SecureMessengerUiState(
     val profileKnown: Boolean = false,
     val profileCreated: Boolean = false,
+    /** A profile is being created; a second request is ignored until it finishes (STORE-04). */
+    val creatingProfile: Boolean = false,
     val localDataProblem: LocalDataProblem? = null,
     val relayServerUrl: String = RelayServerSettings.DEFAULT_EMULATOR_URL,
     val relayHealthStatus: RelayHealthStatus? = null,
@@ -100,8 +102,13 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
+    /**
+     * Runs on the main thread, so the in-progress check cannot race a second tap; the repository
+     * also refuses a second profile on its own (audit STORE-04).
+     */
     fun createProfile(displayName: String) {
-        if (displayName.isBlank()) return
+        if (displayName.isBlank() || mutableState.value.creatingProfile) return
+        mutableState.value = mutableState.value.copy(creatingProfile = true)
         viewModelScope.launch {
             val created = withContext(Dispatchers.IO) {
                 try {
@@ -114,9 +121,10 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 }
             }
             if (created) {
-                mutableState.value = mutableState.value.copy(profileCreated = true)
+                mutableState.value = mutableState.value.copy(creatingProfile = false, profileCreated = true)
                 scheduler.ensurePeriodic()
             } else {
+                mutableState.value = mutableState.value.copy(creatingProfile = false)
                 checkLocalData()
             }
         }

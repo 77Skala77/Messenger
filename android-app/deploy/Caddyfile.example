@@ -9,7 +9,15 @@ relay.example.com {
 		-Server
 	}
 
-	@relay path /health /v1/messages /v1/messages/*
+	# The relay refuses bodies over 80 KB itself; this stops bigger ones at the edge.
+	request_body {
+		max_size 100KB
+	}
+
+	# Relay API v3 (DEC-024): /v1/queues/{queueId}/messages[/{messageId}].
+	@relay path /health /v1/queues/*
+	# Caddy replaces X-Forwarded-For with the client address; run the relay with
+	# RELAY_TRUST_PROXY=1 so each client has its own rate limit.
 	reverse_proxy @relay 127.0.0.1:8787
 
 	respond "not found" 404

@@ -39,6 +39,8 @@ export function isCanonicalBase64(value) {
  * per-queue secrets, and assigns message IDs itself so no client can overwrite another's record.
  * Phase 5 (DEC-026): it stores only canonical base64, so a sender cannot plant an item that the
  * reader fails to parse, and a read returns at most `maxListMessages` of the oldest messages.
+ * Anyone may create queues, so the whole store is bounded too, not only each queue, and expired
+ * messages are swept at most once per `purgeIntervalMs` instead of on every request (audit SRV-01).
  */
 export class RelayStore {
   constructor({
@@ -47,13 +49,22 @@ export class RelayStore {
     maxPendingPerQueue = 1000,
     maxCiphertextChars = 64 * 1024,
     maxListMessages = 100,
+    maxTotalMessages = 100_000,
+    maxTotalCiphertextChars = 256 * 1024 * 1024,
+    purgeIntervalMs = 1000,
   } = {}) {
     this.now = now;
     this.maxTtlMs = maxTtlMs;
     this.maxPendingPerQueue = maxPendingPerQueue;
     this.maxCiphertextChars = maxCiphertextChars;
     this.maxListMessages = maxListMessages;
+    this.maxTotalMessages = maxTotalMessages;
+    this.maxTotalCiphertextChars = maxTotalCiphertextChars;
+    this.purgeIntervalMs = purgeIntervalMs;
     this.queues = new Map();
+    this.totalMessages = 0;
+    this.totalCiphertextChars = 0;
+    this.lastPurgeAt = -Infinity;
   }
 
   put(queueId, input) {
@@ -76,40 +87,72 @@ export class RelayStore {
     }
     const queue = this.queues.get(queueId) ?? new Map();
     if (queue.size >= this.maxPendingPerQueue) throw new RelayError(429, "queue_full");
+    if (
+      this.totalMessages >= this.maxTotalMessages ||
+      this.totalCiphertextChars + input.opaqueCiphertext.length > this.maxTotalCiphertextChars
+    ) {
+      throw new RelayError(503, "relay_full");
+    }
     const messageId = randomBytes(16).toString("base64url");
     const record = { messageId, opaqueCiphertext: input.opaqueCiphertext, expiresAtEpochMillis };
     queue.set(messageId, record);
     this.queues.set(queueId, queue);
+    this.totalMessages += 1;
+    this.totalCiphertextChars += record.opaqueCiphertext.length;
     return record;
   }
 
   /** The oldest pending messages, at most `maxListMessages`; the reader deletes them to see more. */
   list(queueId) {
     this.purgeExpired();
-    return [...(this.queues.get(queueId)?.values() ?? [])].slice(0, this.maxListMessages);
+    const currentTime = this.now();
+    const pending = [];
+    for (const record of this.queues.get(queueId)?.values() ?? []) {
+      if (pending.length === this.maxListMessages) break;
+      // The sweep may not have run yet: what has expired is never handed out.
+      if (record.expiresAtEpochMillis > currentTime) pending.push(record);
+    }
+    return pending;
   }
 
   /** Deletes only a message of this queue. */
   delete(queueId, messageId) {
     if (!MESSAGE_ID_PATTERN.test(messageId)) return false;
     const queue = this.queues.get(queueId);
-    const deleted = queue?.delete(messageId) ?? false;
-    if (queue?.size === 0) this.queues.delete(queueId);
-    return deleted;
+    const record = queue?.get(messageId);
+    if (record === undefined) return false;
+    queue.delete(messageId);
+    this.forget(record);
+    if (queue.size === 0) this.queues.delete(queueId);
+    return true;
   }
 
   purgeExpired() {
     const currentTime = this.now();
+    if (currentTime - this.lastPurgeAt < this.purgeIntervalMs) return;
+    this.lastPurgeAt = currentTime;
     for (const [queueId, queue] of this.queues) {
       for (const [id, record] of queue) {
-        if (record.expiresAtEpochMillis <= currentTime) queue.delete(id);
+        if (record.expiresAtEpochMillis <= currentTime) {
+          queue.delete(id);
+          this.forget(record);
+        }
       }
       if (queue.size === 0) this.queues.delete(queueId);
     }
   }
+
+  forget(record) {
+    this.totalMessages -= 1;
+    this.totalCiphertextChars -= record.opaqueCiphertext.length;
+  }
 }
 
-/** Token bucket per client address: a QA guard against trivial flooding, not production abuse control. */
+/**
+ * Token bucket per client address: a QA guard against trivial flooding, not production abuse
+ * control. A full table drops only the client seen least recently, never the whole table, so a
+ * burst of new source addresses cannot reset everyone's limit at once (audit M1).
+ */
 export class RateLimiter {
   constructor({ now = () => Date.now(), capacity = 20, refillPerMinute = 60, maxClients = 10_000 } = {}) {
     this.now = now;
@@ -122,11 +165,14 @@ export class RateLimiter {
   allow(client) {
     const time = this.now();
     let bucket = this.buckets.get(client);
-    if (!bucket) {
-      if (this.buckets.size >= this.maxClients) this.buckets.clear();
+    if (bucket) {
+      // A Map keeps insertion order: inserting again marks the client as the most recent one.
+      this.buckets.delete(client);
+    } else {
+      if (this.buckets.size >= this.maxClients) this.buckets.delete(this.buckets.keys().next().value);
       bucket = { tokens: this.capacity, updatedAt: time };
-      this.buckets.set(client, bucket);
     }
+    this.buckets.set(client, bucket);
     bucket.tokens = Math.min(this.capacity, bucket.tokens + (time - bucket.updatedAt) * this.refillPerMs);
     bucket.updatedAt = time;
     if (bucket.tokens < 1) return false;

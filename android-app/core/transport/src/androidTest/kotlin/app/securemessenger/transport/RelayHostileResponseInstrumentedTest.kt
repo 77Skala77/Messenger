@@ -6,12 +6,14 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,8 +79,43 @@ class RelayHostileResponseInstrumentedTest {
         }
     }
 
+    /**
+     * Audit L1: a relay that answers with a redirect does not get the app to another server, where
+     * the read secret could otherwise follow. The redirect is a relay error.
+     */
+    @Test
+    fun aRedirectIsNotFollowed() = runBlocking {
+        val elsewhere = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
+        val reached = AtomicBoolean(false)
+        val listener = thread(isDaemon = true) {
+            try {
+                elsewhere.accept().use { reached.set(true) }
+            } catch (_: IOException) {
+                // Closed by the test without anyone connecting, as it should be.
+            }
+        }
+        try {
+            val target = "http://127.0.0.1:${elsewhere.localPort}/v1/queues/${queue.queueId}/messages"
+            for (status in listOf("301 Moved Permanently", "302 Found", "307 Temporary Redirect", "308 Permanent Redirect")) {
+                withHostileRelay("[]", status = status, extraHeaders = "Location: $target\r\n") { url ->
+                    assertThrows(status, Exception::class.java) { runBlocking { RelayHttpTransportClient(url).fetchMessages(queue) } }
+                }
+            }
+            assertFalse("the app went to the redirect target", reached.get())
+        } finally {
+            elsewhere.close()
+            listener.join(5_000)
+        }
+    }
+
     /** Serves [body] to every request, all at once or in 1 KB pieces every [dripMillis]. */
-    private suspend fun withHostileRelay(body: String, dripMillis: Long = 0, block: suspend (String) -> Unit) {
+    private suspend fun withHostileRelay(
+        body: String,
+        dripMillis: Long = 0,
+        status: String = "200 OK",
+        extraHeaders: String = "",
+        block: suspend (String) -> Unit,
+    ) {
         val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
         val bytes = body.toByteArray(Charsets.UTF_8)
         val worker = thread(isDaemon = true) {
@@ -93,7 +130,8 @@ class RelayHostileResponseInstrumentedTest {
                         val request = connection.getInputStream().bufferedReader(Charsets.ISO_8859_1)
                         while (request.readLine().orEmpty().isNotEmpty()) Unit
                         val output = connection.getOutputStream()
-                        val head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                        val head = "HTTP/1.1 $status\r\n$extraHeaders" +
+                            "Content-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
                         output.write(head.toByteArray(Charsets.ISO_8859_1))
                         var offset = 0
                         while (offset < bytes.size) {

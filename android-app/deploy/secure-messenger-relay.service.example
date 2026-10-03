@@ -12,6 +12,8 @@ WorkingDirectory=/opt/secure-messenger-relay
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8787
+# Behind the Caddy or nginx example: count rate limits per forwarded client, not per proxy.
+Environment=RELAY_TRUST_PROXY=1
 ExecStart=/usr/bin/node src/server.mjs
 Restart=always
 RestartSec=5

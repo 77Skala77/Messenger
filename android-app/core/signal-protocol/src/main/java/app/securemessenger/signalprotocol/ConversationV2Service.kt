@@ -218,24 +218,44 @@ class ConversationV2Service(
      * stays on the relay and does not stop the others: one bad envelope must never stall the queue.
      * The first such failure is thrown at the end, after sending, so callers still see it (a lost
      * vault key, DEC-023).
+     *
+     * A rejection can depend on order: a text that follows its HELLO cannot be routed while that
+     * HELLO is unprocessed. So once an envelope got no verdict, a later rejected envelope with the
+     * same routing tag is not deleted in this sync but tried again in the next one, at most
+     * [MAX_DEFERRED_PER_SYNC] of them, so junk cannot pile up behind a failing envelope (audit
+     * V2-01, DEC-028).
      */
     suspend fun synchronize(): List<IncomingV2Result> {
         val results = ArrayList<IncomingV2Result>()
         var firstFailure: Throwable? = null
+        val unsettledTags = HashSet<String>()
+        val deferred = HashSet<String>()
         var pages = 0
         do {
             val page = transport.fetchMessages(localReceiveQueue)
             var decided = 0
             for (blob in page) {
+                var tagHex: String? = null
                 try {
-                    results += processIncoming(blob)
-                    decided++
+                    val envelope = decodeOrNull(blob.opaqueCiphertext)
+                    tagHex = envelope?.routingTag?.toHex()
+                    val mayDefer = tagHex != null && tagHex in unsettledTags &&
+                        (blob.messageId in deferred || deferred.size < MAX_DEFERRED_PER_SYNC)
+                    val result = decide(blob, envelope, mayDefer)
+                    if (result == null) {
+                        deferred += blob.messageId
+                    } else {
+                        results += result
+                        decided++
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
+                    tagHex?.let(unsettledTags::add)
                     if (firstFailure == null) firstFailure = failure
                 } catch (failure: AssertionError) {
                     // libsignal reports its own unexpected failures this way.
+                    tagHex?.let(unsettledTags::add)
                     if (firstFailure == null) firstFailure = failure
                 }
             }
@@ -254,17 +274,15 @@ class ConversationV2Service(
      * or not: a rejected envelope can never become valid, and keeping it would let anyone who knows
      * the queue ID fill it (DEC-026). A storage failure throws before that and keeps the copy.
      */
-    suspend fun processIncoming(blob: RelayEncryptedBlob): IncomingV2Result {
-        val bytes = blob.opaqueCiphertext
-        val envelope = try {
-            EnvelopeV2Codec.decode(bytes)
-        } catch (_: MalformedV2Exception) {
-            null
-        }
+    suspend fun processIncoming(blob: RelayEncryptedBlob): IncomingV2Result =
+        checkNotNull(decide(blob, decodeOrNull(blob.opaqueCiphertext), mayDefer = false))
+
+    /** [processIncoming]; with [mayDefer], a rejected envelope stays on the relay and null is returned. */
+    private suspend fun decide(blob: RelayEncryptedBlob, envelope: EnvelopeV2?, mayDefer: Boolean): IncomingV2Result? {
         val result = if (envelope == null) {
             IncomingV2Result.UNAUTHENTICATED
         } else {
-            val digestHex = hexOf(EnvelopeV2Codec.digest(bytes))
+            val digestHex = hexOf(EnvelopeV2Codec.digest(blob.opaqueCiphertext))
             try {
                 atomically {
                     if (store.isEnvelopeAccepted(digestHex)) return@atomically IncomingV2Result.DUPLICATE
@@ -288,9 +306,17 @@ class ConversationV2Service(
                 rejected.result
             }
         }
+        if (mayDefer && !result.authenticated) return null
         transport.deleteMessage(localReceiveQueue, blob.messageId)
         return result
     }
+
+    private fun decodeOrNull(bytes: ByteArray): EnvelopeV2? =
+        try {
+            EnvelopeV2Codec.decode(bytes)
+        } catch (_: MalformedV2Exception) {
+            null
+        }
 
     /**
      * Sends due envelopes in order per contact: an envelope waits while an older one to the same
@@ -544,6 +570,9 @@ class ConversationV2Service(
 
         /** A sync stops after this many pages; the rest waits for the next one. */
         private const val MAX_PAGES_PER_SYNC = 10
+
+        /** At most this many rejected envelopes wait for the next sync behind a failed one (V2-01). */
+        private const val MAX_DEFERRED_PER_SYNC = 10
 
         /**
          * Runs [block] under the process-wide protocol lock, so no protocol step can commit while it

@@ -31,13 +31,15 @@ class LocalProfileRepository(
     /**
      * Creates the profile of a new, empty vault; the vault key is created here and nowhere else.
      * Refuses to replace an existing profile, so a lost key can never be papered over by a new one.
+     * One creation at a time in the process, and the row is inserted, never replaced: a second
+     * call, even at the same moment, fails instead of writing over the first (audit STORE-04).
      */
-    fun createProfile(displayName: String) {
+    fun createProfile(displayName: String): Unit = synchronized(PROFILE_CREATION_LOCK) {
         check(dao.getProfile() == null) { "A local profile already exists" }
         vault.createKeyIfAbsent()
         val encryptedName = vault.encrypt(displayName.toByteArray(), PROFILE_AAD)
         // deviceId belonged to the removed legacy identity; it is kept empty (DEC-021).
-        dao.putProfile(EncryptedProfileEntity(PROFILE_ID, encryptedName, deviceId = ""))
+        dao.insertProfile(EncryptedProfileEntity(PROFILE_ID, encryptedName, deviceId = ""))
     }
 
     fun hasProfile(): Boolean = dao.getProfile() != null
@@ -90,5 +92,6 @@ class LocalProfileRepository(
     private companion object {
         const val PROFILE_ID = "local"
         val PROFILE_AAD = "local-profile-v1".toByteArray()
+        val PROFILE_CREATION_LOCK = Any()
     }
 }

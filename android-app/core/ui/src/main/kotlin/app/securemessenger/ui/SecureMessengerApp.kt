@@ -1,6 +1,7 @@
 package app.securemessenger.ui
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +80,12 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
         }
     }
 
+    // System Back (button or gesture) from settings goes one screen back, like the app's own Back
+    // button (TQ-109). Off everywhere else: the main screen, onboarding and the "data cannot be
+    // read" screen have nothing to go back to, so the system behaves as usual there. Open dialogs
+    // handle Back themselves and close first.
+    BackHandler(enabled = screen == Screen.SETTINGS && state.localDataProblem == null) { screen = Screen.MAIN }
+
     MaterialTheme {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val problem = state.localDataProblem
@@ -91,7 +98,10 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                 )
             } else if (state.profileKnown) {
                 when (screen) {
-                    Screen.ONBOARDING -> OnboardingScreen(onCreateProfile = viewModel::createProfile)
+                    Screen.ONBOARDING -> OnboardingScreen(
+                        creatingProfile = state.creatingProfile,
+                        onCreateProfile = viewModel::createProfile,
+                    )
                     Screen.MAIN ->
                         if (state.v2Available) {
                             ConversationV2Root(
@@ -163,7 +173,7 @@ private fun CenteredScrollableColumn(
 }
 
 @Composable
-private fun OnboardingScreen(onCreateProfile: (String) -> Unit) {
+private fun OnboardingScreen(creatingProfile: Boolean, onCreateProfile: (String) -> Unit) {
     var displayName by remember { mutableStateOf("") }
     CenteredScrollableColumn(verticalArrangement = Arrangement.Center) {
         Text(stringResource(R.string.mvp_badge), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
@@ -181,7 +191,8 @@ private fun OnboardingScreen(onCreateProfile: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(16.dp))
-        Button(onClick = { onCreateProfile(displayName) }, enabled = displayName.isNotBlank()) {
+        // Off while a profile is being created, so a double tap cannot start a second one (STORE-04).
+        Button(onClick = { onCreateProfile(displayName) }, enabled = displayName.isNotBlank() && !creatingProfile) {
             Text(stringResource(R.string.create_profile))
         }
     }

@@ -186,6 +186,50 @@ class ConversationV2ServiceTest {
     }
 
     /**
+     * Audit V2-01: Bob's HELLO hits a storage failure on Alice's side and stays on the relay. His
+     * text right behind it cannot be routed until the HELLO is in, so it must not be rejected for
+     * good and deleted in the same sync: it waits, and both arrive in order in the next one.
+     */
+    @Test
+    fun aTextBehindAHelloThatFailedLocallyWaitsForItInsteadOfBeingDeleted() = runBlocking {
+        val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        bob.service.sendText(aliceOnBob, "it's Bob")
+        alice.store.failNextRequestSave = true
+
+        assertThrows(IllegalStateException::class.java) { runBlocking { alice.service.synchronize() } }
+        assertEquals(2, relay.queued(alice.queueId).size)
+        assertTrue(alice.store.requests().isEmpty())
+
+        assertEquals(listOf(IncomingV2Result.REQUEST_RECEIVED, IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
+        val request = alice.store.requests().single()
+        assertEquals(listOf("it's Bob"), alice.store.incomingTexts(request.requestId).map { it.text })
+        assertTrue(relay.queued(alice.queueId).isEmpty())
+    }
+
+    /**
+     * V2-01, bounded: behind a failed envelope at most ten rejected ones with its routing tag wait for
+     * the next sync; the rest is deleted at once, and the waiting junk goes as soon as it is decided.
+     */
+    @Test
+    fun onlyAFewRejectedEnvelopesWaitBehindAFailedOneAndJunkIsStillDeleted() = runBlocking {
+        val code = alice.service.createInvitation()
+        val invitationTag = RandomId.fromHex(alice.store.latestUsableInvitation(clock)!!.localRoutingTagHex)
+        bob.service.acceptInvitation(code, "Alice")
+        repeat(15) { index ->
+            val junk = SignalCiphertext(CiphertextMessage.WHISPER_TYPE, ByteArray(80) { index.toByte() })
+            relay.inject(RelayEncryptedBlob("junk-$index", alice.queueId, EnvelopeV2Codec.encode(EnvelopeV2(invitationTag, junk)), Long.MAX_VALUE))
+        }
+        alice.store.failNextRequestSave = true
+
+        assertThrows(IllegalStateException::class.java) { runBlocking { alice.service.synchronize() } }
+        assertEquals("the HELLO and ten waiting envelopes", 11, relay.queued(alice.queueId).size)
+
+        assertEquals(listOf(IncomingV2Result.REQUEST_RECEIVED) + List(10) { IncomingV2Result.UNAUTHENTICATED }, alice.service.synchronize())
+        assertTrue(relay.queued(alice.queueId).isEmpty())
+        assertEquals(1, alice.store.requests().size)
+    }
+
+    /**
      * DEC-023: with the vault key lost, libsignal's own store callbacks fail. That failure must come
      * out unchanged, as an error, never as a protocol verdict (unauthenticated, key changed): the
      * envelope stays on the relay, no state changes, nothing is queued, and everything works once

@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.PersistableBundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -73,6 +74,14 @@ internal fun ConversationV2Root(
     }
     var screen by remember { mutableStateOf(V2Screen.HOME) }
     var requestForSafety by remember { mutableStateOf<String?>(null) }
+    // One step back to the chat list, for the app's own Back button and for Android's system Back
+    // (button or gesture) alike, so the two can never disagree (TQ-109). On the list itself the
+    // handler is off and the system behaves as usual.
+    val goHome: () -> Unit = {
+        if (screen == V2Screen.CONVERSATION) viewModel.selectContact(null)
+        screen = V2Screen.HOME
+    }
+    BackHandler(enabled = screen != V2Screen.HOME, onBack = goHome)
     val snackbar = remember { SnackbarHostState() }
     val notices = mapOf(
         V2Notice.INVALID_CODE to stringResource(R.string.v2_notice_invalid_code),
@@ -117,14 +126,14 @@ internal fun ConversationV2Root(
                 V2Screen.INVITE -> V2Invite(
                     code = state.invitationCode,
                     onCreate = viewModel::createInvitation,
-                    onBack = { screen = V2Screen.HOME },
+                    onBack = goHome,
                 )
                 V2Screen.ADD -> V2Add(
                     onAdd = { code, name ->
                         viewModel.addContactFromCode(code, name)
                         screen = V2Screen.HOME
                     },
-                    onBack = { screen = V2Screen.HOME },
+                    onBack = goHome,
                 )
                 V2Screen.CONVERSATION -> {
                     val contact = state.contacts.firstOrNull { it.contactId == state.selectedContactId }
@@ -136,16 +145,13 @@ internal fun ConversationV2Root(
                             messages = state.messages,
                             safetyNumber = state.safetyNumber,
                             onSend = viewModel::sendText,
-                            onBack = {
-                                viewModel.selectContact(null)
-                                screen = V2Screen.HOME
-                            },
+                            onBack = goHome,
                         )
                     }
                 }
                 V2Screen.REQUEST_SAFETY -> {
                     val request = state.requests.firstOrNull { it.request.requestId == requestForSafety }
-                    V2SafetyNumber(request?.safetyNumber, onBack = { screen = V2Screen.HOME })
+                    V2SafetyNumber(request?.safetyNumber, onBack = goHome)
                 }
             }
         }

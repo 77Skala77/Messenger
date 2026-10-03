@@ -164,6 +164,11 @@ interface SecureMessengerDao {
     // and the profile check and the local wipe run under the protocol lock, which must not be held
     // across a suspension point. Room refuses them on the main thread.
 
+    /** The only way the app writes the profile: fails if one exists (audit STORE-04). */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertProfile(profile: EncryptedProfileEntity)
+
+    /** Overwrites the profile row; tests use it to damage the vault's canary. */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun putProfile(profile: EncryptedProfileEntity)
 

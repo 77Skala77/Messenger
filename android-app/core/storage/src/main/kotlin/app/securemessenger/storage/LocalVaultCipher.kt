@@ -82,23 +82,28 @@ class AndroidKeystoreVaultCipher(
     /**
      * Creates the key for a new, empty vault and keeps an existing one. This is the only place a
      * key is created: a lost key is never silently replaced, so data is never split across two
-     * keys and the loss is detected instead of hidden (DEC-023).
+     * keys and the loss is detected instead of hidden (DEC-023). The check and the generation run
+     * under one process-wide lock: Android Keystore replaces an entry when a key is generated
+     * under an existing alias, so two callers at once could otherwise leave two keys (audit
+     * STORE-04).
      */
     override fun createKeyIfAbsent() = vaultCall {
-        if (keyStore().containsAlias(alias)) return@vaultCall
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                alias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+        synchronized(KEY_CREATION_LOCK) {
+            if (keyStore().containsAlias(alias)) return@vaultCall
+            val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            generator.init(
+                KeyGenParameterSpec.Builder(
+                    alias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .setRandomizedEncryptionRequired(true)
+                    .build(),
             )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setRandomizedEncryptionRequired(true)
-                .build(),
-        )
-        generator.generateKey()
+            generator.generateKey()
+        }
         Unit
     }
 
@@ -135,6 +140,9 @@ class AndroidKeystoreVaultCipher(
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val TAG_BITS = 128
+
+        /** Shared by every instance: the app creates several, but there is one Keystore. */
+        private val KEY_CREATION_LOCK = Any()
 
         internal fun encode(nonce: ByteArray, ciphertext: ByteArray): ByteArray =
             ByteArrayOutputStream().use { buffer ->

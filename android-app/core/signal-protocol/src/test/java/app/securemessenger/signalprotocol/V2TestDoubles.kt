@@ -41,6 +41,9 @@ class InMemoryConversationV2Store : ConversationV2Store {
     /** Fault injection: the next incoming text store throws, as if the process died there. */
     var failNextIncomingStore = false
 
+    /** Fault injection: the next request save throws, as if storage failed while a HELLO was processed. */
+    var failNextRequestSave = false
+
     @Synchronized
     fun snapshot(): () -> Unit {
         val savedInvitations = LinkedHashMap(invitations)
@@ -111,6 +114,10 @@ class InMemoryConversationV2Store : ConversationV2Store {
 
     @Synchronized
     override fun saveRequest(request: V2ContactRequest) {
+        if (failNextRequestSave) {
+            failNextRequestSave = false
+            throw IllegalStateException("Simulated storage failure while saving a request")
+        }
         check(request.requestId !in requests)
         check(requests.values.none { it.localRoutingTagHex == request.localRoutingTagHex })
         requests[request.requestId] = request

@@ -192,6 +192,71 @@ test("hostile requests get a 4xx and the relay keeps serving", async () => {
   });
 });
 
+test("a full rate-limit table drops the least recent client, never everyone's limits (audit M1)", () => {
+  const limiter = new RateLimiter({ capacity: 1, refillPerMinute: 0, maxClients: 2 });
+  assert.equal(limiter.allow("a"), true);
+  assert.equal(limiter.allow("b"), true);
+  assert.equal(limiter.allow("a"), false); // "a" is now the most recent client
+  assert.equal(limiter.allow("c"), true); // the table is full: "b", the least recent, makes room
+  assert.equal(limiter.allow("a"), false, "a new address must not reset an exhausted limit");
+});
+
+test("behind a local proxy each forwarded client has its own limit; nobody else can choose one", async () => {
+  const sendTo = (base, queueId, forwardedFor) =>
+    fetch(`${base}/v1/queues/${queueId}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": forwardedFor },
+      body: JSON.stringify(envelope()),
+    });
+  const oneEach = () => new RateLimiter({ capacity: 1, refillPerMinute: 0 });
+  const queue = newQueue();
+
+  await withRelay({ sendLimiter: oneEach(), trustProxy: true }, async (base) => {
+    assert.equal((await sendTo(base, queue.id, "203.0.113.1")).status, 201);
+    assert.equal((await sendTo(base, queue.id, "203.0.113.2")).status, 201);
+    // Only the last entry counts: the proxy appends it, a client can only write the ones before.
+    assert.equal((await sendTo(base, queue.id, "198.51.100.7, 203.0.113.1")).status, 429);
+  });
+  await withRelay({ sendLimiter: oneEach() }, async (base) => {
+    assert.equal((await sendTo(base, queue.id, "203.0.113.1")).status, 201);
+    assert.equal((await sendTo(base, queue.id, "203.0.113.2")).status, 429, "without trustProxy the header is ignored");
+  });
+});
+
+test("the whole relay is bounded, not only each queue (audit SRV-01)", async () => {
+  const counted = new RelayStore({ maxTotalMessages: 2 });
+  const [first, second, third] = [newQueue(), newQueue(), newQueue()];
+  const sent = counted.put(first.id, envelope());
+  counted.put(second.id, envelope());
+  assert.throws(() => counted.put(third.id, envelope()), (error) => error.status === 503);
+  assert.equal(counted.delete(first.id, sent.messageId), true);
+  assert.ok(counted.put(third.id, envelope()));
+
+  const sized = new RelayStore({ maxTotalCiphertextChars: 40 });
+  sized.put(first.id, envelope()); // 20 characters
+  sized.put(second.id, envelope());
+  assert.throws(() => sized.put(third.id, envelope()), (error) => error.status === 503);
+
+  await withRelay({ store: new RelayStore({ maxTotalMessages: 1 }) }, async (base) => {
+    assert.equal((await send(base, first.id, envelope())).status, 201);
+    const refused = await send(base, second.id, envelope());
+    assert.equal(refused.status, 503);
+    assert.deepEqual(await refused.json(), { error: "relay_full" });
+  });
+});
+
+test("expired messages are swept at most once a second, are never listed, and free their space", () => {
+  let time = 10_000;
+  const store = new RelayStore({ now: () => time, maxTotalMessages: 1 });
+  const queue = newQueue();
+  store.put(queue.id, { opaqueCiphertext: "YmxvYg==", expiresAtEpochMillis: 10_500 });
+  time = 10_600;
+  assert.deepEqual(store.list(queue.id), [], "expired, though the sweep has not run yet");
+  time = 11_100;
+  assert.ok(store.put(queue.id, { opaqueCiphertext: "YmxvYg==", expiresAtEpochMillis: 20_000 }));
+  assert.equal(store.totalMessages, 1);
+});
+
 test("expires pending encrypted messages by TTL and caps the TTL", () => {
   let time = 10_000;
   const store = new RelayStore({ now: () => time, maxTtlMs: 1_000 });

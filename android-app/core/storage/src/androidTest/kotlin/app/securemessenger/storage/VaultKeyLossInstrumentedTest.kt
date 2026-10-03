@@ -6,6 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.securemessenger.signalstore.SignalLocalIdentityRecord
 import app.securemessenger.signalstore.SignalProtocolAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicReferenceArray
+import kotlin.concurrent.thread
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -61,6 +64,29 @@ class VaultKeyLossInstrumentedTest {
         vault.createKeyIfAbsent()
 
         assertArrayEquals(PLAINTEXT, vault.decrypt(blob, AAD))
+    }
+
+    /**
+     * Audit STORE-04: callers that create the key at the same moment end up with one key. Android
+     * Keystore replaces an entry when a key is generated under an existing alias, so without the
+     * lock some of these values would be encrypted under a key that no longer exists.
+     */
+    @Test
+    fun keyCreationAtTheSameMomentLeavesOneKey() {
+        val blobs = inParallel(THREADS) { vault.createKeyIfAbsent(); vault.encrypt(PLAINTEXT, AAD) }
+
+        blobs.forEach { blob -> assertArrayEquals(PLAINTEXT, vault.decrypt(blob.getOrThrow(), AAD)) }
+    }
+
+    /** Audit STORE-04: a double tap on "Create profile" makes one profile, and it is readable. */
+    @Test
+    fun profileCreationAtTheSameMomentMakesOneReadableProfile() {
+        val outcomes = inParallel(THREADS) { index -> profiles.createProfile("Alice $index"); index }
+
+        val created = outcomes.mapNotNull { it.getOrNull() }
+        assertEquals(1, created.size)
+        assertEquals(LocalDataState.READABLE, profiles.localDataState())
+        assertEquals("Alice ${created.single()}", profiles.readProfileName())
     }
 
     @Test
@@ -141,7 +167,23 @@ class VaultKeyLossInstrumentedTest {
     private fun ByteArray.withLastBitFlipped(): ByteArray =
         copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
 
+    /** Runs [block] on [count] threads released at the same moment; one result per thread. */
+    private fun <T> inParallel(count: Int, block: (Int) -> T): List<Result<T>> {
+        val start = CountDownLatch(1)
+        val results = AtomicReferenceArray<Result<T>?>(count)
+        val threads = (0 until count).map { index ->
+            thread {
+                start.await()
+                results.set(index, runCatching { block(index) })
+            }
+        }
+        start.countDown()
+        threads.forEach { it.join(30_000) }
+        return List(count) { index -> checkNotNull(results.get(index)) { "a thread did not finish" } }
+    }
+
     private companion object {
+        const val THREADS = 8
         const val TEST_ALIAS = "secure_messenger_key_loss_test_vault"
         val PLAINTEXT = "stored-value".toByteArray()
         val AAD = "row-id".toByteArray()
