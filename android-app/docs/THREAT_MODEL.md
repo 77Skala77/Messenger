@@ -289,6 +289,11 @@ A safety number or verification QR provides identity assurance only when compare
 a trusted or independent channel. Merely displaying a fingerprint does not prove who owns
 the key.
 
+The v2 invitation QR is a bearer capability (AI audits 2026-10, H1 and INV-01, DEC-028):
+whoever sees it, for example in a photo or a screenshot, can pair first and be shown to the
+inviter as a contact request, or delete the invitation from the relay. Comparing the safety
+number is the only protection against the first; the second only costs a new invitation.
+
 ### Relay
 
 The relay is untrusted for confidentiality, integrity, availability, and metadata
@@ -365,6 +370,12 @@ TTL.
 
 Neither application deletion nor Android Keystore alias deletion can promise forensic
 secure erase of historical flash-storage blocks.
+
+Out of scope (AI audits 2026-10, STORE-01, DEC-028): an attacker who can write the app's
+private files while the vault key stays the same, in practice with root access, could put
+back older encrypted records of the same row, which still authenticate. The records carry no
+freshness counter. Backup and device transfer of the database are disabled, so the app itself
+never restores old state.
 
 ## Security Assumptions
 

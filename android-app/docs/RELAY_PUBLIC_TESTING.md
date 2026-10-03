@@ -32,20 +32,24 @@ The repository relay currently provides:
 
 ```text
 GET    /health
-POST   /v1/messages
-GET    /v1/messages/{queueId}
-DELETE /v1/messages/{messageId}
+POST   /v1/queues/{queueId}/messages
+GET    /v1/queues/{queueId}/messages               (Authorization: Bearer <read secret>)
+DELETE /v1/queues/{queueId}/messages/{messageId}   (Authorization: Bearer <read secret>)
 ```
+
+(Relay API v3, DEC-024; this list was corrected on 2026-10-03, DEC-028.)
 
 The current implementation:
 
 - uses an in-memory store;
 - accepts opaque ciphertext and expiration metadata;
 - enforces a request-body limit and maximum TTL;
-- purges expired records during normal store operations;
+- purges expired records at most once a second, and never hands out an expired one;
+- has QA-level limits only: per-address rate limits (`RELAY_TRUST_PROXY=1` behind a local reverse
+  proxy), per-queue and whole-relay caps (DEC-026, DEC-028);
 - has no production authentication or authorization layer;
-- has no built-in rate limiting, quotas, tenant isolation, durable storage, replication,
-  monitoring, alerting, backup, or high-availability behavior;
+- has no tenant isolation, durable storage, replication, monitoring, alerting, backup, or
+  high-availability behavior;
 - does not establish that proxy, host, platform, or network logs are payload-free.
 
 These are development characteristics, not production guarantees.

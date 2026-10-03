@@ -73,6 +73,10 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
   unroutable even before its cleanup ran.
 - An envelope that reaches no verdict (a storage failure, an unexpected error) stays on the relay
   without stopping the rest of the queue; sending still runs and the failure is reported after.
+  Behind it, a rejection of an envelope with the same routing tag is not final in that sync: such
+  an envelope (for example a text behind its HELLO) stays on the relay for the next sync instead
+  of being deleted, at most 10 per sync, so a local failure cannot lose the next message (audit
+  V2-01, DEC-028).
 - libsignal checks a PreKey message's *claimed* identity before authenticating it, so an
   untrusted-identity result on receive is treated as unauthenticated and never changes contact
   state (otherwise the relay could block contacts with forged envelopes).
@@ -115,9 +119,13 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
 
 ## Not done / limits
 
-- No independent review: the Phase 5 test pass and a second AI review are internal; a paid external
-  audit is required before release (DEC-026). Release builds have no chat.
-- Trust on first use on the accepting side; safety-number comparison is manual.
+- No independent review: the Phase 5 test pass, a second AI review and two AI audits (2026-10,
+  DEC-028) are internal; a paid external audit is required before release (DEC-026). Release
+  builds have no chat.
+- Trust on first use on the accepting side; safety-number comparison is manual. This is the main
+  practical risk: whoever sees an invitation QR (a photo, a screenshot) can pair first, or delete
+  the invitation from the relay. Step 6f adds a "compare the number" step and a local "verified"
+  mark (DEC-028).
 - Single device per contact (Phase 4). Revocation is not a protocol message.
 - `KEY_CHANGED` exists as a contact state but nothing sets it today: strict identity trust rejects a
   changed key before it could be recorded, and an untrusted-identity result never changes state.
@@ -126,6 +134,7 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
   rejected (the invitation survives).
 - Relay queues are self-certifying (DEC-024): only the holder of a queue's read secret can read or
   delete it; contacts learn only the queue ID; the relay assigns message IDs and applies QA-level
-  limits. It still sees metadata: queue IDs,
-  routing tags, sizes, timing, the initiator's identity key in PreKey headers.
+  limits (per address, per queue, and for the whole relay, DEC-028). It still sees metadata: queue
+  IDs, routing tags, sizes, timing, the initiator's identity key in PreKey headers.
+- The app does not follow HTTP redirects from the relay (DEC-028).
 - Background sync is best effort (WorkManager, about 15 minutes or later).

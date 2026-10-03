@@ -17,11 +17,16 @@ Before use, read [VPS Relay Deployment For Controlled QA](../docs/VPS_RELAY_DEPL
 
 The examples front the repository's development relay, which currently:
 
-- exposes `/health` and the message POST/GET/DELETE API;
+- exposes `/health` and the relay API v3 (DEC-024): `POST`, `GET` and `DELETE` under
+  `/v1/queues/{queueId}/messages`;
 - stores opaque envelopes in process memory;
 - loses queued records on process restart;
-- has no built-in production authentication, authorization, tenant isolation, rate limits,
-  durable storage, replication, monitoring, or high availability;
+- has only QA-level limits (per-address rate limits, per-queue and whole-relay caps, DEC-026 and
+  DEC-028) and no production authentication, tenant isolation, durable storage, replication,
+  monitoring, or high availability;
+- counts rate limits per connecting address; behind a reverse proxy on the same machine set
+  `RELAY_TRUST_PROXY=1`, so it counts the client address the proxy adds last to
+  `X-Forwarded-For` instead of the proxy's own (audit M1, DEC-028);
 - can still expose source IP, timing, queue identifiers, envelope sizes, frequency, and
   availability metadata to infrastructure operators.
 
@@ -37,6 +42,7 @@ A systemd starting point for the Node process. The current example:
 - expects `/opt/secure-messenger-relay`;
 - executes `/usr/bin/node src/server.mjs`;
 - binds `HOST=127.0.0.1` and `PORT=8787`;
+- sets `RELAY_TRUST_PROXY=1` for the proxy examples below;
 - restarts after failure;
 - enables `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, and `ProtectHome`.
 
@@ -62,8 +68,9 @@ Do not place credentials in the unit file or environment lines committed to Git.
 
 A Caddy placeholder for one HTTPS hostname. The current example:
 
-- routes only `/health`, `/v1/messages`, and `/v1/messages/*`;
-- proxies to `127.0.0.1:8787`;
+- routes only `/health` and `/v1/queues/*` (relay API v3; the old `/v1/messages` routes are gone);
+- refuses request bodies over 100 KB (the relay's own limit is 80 KB);
+- proxies to `127.0.0.1:8787`, replacing `X-Forwarded-For` with the client address;
 - adds basic response headers;
 - returns 404 for unrelated paths;
 - uses placeholder `relay.example.com`.
@@ -81,8 +88,9 @@ An Nginx alternative with:
 
 - HTTP-to-HTTPS redirect;
 - placeholder Certbot certificate paths;
-- a 2 MB body-size limit matching the current Node request limit;
-- loopback proxying;
+- a 100 KB body-size limit, just above the relay's own 80 KB request limit;
+- loopback proxying of `/health` and `/v1/queues/` (relay API v3), appending the client address
+  to `X-Forwarded-For`;
 - a simple per-IP request-rate placeholder for message paths;
 - 404 for unrelated paths.
 

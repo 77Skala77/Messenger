@@ -65,16 +65,25 @@ with the recommendation below; if it differs, warn and ask before starting.
 **Phase 6 — Telegram-style UI** is in progress: step 6a (plan, the owner's decisions, `LICENSE`,
 `THIRD_PARTY_NOTICES.md`) is done; see `../PHASE6_UI_PLAN.md` and DEC-027. Telegram code may be
 reused per DEC-027 ("GPL v2 or later" files; headerless files at the owner's accepted legal risk);
-the read-only reference copy is at `D:\Tools\reference\Telegram`. **TQ-109** (system Back button) is implemented in the working tree,
-not committed: it waits for the device run and the owner's hand check. **Step 6b is done**
+the read-only reference copy is at `D:\Tools\reference\Telegram`. **TQ-109** (system Back button) is
+done (2026-10-03, committed with TQ-110). **Step 6b is done**
 (`../PHASE6_PORTING_NOTES.md`: metrics, rules and colors per piece; the reworked steps 6c–6h; almost
 nothing needs Telegram code copied, our Compose code is written from the notes). The owner chose the
 classic palette (green outgoing bubbles), an own light wallpaper pattern, and a dark theme with an
-in-app switch (notes, section 4; theme notes, 2a). Next: **6c** (theme with the switch, type scale,
-avatar, badge, ticks, bubble shape, date chip, wallpaper pattern, a preview screen). Recommended
-model: **Sonnet 5.5 · High** for 6c, 6e, 6f, 6h; **Opus 5.5 · High** for the Room v10 migration
-(6d), the notification privacy rules (6f') and TQ-108 (6g). Commit policy: one commit round at the
-end of each phase, step or task (owner, 2026-09-30).
+in-app switch (notes, section 4; theme notes, 2a).
+
+**AI audits (2026-10-03, DEC-028):** the owner had two AI tools audit the code (not the independent
+audit TQ-106). Every finding was checked against the code (`../AI_AUDITS_2026-10.md`). **TQ-110**
+(the fix block: V2-01, SESS-01, STORE-04, L1, relay limits, deployment examples, CI pinning) is
+**done**: all suites green on the JVM and on both phones, the owner's hand check passed (results in
+`TASK_QUEUE.md`). The audits' safety-number item (H1) and the invitation upload state (L2) belong to
+step 6f.
+
+Next: **6c** (theme with the switch, type scale, avatar, badge, ticks, bubble shape,
+date chip, wallpaper pattern, a preview screen). Recommended model: **Sonnet 5.5 · High** for 6c,
+6e, 6f, 6h; **Opus 5.5 · High** for the Room v10 migration (6d), the verified-mark rules (6f), the
+notification privacy rules (6f') and TQ-108 (6g). Commit policy: one commit round at the end of each
+phase, step or task (owner, 2026-09-30).
 
 ## Operational constraints
 

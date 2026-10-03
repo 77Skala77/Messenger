@@ -1,6 +1,6 @@
 # Current Project State — Secure Messenger MVP
 
-Last repository verification: 2026-10-01 (end of Phase 5, DEC-026)
+Last repository verification: 2026-10-03 (TQ-109 and TQ-110, DEC-028)
 
 This file records the current recoverable state of Secure Messenger as verified against the
 repository. It is a mutable factual snapshot, not a roadmap, decision log, task queue, release
@@ -53,7 +53,9 @@ defined in `AGENTS.md`. Do not infer implementation from documentation, interfac
 - Incoming: decrypt + store + envelope digest commit in one Room transaction under a process-wide
   lock; relay deletion after commit; byte-identical re-deliveries recognised without decryption.
   A rejected envelope commits nothing (rolled back) and is deleted as well; only a local failure
-  keeps an envelope on the relay (DEC-026). Outgoing envelopes leave in order per contact.
+  keeps an envelope on the relay (DEC-026). Exception: behind an envelope without a verdict, a
+  rejected one with the same routing tag waits for the next sync, at most 10 per sync (DEC-028).
+  Outgoing envelopes leave in order per contact.
 - `Sent to delivery server` = relay acceptance. `Delivered` = authenticated receipt from the same
   contact naming the inner message ID. Not a read receipt. **NOT IMPLEMENTED:** read receipts.
 
@@ -76,7 +78,8 @@ Release rejects cleartext relay URLs.
 - Key loss (DEC-023, Phase 2): the vault key is created only with a new profile; the profile row
   is the canary. If it no longer decrypts, the app runs nothing and offers "Check again" and a
   confirmed "Delete local data and start over". Vault failures are unchecked and never become
-  protocol verdicts.
+  protocol verdicts. Key and profile creation run under process-wide locks and the profile row is
+  never replaced, so a double tap makes one key and one profile (DEC-028).
 - Contact states: `AWAITING_ACCEPTANCE`, `ACTIVE`, `KEY_CHANGED` (blocked; no code path sets it
   today, see `../PROTOCOL_V2.md`). Pending requests are not contacts. Strict identity trust in both directions (DEC-018). Single device per contact; no
   synchronized revocation.
@@ -90,6 +93,10 @@ Release rejects cleartext relay URLs.
   only canonical base64 and returns at most the 100 oldest messages per read (DEC-026).
 - The relay is untrusted, has QA-level limits only (not production abuse control), and observes
   IPs, queue IDs, routing tags, timing, sizes, and the initiator's identity key in PreKey headers.
+  Limits (DEC-026, DEC-028): per-address rate limits (least-recent eviction; behind a local reverse
+  proxy `RELAY_TRUST_PROXY=1` counts the forwarded client address), 1,000 messages per queue,
+  100,000 messages and 256 MiB of ciphertext for the whole relay. The app does not follow HTTP
+  redirects from the relay.
 - Two-phone QA on 2026-09-30 used a relay on the laptop reached over USB (`adb reverse`).
 - **HISTORICAL/UNVERIFIED:** the VPS relay (`http://194.87.226.46`, HTTP by IP, legacy protocol).
 
@@ -98,7 +105,12 @@ Release rejects cleartext relay URLs.
 `:app`, `:core:domain`, `:core:storage`, `:core:transport`, `:core:ui`, `:core:signal-protocol`,
 `:core:signalstore`. Relay: `android-app/server/relay`.
 
-## 9. Verification baseline (last run 2026-09-30)
+## 9. Verification baseline (last full run 2026-10-03)
+
+Last run (TQ-110, 2026-10-03): `:app:assembleDebug :app:lintDebug test` green (lint 0 errors, 16
+warnings), relay tests 15/15, device suites on both phones (ui 27, storage 31, transport 13 with
+the live relay, signal-protocol 75). The release and `qaMinified` builds were last built at the end
+of Phase 5 (2026-10-01).
 
 Toolchain on the development machine: JDK 17 (`D:\Tools\jdk-17`), Android SDK 34 and 36, AGP 8.13.2,
 Gradle 8.14.3, Kotlin 2.2.20 (TQ-009, DEC-022), Node.js 24;
@@ -115,9 +127,10 @@ cd android-app
 cd server/relay && node --test
 ```
 
-Evidence of the last run is recorded in `REWRITE_PLAN.md` (step 1f) and `PHASE_1E_PREP.md`. CI
-(`.github/workflows/android.yml`) runs assemble, lint, unit tests, relay tests, and emulator
-UI/storage tests; its current result is **UNVERIFIED** from this machine.
+Evidence of the last run is recorded in `TASK_QUEUE.md` (TQ-110 results); older runs in
+`REWRITE_PLAN.md` and `PHASE5_SECURITY_TEST_PLAN.md`. CI (`.github/workflows/android.yml`, actions
+pinned to commit hashes since DEC-028) runs wrapper validation, assemble, lint, unit tests, relay
+tests, and emulator UI/storage tests; its current result is **UNVERIFIED** from this machine.
 
 ## 10. Explicitly not implemented or not complete
 

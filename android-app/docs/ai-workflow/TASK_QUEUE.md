@@ -701,11 +701,63 @@ Historical VPS success is not production evidence.
 
 ---
 
+## TQ-110 — Fixes from the AI security audits of October 2026
+
+**Priority:** P1 (owner, 2026-10-03: "now, before step 6c")
+**Status:** DONE (2026-10-03; results below; the owner's hand check passed)
+**Type:** runtime / relay / build
+**Security-sensitive:** Yes
+
+### Objective
+
+Fix the findings of the two AI audits that the triage confirmed in the code (DEC-028,
+`../AI_AUDITS_2026-10.md`). Model: Opus 5.5 · High.
+
+### Items
+
+- **V2-01:** a rejected envelope behind one without a verdict, with the same routing tag, waits for
+  the next sync (at most 10 per sync) — `ConversationV2Service.synchronize`.
+- **SESS-01:** atomic chat-state updates; messages and the safety number only for the contact they
+  were read for — `ConversationV2ViewModel`.
+- **STORE-04:** one vault key and one profile under concurrent creation — `AndroidKeystoreVaultCipher`,
+  `LocalProfileRepository`, `insertProfile`, onboarding button.
+- **L1:** no HTTP redirects — `RelayHttpTransportClient`.
+- **M1, SRV-01, SRV-02:** least-recent eviction in the rate limiter, `RELAY_TRUST_PROXY`, whole-relay
+  caps, expiry sweep at most once a second — relay.
+- **M2:** deployment examples on relay API v3. **L3:** CI actions pinned to commit hashes, wrapper
+  validation, `distributionSha256Sum`.
+
+### Tests
+
+`ConversationV2ServiceTest` (two new), `ConversationV2StateTest` (new), `VaultKeyLossInstrumentedTest`
+(two new, on the phones), `RelayHostileResponseInstrumentedTest` (redirects, on the phones), relay
+tests (four new).
+
+### Results (2026-10-03)
+
+- Build, lint (0 errors, the same 16 warnings), JVM tests: signal-protocol 75 (debug and release),
+  ui 17, storage 5, signalstore 3, domain 3; relay 15/15.
+- The two V2-01 tests fail when the deferral is switched off (checked once, then restored).
+- On both phones (Samsung S24 Ultra, Redmi A3x): ui 27, storage 31, transport 13 (with the live
+  relay, nothing skipped), signal-protocol 75; together with TQ-109.
+- `InvitationSharingInstrumentedTest` (Phase 5) failed on the Redmi, whose font scale is now 1.15:
+  the invitation screen is a lazy list and the share button was not yet composed below the QR code.
+  The test now scrolls the list to each node (`performScrollToNode`); the app was right.
+- The owner's hand check on both phones passed (system Back, messages both ways, safety number,
+  pairing through the updated relay).
+
+### Not here
+
+H1 (safety-number check step and "verified" mark) and L2 (invitation upload state and "try again")
+belong to step 6f; L4, I-4 and I-7 to TQ-108.
+
+---
+
 ## TQ-109 — System Back button goes one screen back
 
 **Priority:** P1 (owner, 2026-10-01, found in the hand check)
-**Status:** IN PROGRESS (implemented in the working tree on 2026-10-01; waits for the device run
-on both phones and the owner's hand check, then a commit)
+**Status:** DONE (2026-10-03: `SystemBackInstrumentedTest` passes on both phones, the owner's hand
+check passed; committed with TQ-110)
 **Type:** UI
 **Security-sensitive:** No
 

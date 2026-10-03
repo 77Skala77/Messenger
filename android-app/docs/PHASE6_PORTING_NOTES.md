@@ -125,11 +125,12 @@ setting still works).
 
 | Step | Work | Tests | Model |
 | --- | --- | --- | --- |
-| TQ-109 | System Back (done in the working tree; waits for the device run and the owner's hand check) | `SystemBackInstrumentedTest` | Sonnet 5.5 · High |
+| TQ-109 | System Back (done 2026-10-03: device tests on both phones and the owner's hand check passed) | `SystemBackInstrumentedTest` | Sonnet 5.5 · High |
+| TQ-110 | Fixes from the AI audits before 6c (done 2026-10-03, DEC-028) | see `ai-workflow/TASK_QUEUE.md` | Opus 5.5 · High |
 | 6c | `Theme.kt` (light, dark; tokens from the theme notes), type scale (sizes above), `Avatar`, `UnreadBadge`, `Ticks`, `BubbleShape`, `DateChip`; a debug preview screen | unit: initials, color index, date rules (ru, en), grouping; Compose: components render, contrast check | Sonnet 5.5 · High |
-| 6d | Chat list: Room v10 (`lastReadAtEpochMillis`, migration 9→10), queries for last message and unread count per chat, rows per 2.6, requests on top, floating button, ordering by last activity, empty state | migration test 9→10; repository tests; Compose list tests | **Opus 5.5 · High** for the migration, then Sonnet |
+| 6d | Chat list: Room v10 (`lastReadAtEpochMillis`, and `verifiedAtEpochMillis` for the safety-number mark of 6f, both local only; migration 9→10), queries for last message and unread count per chat, rows per 2.6, requests on top, floating button, ordering by last activity, empty state | migration test 9→10; repository tests; Compose list tests | **Opus 5.5 · High** for the migration, then Sonnet |
 | 6e | Conversation: bubbles (2.1–2.3), date chips, header, input bar, scroll to the end, "read up to" updated on open | layout rule tests; Compose tests incl. landscape (F12 lesson) | Sonnet 5.5 · High |
-| 6f | New chat (QR, scan, paste, share), contact request, contact info with the safety number, settings, onboarding in the new style | Compose tests; system Back on every screen | Sonnet 5.5 · High |
+| 6f | New chat (QR, scan, paste, share), contact request, contact info with the safety number, settings, onboarding in the new style. From the AI audits (DEC-028): a "compare the safety number" step when pairing and a local "verified" mark on the contact (H1); the invitation shows whether its upload worked and offers "try again" (L2) | Compose tests; system Back on every screen; the mark is never set without the user's confirmation | Sonnet 5.5 · High; Opus for the verified-mark rules |
 | 6f' | Notifications without message text: channel, Android 13+ permission asked in context, posted by the background sync, tap opens the chat, lock screen shows only "New message" | a test that no notification ever contains message text | **Opus 5.5 · High** for the privacy rules, then Sonnet |
 | 6g | TQ-108: receive-queue loss screen (R6), `FLAG_SECURE` decision, telling a second scanner (I2), pruning digests (I5) | per item | **Opus 5.5 · High** |
 | 6h | Usability check with someone new (first message within a minute), device tests on both phones, lint, release build, docs, commits | all suites | Sonnet 5.5 · High |

@@ -350,11 +350,14 @@ cd android-app
 When relay or transport changes:
 
 - [ ] `/health` returns the intended status.
-- [ ] `POST /v1/messages` validates request shape and limits.
-- [ ] `GET /v1/messages/{queueId}` handles empty, malformed, and unknown queues safely.
-- [ ] `DELETE /v1/messages/{messageId}` is idempotent or has documented behavior.
+- [ ] `POST /v1/queues/{queueId}/messages` validates request shape and limits.
+- [ ] `GET /v1/queues/{queueId}/messages` needs the read secret and handles empty, malformed, and
+      unknown queues safely.
+- [ ] `DELETE /v1/queues/{queueId}/messages/{messageId}` needs the read secret and is idempotent.
 - [ ] TTL expiration works.
-- [ ] Oversized requests are rejected.
+- [ ] Oversized requests are rejected; per-queue and whole-relay caps hold (DEC-026, DEC-028).
+- [ ] Rate limits are counted per client, also behind a local proxy with `RELAY_TRUST_PROXY=1`.
+- [ ] The client does not follow HTTP redirects (DEC-028).
 - [ ] Malformed JSON or payloads fail safely.
 - [ ] Duplicate submission behavior is explicit.
 - [ ] Relay restart behavior is tested.

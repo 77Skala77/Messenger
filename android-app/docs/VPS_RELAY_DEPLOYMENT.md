@@ -289,7 +289,7 @@ android-app/deploy/Caddyfile.example
 The reviewed example:
 
 - serves one placeholder hostname;
-- routes only `/health`, `/v1/messages`, and `/v1/messages/*`;
+- routes only `/health` and `/v1/queues/*` (relay API v3, DEC-024; corrected 2026-10-03, DEC-028);
 - proxies to `127.0.0.1:8787`;
 - adds basic response headers;
 - returns 404 for other paths.

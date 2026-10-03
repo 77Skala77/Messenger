@@ -24,10 +24,11 @@ mutable against the code before relying on it.
   number varies per message and has no known mapping to Low/Medium/High/Extra/Max): never claim
   the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
-  Current recommendations: Phase 6 (Telegram-style UI), steps 6a and 6b done. Next **6c (theme and
-  components) on Sonnet 5.5 · High**, then 6e and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
-  migration (6d), the notification privacy rules (6f') and TQ-108 (6g). TQ-109 (system Back) waits
-  for the device run. Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
+  Current recommendations: Phase 6 (Telegram-style UI), steps 6a and 6b done; TQ-109 (system Back)
+  and TQ-110 (fixes from the AI audits, DEC-028) done on 2026-10-03. Next **6c (theme and
+  components) on Sonnet 5.5 · High**, 6e and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
+  migration (6d), the verified-mark rules (6f), the notification privacy rules (6f') and TQ-108
+  (6g). Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -200,9 +201,9 @@ risk, unread counters on Room v10, notifications without text). Design docs:
   audit (TQ-106) is planned before any release.
 - **Phase 6** Telegram-style UI (in progress, `docs/PHASE6_UI_PLAN.md`, DEC-027: Compose; ported
   Telegram code per the licensing rules above; unread counters on Room v10; notifications without
-  text); it also carries TQ-108. Order of work: **TQ-109** (system Back button goes one screen back;
-  Sonnet 5.5 · High; implemented, device tests pending the phones, then the owner's hand check and
-  a commit). **Step 6b done** (`docs/PHASE6_PORTING_NOTES.md`: bubble geometry 17/6 dp radii and
+  text); it also carries TQ-108. **TQ-109** (system Back goes one screen back) and **TQ-110**
+  (fixes from the AI audits, DEC-028) are done (2026-10-03). **Step 6b done**
+  (`docs/PHASE6_PORTING_NOTES.md`: bubble geometry 17/6 dp radii and
   tail, series = same direction within 5 minutes, time-on-last-line rule, avatar initials and 7
   gradients, chat-list row 70 dp / avatar 52 / badge 20.67 dp, date rules, header and input bar
   sizes; we write Compose code from these notes, nearly no Telegram code is copied). Owner's style:
@@ -216,13 +217,20 @@ risk, unread counters on Room v10, notifications without text). Design docs:
   out of scope until the owner wants to ship.
 - **Owner facts worth keeping:** the owner (not a crypto or legal specialist) wants a UI that looks
   and behaves like Telegram; is relaxed about licensing but accepted the risk knowingly; pushes to
-  GitHub themselves (last push: all commits up to `996a004`); the phones are often disconnected
+  GitHub themselves (last push: all commits up to `335ccca`); the phones are often disconnected
   between sessions (ask them to connect Samsung `R5CXA09HX0X` and Redmi `EE421L001242` and wake the
   screens before device tests); expects every session answer in Russian, short when asked.
 - **Legal documents trap:** the owner received two `.docx` "Telegram GPLv3" papers (2026-10-01);
   neither is a lawyer's opinion (one says it was prepared by ChatGPT and needs a specialist's check,
   the other has no author and contradicts itself). Do not record or say that a lawyer cleared
   anything. Only a signed written opinion would change that.
+- **AI audits are not the independent audit:** the owner also has other AI tools review the project
+  (2026-10: ZCode on the repository, Codex on a copy at `D:\Messenger-Audit`). Their reports are
+  internal checks like the Phase 5 reviews, never TQ-106, and never open the release gate. Check
+  every finding against the code before acting (triage: `docs/AI_AUDITS_2026-10.md`, DEC-028). Such
+  tools may leave working files in the project folder (`.zcodeignore`, `SECURITY_AUDIT.md`,
+  `PROJECT_CONTEXT_FOR_HANDOFF.md`): never commit them; ask the owner (in 2026-10 they were moved
+  to the owner's desktop).
 - Other open tasks: TQ-006 clean-clone and CI run, TQ-007 (signing, `lintRelease`, manifest audit),
   TQ-008 dependency verification/SBOM, `qaMinified` build not re-run after TQ-009, libraries that
   need compileSdk 37 (Compose 1.12, core 1.19, lifecycle 2.11), Kotlin/coroutines pinned to libsignal.
@@ -235,11 +243,16 @@ risk, unread counters on Room v10, notifications without text). Design docs:
   queues, invitation v3, Room v9). Phase 4 multi-device DEFERRED by the owner (DEC-025; version 1
   is one device per person; draft design kept). Phase 5 security test pass done (DEC-026). Phase 6
   Telegram-style UI in progress: step 6a done (plan, `LICENSE`, `THIRD_PARTY_NOTICES.md`, DEC-027,
-  committed `996a004`); TQ-109 (system Back) implemented in the working tree.
-- Verified state at the end of Phase 5 (2026-10-01): relay tests 11; JVM tests green
-  (signal-protocol 73, storage 5, ui 13, domain 3); per phone storage 29, transport 12,
-  signal-protocol 73, ui 24; lint 0 errors (16 warnings); release with R8, no chat; the owner's hand
-  check passed, the clipboard case led to "Share" + "Copy" with a warning (DEC-026).
+  committed `996a004`), step 6b done; TQ-109 (system Back) and TQ-110 (AI-audit fixes, DEC-028)
+  done 2026-10-03.
+- Verified state after TQ-110 (2026-10-03): relay tests 15; JVM tests green (signal-protocol 75,
+  storage 5, ui 17, signalstore 3, domain 3); per phone storage 31, transport 13 (live relay),
+  signal-protocol 75, ui 27; lint 0 errors (16 warnings); the owner's hand check passed. Release
+  build not re-run since Phase 5 (no release-relevant change). Earlier, end of Phase 5
+  (2026-10-01): release with R8, no chat.
+- The Redmi now has font scale 1.15: lazy lists may not compose items below the fold, so device
+  tests must scroll a list with `performScrollToNode`, never `performScrollTo` on a node that may not
+  exist yet (`InvitationSharingInstrumentedTest`, 2026-10-03).
 - Device tests: a phone lying sideways runs the tests in landscape (that is how F12 was found);
   `LanguageSwitchHarnessActivity` follows the sensor.
 - Reference material outside the repo (read only): Telegram for Android Java sources

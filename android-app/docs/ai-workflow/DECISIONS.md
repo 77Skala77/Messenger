@@ -64,7 +64,8 @@ When changing an accepted decision:
 | DEC-024 | Phase 3: self-certifying relay queues, server message IDs, invitation v3, reset of v2 test chats | ACCEPTED |
 | DEC-025 | Phase 4 (multi-device) deferred; version 1 is one device per person | ACCEPTED |
 | DEC-026 | Phase 5: rejected envelopes deleted and rolled back, relay pages, ordered sending, strict invitations; paid audit before release | ACCEPTED |
-| DEC-027 | Phase 6: AGPL-3.0 `LICENSE`; port only "GPL v2 or later" Telegram files; unread counters (Room v10); notifications without text | ACCEPTED |
+| DEC-027 | Phase 6: AGPL-3.0 `LICENSE`; reuse of Telegram code ("GPL v2 or later" files, headerless ones at the owner's accepted risk); unread counters (Room v10); notifications without text; classic palette | ACCEPTED |
+| DEC-028 | AI security audits of October 2026: triage, fix block TQ-110, safety-number check in 6f; not the independent audit | ACCEPTED |
 
 ---
 
@@ -1276,6 +1277,73 @@ in-app switch (Light, Dark, System) from the start. Details: `../PHASE6_THEME_NO
 - Anyone who receives the app may ask for its source; all derived files must keep their notices.
 - The unread marker is a Room schema change with a migration test; notifications need the Android
   13+ permission and must never carry message text (a test pins it).
+
+---
+
+## DEC-028 — AI security audits (October 2026): triage and fixes; not the independent audit
+
+**Status:** ACCEPTED
+**Recorded:** 2026-10-03. Owner decisions in chat. Triage of every finding: `../AI_AUDITS_2026-10.md`.
+
+### Context
+
+The owner had two AI tools audit the project: a source audit of commit `335ccca` with the TQ-109
+working tree (2026-10-01), and an audit of a debug APK built from a copy of the same code, at the
+bytecode level (2026-10-02..03: 0 confirmed, 9 conditional, 9 informational, 9 closed-safe
+findings). Neither found a flaw in the cryptographic core. Every finding was checked against the
+code on 2026-10-03; several were confirmed, one (V2-01) with a concrete path the audit had not
+shown.
+
+### Decision
+
+- Both audits are internal checks, like the Phase 5 reviews. They are **not** the independent
+  external audit (TQ-106); the release gate stays as it is (`enable_v2_protocol` is false in
+  release, DEC-021, DEC-026).
+- Fixed now, in one block before step 6c (owner: TQ-110):
+  - **V2-01:** once an envelope got no verdict in a sync, a later rejected envelope with the same
+    routing tag stays on the relay for the next sync instead of being deleted, at most 10 per
+    sync. A text behind a HELLO that hit a local failure is no longer lost. A text that a relay
+    moves before its HELLO is still rejected and deleted (F3).
+  - **SESS-01:** the chat state changes only through atomic updates, and messages and the safety
+    number are shown only for the contact they were read for.
+  - **STORE-04:** one vault key and one profile even if "Create profile" is tapped twice:
+    process-wide locks around key and profile creation, the profile row is inserted and never
+    replaced, and the button is off while a profile is being created.
+  - **L1:** the transport does not follow HTTP redirects.
+  - **M1, SRV-01, SRV-02 (QA relay):** a full rate-limit table drops the least recent client
+    instead of being cleared; `RELAY_TRUST_PROXY=1` counts the client address a proxy on the same
+    machine adds last to `X-Forwarded-For`; whole-relay caps (100,000 messages, 256 MiB of
+    ciphertext; then 503 `relay_full`); expired messages are swept at most once a second.
+  - **M2:** the deployment examples use relay API v3.
+  - **L3:** GitHub Actions pinned to commit hashes, Gradle wrapper validation in CI, and
+    `distributionSha256Sum` in the wrapper (checked against gradle.org).
+- Planned for step 6f (owner): **H1**, the main practical risk (whoever sees an invitation QR can
+  pair first): a "compare the safety number" step and a local "verified" mark; **L2**: the
+  invitation shows whether its upload worked and offers "try again".
+- Accepted and documented, no code change: STORE-01 (putting back old records needs write access
+  to the app's files, in practice root; out of scope), STORE-02 (the app never creates last-resort
+  Kyber keys), INV-01 (the QR is a bearer capability, see H1), TRN-01 and I-2 (cleartext only in
+  debug builds), I-3 (the fixed-key test vault sits in the main source set; unused there and
+  removed from release builds by R8; to be moved once shared test fixtures exist), and the
+  informational findings. L4, I-4 and I-7 stay with TQ-108 (step 6g); I-10 with TQ-008.
+- The audit tools' working files were moved out of the project folder (owner, 2026-10-03).
+
+### Consequences
+
+- No wire, invitation or storage format change and no Room schema change (one new DAO insert
+  method). DEC-026's deletion rule gains one exception: a same-tag rejection behind a failure
+  waits one sync, bounded.
+- A relay behind a reverse proxy needs `RELAY_TRUST_PROXY=1`; without it the relay behaves as
+  before. A full relay answers 503, which the app treats like any relay failure and retries.
+
+### Evidence
+
+New tests: `ConversationV2ServiceTest` (a text behind a failed HELLO waits; deferral is bounded),
+`ConversationV2StateTest` (SESS-01), `VaultKeyLossInstrumentedTest` (key and profile creation at
+the same moment), `RelayHostileResponseInstrumentedTest` (redirects), relay tests (rate-limit
+table, trusted proxy, whole-relay caps, expiry sweep). Results (2026-10-03): all suites green on
+the JVM and on both phones, the V2-01 tests fail without the fix, the owner's hand check passed
+(TQ-110 in `TASK_QUEUE.md`).
 
 ---
 

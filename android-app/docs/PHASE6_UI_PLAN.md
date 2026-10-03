@@ -123,8 +123,9 @@ Back: it goes one level back.
 for the screen stack so the app's Back button and the system Back cannot disagree; the new Phase 6
 screens are built on the same rule from the start. Optional: Android 13+ predictive-back animation
 (`android:enableOnBackInvokedCallback`), decided with the visual work.
-**Implemented (2026-10-01):** `BackHandler` in `ConversationV2Root` (`goHome`, shared by the app's
-Back button and the system Back) and in `SecureMessengerApp` (settings to main).
+**Implemented (2026-10-01), done (2026-10-03):** `BackHandler` in `ConversationV2Root` (`goHome`,
+shared by the app's Back button and the system Back) and in `SecureMessengerApp` (settings to main).
+Device tests passed on both phones and the owner's hand check passed (TQ-109).
 **Tests:** `SystemBackInstrumentedTest` opens the invitation, add-contact and settings screens,
 sends system Back through the activity's back dispatcher and checks that the app stays open at the
 parent, and that no handler is registered at the roots (list, onboarding), where the system acts as
@@ -174,3 +175,7 @@ steps 6c–6h are in `PHASE6_PORTING_NOTES.md`, which supersedes the table below
    bubbles), a light wallpaper pattern of our own, and a dark theme (Night values) that follows the
    system with an in-app switch Light/Dark/System from the start (`PHASE6_THEME_NOTES.md`, 2a;
    `PHASE6_PORTING_NOTES.md`, section 4).
+8. **Safety-number check (2026-10-03, DEC-028):** after the AI audits, step 6f adds a "compare the
+   safety number" step when pairing and a local "verified" mark on the contact (audit H1), and the
+   invitation screen shows whether the upload worked, with "try again" (audit L2). The audit fixes
+   themselves (TQ-110) come before step 6c.
