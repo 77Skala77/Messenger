@@ -88,8 +88,26 @@ values only; DEC-027):
 | Input bar / text / hint / icons | `#FFFFFF` / `#000000` / `#858A84` / `#8E959B` | `chat_messagePanel*` |
 | Date chip | semi-transparent darker tone of the wallpaper, white text | `chat_serviceBackground` (computed from the wallpaper in Telegram), `chat_serviceText` `#FFFFFF` |
 
-- **Wallpaper:** our own light pattern (simple vector doodles drawn in Compose at low contrast) over a
-  soft green-gray base; the exact color is chosen in step 6c on the phones, by eye.
+- **Wallpaper:** our own light pattern (six simple outline doodles, drawn in Compose at low contrast)
+  over a soft green-gray base (`#DDE9CC`, pattern `#C3D3B0`; dark `#0F0F10`, pattern `#1B1D1F`). These
+  are first values: the owner judges them on the phones with the debug preview (step 6c) and they
+  change in one place (`MessengerColors.kt`).
+- **Adjusted for contrast (step 6c).** Telegram's classic text colors for time, secondary text and
+  ticks are paler than WCAG AA allows. Each failing value was moved just far enough and is pinned by
+  `MessengerColorsTest`: time in an incoming bubble `#A1AAB3` → `#697480` (2.4 → 4.8:1), time in an
+  outgoing bubble `#70B15C` → `#3C7F2E` (2.5 → 4.7), tick `#5DB050` → `#3A9230`, clock `#75BD5E` →
+  `#4A9A3B`, list tick `#46AA36` → `#3A9A2B`, list message `#75787A` → `#707477`, list date `#848688` →
+  `#6F7479`, hint `#858A84` → `#70756F`, muted badge `#BEC3C7` → `#858B91`. The new-chat button is
+  `#229AF0` instead of `#65A9E0` (white icon 3.0:1). Material's `primary` in the light theme is the
+  link blue `#2678B6` (white text 4.7:1, and as text on white 4.7:1); the brighter `#229AF0` stays on
+  the badge and send button. Dark: time in an incoming bubble `#7D7F81` → `#8A8C8E`, in an outgoing one
+  `#94D3F6` → `#EAF4FC`, list date `#787878` → `#8A8A8A`, badge `#399EF3` → `#2A8AD9` (white digits
+  3.7:1); Material's `primary` is `#64B5EF` with dark text.
+- **Thresholds:** text 4.5:1; ticks, clocks, badge digits and the new-chat icon 3:1 (non-text and bold
+  level). Avatars carry white letters on Telegram's gradients (measured 1.7 to 4.8:1, the top of the
+  orange gradient lowest): the contact's name is always next to the avatar, so the letters are
+  decoration and are hidden from screen readers. If the owner finds them hard to read, the gradients
+  are the thing to darken.
 - **Dark theme:** Telegram has no dark variant of the classic green; the dark theme uses the Night
   values of section 2 (dark gray surfaces, blue outgoing bubbles), unless the owner's screenshots ask
   for something else.

@@ -62,9 +62,11 @@ defined in `AGENTS.md`. Do not infer implementation from documentation, interfac
 ## 5. Android application
 
 Compose UI: onboarding, chats, contact requests, invitation QR/scan/paste, conversation with
-delivery status and safety number, settings (language, relay URL and health check, sync, delete
-local data, debug test reset), a one-time legacy-reset notice. Portrait-only QR scanner activity.
-Release rejects cleartext relay URLs.
+delivery status and safety number, settings (language, appearance Light/Dark/System, relay URL and
+health check, sync, delete local data, debug test reset and theme preview), a one-time legacy-reset
+notice. Portrait-only QR scanner activity. Release rejects cleartext relay URLs. Phase 6 (DEC-027):
+the messenger theme and its components exist (step 6c, Telegram's classic and Night palettes); the
+chat list and the conversation still use the old screens until steps 6d and 6e.
 
 ## 6. Storage and trust
 

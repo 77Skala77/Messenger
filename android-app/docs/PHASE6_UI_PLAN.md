@@ -1,7 +1,8 @@
 # Phase 6 — Telegram-style UI: plan
 
 Status: **ACCEPTED** (2026-10-01, step 6a done: the owner's decisions are in section 7, DEC-027).
-Steps 6a and 6b done (6b: `PHASE6_PORTING_NOTES.md`); next: step 6c. Plan section:
+Steps 6a, 6b and 6c done (6b: `PHASE6_PORTING_NOTES.md`; 6c: theme and components, results in
+`ai-workflow/HANDOFF.md`); next: step 6d. Plan section:
 `ai-workflow/REWRITE_PLAN.md`, Phase 6.
 Visual only: protocol v2, wire, invitation and storage formats stay as they are; release builds keep
 the chat closed until the external audit (TQ-106).

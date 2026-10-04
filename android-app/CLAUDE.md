@@ -25,8 +25,9 @@ mutable against the code before relying on it.
   the effort is wrong; name the effort the step needs and trust what the owner's UI shows.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
   Current recommendations: Phase 6 (Telegram-style UI), steps 6a and 6b done; TQ-109 (system Back)
-  and TQ-110 (fixes from the AI audits, DEC-028) done on 2026-10-03. Next **6c (theme and
-  components) on Sonnet 5.5 · High**, 6e and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
+  and TQ-110 (fixes from the AI audits, DEC-028) done on 2026-10-03; step 6c (theme and
+  components) done 2026-10-04 (owner approved; the Redmi device run is still owed).
+  Next **6d** (chat list), 6e and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
   migration (6d), the verified-mark rules (6f), the notification privacy rules (6f') and TQ-108
   (6g). Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified

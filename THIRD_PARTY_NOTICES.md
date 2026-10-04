@@ -38,6 +38,19 @@ contributors). Rules (`android-app/docs/PHASE6_UI_PLAN.md`, section 2; DEC-027):
   `bluebubbles`) and from its built-in classic defaults (`ui/ActionBar/ThemeColors.java`, no
   header) are plain values (numbers) used in this project's own theme files.
 
-| Our file | Derived from (Telegram for Android, commit `f2908b1`) | Original header |
+No Telegram source code has been copied or translated line by line. The files below were written
+anew in Kotlin and Compose from **numbers and rules** read in the listed Telegram files (sizes,
+radii, colors, grouping and date rules, the initials rule). They are listed so that the origin of
+those numbers stays visible. Where the origin has no header, the owner's accepted risk applies
+(DEC-027).
+
+| Our file (`android-app/core/ui/src/main/kotlin/app/securemessenger/ui/`) | Numbers and rules read in (Telegram for Android, commit `f2908b1`) | Original header |
 | --- | --- | --- |
-| none yet | | |
+| `MessengerColors.kt` | `ui/ActionBar/ThemeColors.java` (classic defaults); `assets/{day,night}.attheme` (Night values); a few values darkened or lightened for contrast | none (repository GPL v2); accepted risk |
+| `AvatarModel.kt`, `Avatar.kt` | `ui/Components/AvatarDrawable.java` (initials rule, seven gradients, 18 on 42 text share); `ThemeColors.java` (gradient colors) | GPL v. 2 or later; none (accepted risk) |
+| `BubbleShape.kt` | `ui/ActionBar/MessageDrawable.java` (radii 17 and 6, tail strip 8, tail tip 2.6 from the edge, tail join 9) | none (repository GPL v2); accepted risk |
+| `SeriesGrouping.kt` | `ui/ChatActivity.java` (same direction, at most five minutes, a date separator breaks a series) | GPL v. 2 or later |
+| `ChatDates.kt` | `messenger/LocaleController.java` (chat-list time, weekday, day-and-month, year rules; date separator forms) | GPL v. 2 or later |
+| `DateChip.kt` | `ui/Cells/ChatActionCell.java` (14 sp, 7 dp above) | GPL v. 2 or later |
+| `UnreadBadge.kt` | `ui/Cells/DialogCell.java` (height 20.67, radius 11.5, text padding 6.33, 13 sp bold) | GPL v. 2 or later |
+| `MessengerType.kt` | `ui/Cells/*`, `ui/Components/ChatAvatarContainer.java`, `ChatActivityEnterView.java` (text sizes) | GPL v. 2 or later |

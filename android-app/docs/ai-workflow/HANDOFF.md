@@ -79,11 +79,20 @@ audit TQ-106). Every finding was checked against the code (`../AI_AUDITS_2026-10
 `TASK_QUEUE.md`). The audits' safety-number item (H1) and the invitation upload state (L2) belong to
 step 6f.
 
-Next: **6c** (theme with the switch, type scale, avatar, badge, ticks, bubble shape,
-date chip, wallpaper pattern, a preview screen). Recommended model: **Sonnet 5.5 · High** for 6c,
-6e, 6f, 6h; **Opus 5.5 · High** for the Room v10 migration (6d), the verified-mark rules (6f), the
-notification privacy rules (6f') and TQ-108 (6g). Commit policy: one commit round at the end of each
-phase, step or task (owner, 2026-09-30).
+**Step 6c (theme and components) is implemented** (2026-10-04, Sonnet 5.5 · High): `MessengerTheme`
+with the Light/Dark/System switch in settings, `MessengerColors` (classic palette, contrast-adjusted,
+`../PHASE6_THEME_NOTES.md`), `Avatar`, `UnreadBadge`, `MessageTicks`, `BubbleShape`, series grouping,
+chat dates, `DateChip`, `ChatWallpaper`, and a debug "Theme preview" (settings, debug tools). Verified:
+`:app:assembleDebug`, lint 0 errors (same 16 warnings), ui unit tests (49: avatars, dates in ru/en,
+series, badge, ticks, bubble corners, contrast of every pair in both themes), ui device tests on the
+**Samsung only** (33, including six new). **Not yet run: the Redmi** (font scale 1.15; the owner had
+only the Samsung). Screenshots of the preview in both themes were checked on the Samsung; the owner
+approved the look (2026-10-04) and 6c is committed. Run the Redmi device suite when it is connected.
+
+Next: **6d** (chat list; Room v10 with `lastReadAtEpochMillis` and `verifiedAtEpochMillis`).
+Recommended model: **Opus 5.5 · High** for the Room v10 migration (6d), the verified-mark rules
+(6f), the notification privacy rules (6f') and TQ-108 (6g); **Sonnet 5.5 · High** for 6e, 6f, 6h.
+Commit policy: one commit round at the end of each phase, step or task (owner, 2026-09-30).
 
 ## Operational constraints
 

@@ -58,9 +58,11 @@ setting still works).
 
 ### 2.4 Ticks — drawables `msg_check`, `msg_halfcheck`, `msg_clock` (resources, not code)
 
-- Telegram's tick images are resources and are **not used**. Ours: Material Icons `Done` (one tick,
-  "sent to the delivery server") and `DoneAll` (two ticks, "delivered", an authenticated receipt),
-  `Schedule` (clock, waiting to send). Never a "read" state: the protocol has none.
+- Telegram's tick images are resources and are **not used**. Ours (step 6c, `MessageTicks.kt`): a
+  clock while the message waits to be sent (status pending, and failed, which is retried), one tick
+  ("sent to the delivery server"), two ticks ("delivered", an authenticated receipt). Never a "read"
+  state: the protocol has none. They are drawn on a canvas (a few lines each) instead of Material
+  Icons, whose extended set would add thousands of icons for these three shapes.
 
 ### 2.5 Avatar — `ui/Components/AvatarDrawable.java` (v2 or later); colors `ThemeColors.java` (no header; values only)
 
@@ -89,7 +91,8 @@ setting still works).
   muted chats use a gray badge.
 - Divider: 1 px from the text column start (72 dp) to the end edge.
 - The unread counter's animation lives in `ui/Components/CounterView.java` (no header): we write
-  our own simple animation (`AnimatedContent`) instead.
+  our own simple animation (`AnimatedContent`) instead. Step 6c has the static badge only
+  (`UnreadBadge.kt`; counts above 999 show "999+"); the animation comes with the chat list (6d).
 
 ### 2.7 Date and time rules — `messenger/LocaleController.java` (v2 or later)
 
@@ -127,7 +130,7 @@ setting still works).
 | --- | --- | --- | --- |
 | TQ-109 | System Back (done 2026-10-03: device tests on both phones and the owner's hand check passed) | `SystemBackInstrumentedTest` | Sonnet 5.5 · High |
 | TQ-110 | Fixes from the AI audits before 6c (done 2026-10-03, DEC-028) | see `ai-workflow/TASK_QUEUE.md` | Opus 5.5 · High |
-| 6c | `Theme.kt` (light, dark; tokens from the theme notes), type scale (sizes above), `Avatar`, `UnreadBadge`, `Ticks`, `BubbleShape`, `DateChip`; a debug preview screen | unit: initials, color index, date rules (ru, en), grouping; Compose: components render, contrast check | Sonnet 5.5 · High |
+| 6c | **Done 2026-10-04 (Samsung only; Redmi still to run).** `MessengerTheme` with the Light/Dark/System switch in settings, type scale, `Avatar`, `UnreadBadge`, `MessageTicks`, `BubbleShape`, `DateChip`, `ChatWallpaper`, series grouping, chat dates, and a debug "Theme preview" screen (settings, debug tools) | unit: initials, color index, date rules (ru, en), grouping, badge, ticks, bubble corners, contrast of every pair in both themes; device: bubble outline sizes, badge and avatar sizes, palette per choice, the preview in both themes | Sonnet 5.5 · High |
 | 6d | Chat list: Room v10 (`lastReadAtEpochMillis`, and `verifiedAtEpochMillis` for the safety-number mark of 6f, both local only; migration 9→10), queries for last message and unread count per chat, rows per 2.6, requests on top, floating button, ordering by last activity, empty state | migration test 9→10; repository tests; Compose list tests | **Opus 5.5 · High** for the migration, then Sonnet |
 | 6e | Conversation: bubbles (2.1–2.3), date chips, header, input bar, scroll to the end, "read up to" updated on open | layout rule tests; Compose tests incl. landscape (F12 lesson) | Sonnet 5.5 · High |
 | 6f | New chat (QR, scan, paste, share), contact request, contact info with the safety number, settings, onboarding in the new style. From the AI audits (DEC-028): a "compare the safety number" step when pairing and a local "verified" mark on the contact (H1); the invitation shows whether its upload worked and offers "try again" (L2) | Compose tests; system Back on every screen; the mark is never set without the user's confirmation | Sonnet 5.5 · High; Opus for the verified-mark rules |
