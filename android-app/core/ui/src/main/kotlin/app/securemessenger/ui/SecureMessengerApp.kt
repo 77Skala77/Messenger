@@ -59,6 +59,9 @@ private enum class Screen {
     ONBOARDING,
     MAIN,
     SETTINGS,
+
+    /** Debug tools only: the pieces of the messenger look in the current theme (step 6c). */
+    THEME_PREVIEW,
 }
 
 /**
@@ -69,6 +72,8 @@ private enum class Screen {
 fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     var screen by remember { mutableStateOf(Screen.ONBOARDING) }
+    val context = LocalContext.current
+    var themeMode by remember { mutableStateOf(ThemeController.selected(context)) }
 
     LaunchedEffect(state.profileKnown, state.profileCreated) {
         if (state.profileKnown) {
@@ -81,12 +86,14 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     }
 
     // System Back (button or gesture) from settings goes one screen back, like the app's own Back
-    // button (TQ-109). Off everywhere else: the main screen, onboarding and the "data cannot be
-    // read" screen have nothing to go back to, so the system behaves as usual there. Open dialogs
-    // handle Back themselves and close first.
-    BackHandler(enabled = screen == Screen.SETTINGS && state.localDataProblem == null) { screen = Screen.MAIN }
+    // button (TQ-109); from the theme preview it goes back to settings. Off everywhere else: the
+    // main screen, onboarding and the "data cannot be read" screen have nothing to go back to, so
+    // the system behaves as usual there. Open dialogs handle Back themselves and close first.
+    BackHandler(
+        enabled = (screen == Screen.SETTINGS || screen == Screen.THEME_PREVIEW) && state.localDataProblem == null,
+    ) { screen = if (screen == Screen.THEME_PREVIEW) Screen.SETTINGS else Screen.MAIN }
 
-    MaterialTheme {
+    MessengerTheme(themeMode) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val problem = state.localDataProblem
             if (problem != null) {
@@ -117,6 +124,12 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         allowInsecureRelayHttp = state.allowInsecureRelayHttp,
                         debugQaToolsEnabled = state.debugQaToolsEnabled,
                         isPhysicalDevice = state.isPhysicalDevice,
+                        themeMode = themeMode,
+                        onThemeSelected = { mode ->
+                            themeMode = mode
+                            ThemeController.select(context, mode)
+                        },
+                        onOpenThemePreview = { screen = Screen.THEME_PREVIEW },
                         onBack = { screen = Screen.MAIN },
                         onSaveRelayUrl = viewModel::saveRelayServerUrl,
                         onCheckRelay = viewModel::checkRelayServer,
@@ -124,6 +137,8 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         onDeleteLocalData = viewModel::deleteLocalData,
                         onResetTestData = viewModel::resetTestDataForQa,
                     )
+                    // Only the debug tools lead here; a release build never shows the button.
+                    Screen.THEME_PREVIEW -> if (state.debugQaToolsEnabled) ThemePreviewScreen(onBack = { screen = Screen.SETTINGS })
                 }
             }
             if (state.legacyResetNotice) {
@@ -249,6 +264,10 @@ internal fun LocalDataProblemScreen(
     }
 }
 
+internal const val THEME_OPTION_SYSTEM = "theme_option_system"
+internal const val THEME_OPTION_LIGHT = "theme_option_light"
+internal const val THEME_OPTION_DARK = "theme_option_dark"
+internal const val THEME_PREVIEW_BUTTON_TAG = "theme_preview_button"
 internal const val CHECK_AGAIN_TAG = "local_data_check_again"
 internal const val DELETE_AND_RESTART_TAG = "local_data_delete_and_restart"
 internal const val CONFIRM_DELETE_TAG = "local_data_confirm_delete"
@@ -278,6 +297,9 @@ private fun SettingsScreen(
     allowInsecureRelayHttp: Boolean,
     debugQaToolsEnabled: Boolean,
     isPhysicalDevice: Boolean,
+    themeMode: AppThemeMode,
+    onThemeSelected: (AppThemeMode) -> Unit,
+    onOpenThemePreview: () -> Unit,
     onBack: () -> Unit,
     onSaveRelayUrl: (String) -> Unit,
     onCheckRelay: (String) -> Unit,
@@ -315,6 +337,26 @@ private fun SettingsScreen(
                         selectedLanguage = AppLanguage.ENGLISH
                         LanguageController.select(context, selectedLanguage)
                     }
+                }
+            }
+            item { Text(stringResource(R.string.theme_title), style = MaterialTheme.typography.titleLarge) }
+            item {
+                Column(Modifier.selectableGroup()) {
+                    SelectableOptionRow(
+                        label = stringResource(R.string.theme_system),
+                        selected = themeMode == AppThemeMode.SYSTEM,
+                        modifier = Modifier.testTag(THEME_OPTION_SYSTEM),
+                    ) { onThemeSelected(AppThemeMode.SYSTEM) }
+                    SelectableOptionRow(
+                        label = stringResource(R.string.theme_light),
+                        selected = themeMode == AppThemeMode.LIGHT,
+                        modifier = Modifier.testTag(THEME_OPTION_LIGHT),
+                    ) { onThemeSelected(AppThemeMode.LIGHT) }
+                    SelectableOptionRow(
+                        label = stringResource(R.string.theme_dark),
+                        selected = themeMode == AppThemeMode.DARK,
+                        modifier = Modifier.testTag(THEME_OPTION_DARK),
+                    ) { onThemeSelected(AppThemeMode.DARK) }
                 }
             }
             item { Text(stringResource(R.string.relay_server), style = MaterialTheme.typography.titleLarge) }
@@ -379,6 +421,9 @@ private fun SettingsScreen(
                         modifier = Modifier.testTag("debug_reset_test_data"),
                     ) {
                         Text(stringResource(R.string.reset_test_data))
+                    }
+                    OutlinedButton(onClick = onOpenThemePreview, modifier = Modifier.testTag(THEME_PREVIEW_BUTTON_TAG)) {
+                        Text(stringResource(R.string.theme_preview_open))
                     }
                 }
             }

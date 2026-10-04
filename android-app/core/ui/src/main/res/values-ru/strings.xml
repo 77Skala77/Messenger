@@ -100,4 +100,38 @@
     <string name="local_data_delete_and_restart">Удалить локальные данные и начать заново</string>
     <string name="relay_reset_title">Тестовые чаты сброшены</string>
     <string name="relay_reset_body">Сервер доставки теперь защищает каждый входящий ящик секретом: читать и удалять ожидающие сообщения может только владелец. Старые тестовые чаты нельзя перенести в новые ящики, поэтому они удалены намеренно; профиль сохранён. Сопрягитесь с контактами заново по новому приглашению.</string>
+    <string name="theme_title">Оформление</string>
+    <string name="theme_system">Как в системе</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="theme_preview_open">Просмотр темы</string>
+    <string name="theme_preview_title">Просмотр темы</string>
+    <string name="theme_preview_avatars">Аватары</string>
+    <string name="theme_preview_badges">Счётчики непрочитанных</string>
+    <string name="theme_preview_ticks">Галочки сообщений</string>
+    <string name="theme_preview_conversation">Переписка</string>
+    <string name="preview_name_1">Анна Петрова</string>
+    <string name="preview_name_2">Борис Иванов</string>
+    <string name="preview_name_3">Чэнь Вэй</string>
+    <string name="preview_name_4">Дмитрий</string>
+    <string name="preview_name_5">Елена Смирнова-Петрова</string>
+    <string name="preview_name_6">Франц Мюллер</string>
+    <string name="preview_name_7">Ёжик 🦔</string>
+    <string name="preview_message_1">Привет! Как дела?</string>
+    <string name="preview_message_2">Ты получил файл, который я отправил вчера?</string>
+    <string name="preview_message_3">Да, спасибо! Всё открылось.</string>
+    <string name="preview_message_4">Доброе утро!</string>
+    <string name="preview_message_5">Позвоню около полудня.</string>
+    <string name="preview_message_6">Жду твоего ответа.</string>
+    <!-- Шаблоны дат в синтаксисе java.time, не текст: порядок дня и месяца зависит от языка. -->
+    <string name="date_pattern_list_old">dd.MM.yy</string>
+    <string name="date_pattern_list_month">d MMM</string>
+    <string name="date_pattern_chip_recent">d MMMM</string>
+    <string name="date_pattern_chip_old">d MMMM yyyy</string>
+    <plurals name="unread_messages_description">
+        <item quantity="one">%d непрочитанное сообщение</item>
+        <item quantity="few">%d непрочитанных сообщения</item>
+        <item quantity="many">%d непрочитанных сообщений</item>
+        <item quantity="other">%d непрочитанного сообщения</item>
+    </plurals>
 </resources>

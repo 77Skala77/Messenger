@@ -100,4 +100,36 @@
     <string name="local_data_delete_and_restart">Delete local data and start over</string>
     <string name="relay_reset_title">Test chats were reset</string>
     <string name="relay_reset_body">The delivery server now protects each inbox with a secret, so only its owner can read or delete waiting messages. Old test chats could not move to the new inboxes and were deleted on purpose; your profile stays. Pair with your contacts again using a new invitation.</string>
+    <string name="theme_title">Appearance</string>
+    <string name="theme_system">Same as the system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_preview_open">Theme preview</string>
+    <string name="theme_preview_title">Theme preview</string>
+    <string name="theme_preview_avatars">Avatars</string>
+    <string name="theme_preview_badges">Unread counters</string>
+    <string name="theme_preview_ticks">Message ticks</string>
+    <string name="theme_preview_conversation">Conversation</string>
+    <string name="preview_name_1">Alice Brown</string>
+    <string name="preview_name_2">Boris Ivanov</string>
+    <string name="preview_name_3">Chen Wei</string>
+    <string name="preview_name_4">Dmitry</string>
+    <string name="preview_name_5">Emma Smith-Jones</string>
+    <string name="preview_name_6">Frank Müller</string>
+    <string name="preview_name_7">Hedgehog 🦔</string>
+    <string name="preview_message_1">Hi! How are you?</string>
+    <string name="preview_message_2">Did you get the file I sent yesterday?</string>
+    <string name="preview_message_3">Yes, thanks! Everything opened fine.</string>
+    <string name="preview_message_4">Good morning!</string>
+    <string name="preview_message_5">I will call you around noon.</string>
+    <string name="preview_message_6">Waiting for your answer.</string>
+    <!-- Date patterns in java.time syntax, not text: the order of day and month follows the language. -->
+    <string name="date_pattern_list_old">MM/dd/yy</string>
+    <string name="date_pattern_list_month">MMM d</string>
+    <string name="date_pattern_chip_recent">MMMM d</string>
+    <string name="date_pattern_chip_old">MMMM d, yyyy</string>
+    <plurals name="unread_messages_description">
+        <item quantity="one">%d unread message</item>
+        <item quantity="other">%d unread messages</item>
+    </plurals>
 </resources>
