@@ -282,15 +282,69 @@ class ConversationV2Service(
         }
     }
 
-    /** Queues a text for a contact and tries to send it. Returns the local message ID. */
-    suspend fun sendText(contactId: String, text: String): String {
+    /**
+     * Queues a text for a contact and tries to send it. Returns the local message ID. [replyToInnerIdHex]
+     * names a text of this chat (either direction) that this one answers (DEC-035); a text this
+     * phone does not have is refused, so a reply never points at something the person did not see.
+     */
+    suspend fun sendText(contactId: String, text: String, replyToInnerIdHex: String? = null): String {
         val messageId = atomically {
             val contact = store.contact(contactId) ?: throw ConversationV2Exception("Unknown contact")
             if (contact.state == V2ContactState.KEY_CHANGED) throw ConversationV2Exception("Contact is blocked")
-            enqueue(contact, InnerPayloadV2.Text(RandomId.random(random), now(), text), visibleText = text)
+            val replyTo = replyToInnerIdHex?.let { innerId ->
+                if (!store.hasText(contactId, innerId)) throw ConversationV2Exception("Unknown message")
+                RandomId.fromHex(innerId)
+            }
+            enqueue(contact, InnerPayloadV2.Text(RandomId.random(random), now(), text, replyTo), visibleText = text)
         }
         sendDue()
         return messageId
+    }
+
+    // --- Local chat management (DEC-035). Nothing here is sent: the contact is never told. ---
+
+    /** Pins a chat to the top of the list (newest pin first), or unpins it. A local mark only. */
+    fun setPinned(contactId: String, pinned: Boolean) = atomically {
+        if (!store.setContactPinned(contactId, if (pinned) now() else null)) throw ConversationV2Exception("Unknown contact")
+    }
+
+    /**
+     * Silences a chat's notifications until [mutedUntilEpochMillis] ([MUTED_FOREVER] for good), or
+     * lets them through again (null). Its texts still arrive and are still counted.
+     */
+    fun setMuted(contactId: String, mutedUntilEpochMillis: Long?) = atomically {
+        if (!store.setContactMuted(contactId, mutedUntilEpochMillis)) throw ConversationV2Exception("Unknown contact")
+    }
+
+    /**
+     * The person marked the whole chat as read from the chat list (DEC-035). Like the "seen" mark it
+     * sets (DEC-029), it stays on this phone: nothing about reading is ever sent.
+     */
+    fun markChatRead(contactId: String): Int = atomically { store.markRead(contactId) }
+
+    /**
+     * Deletes this chat's texts on this phone. Texts still waiting to be sent stay until they are
+     * sent: each one holds a ratchet step that was already committed, and dropping it would leave a
+     * gap the contact's phone waits on. The contact, the session and the receipts are untouched.
+     */
+    fun clearHistory(contactId: String): Int = atomically {
+        store.contact(contactId) ?: throw ConversationV2Exception("Unknown contact")
+        store.clearTexts(contactId)
+    }
+
+    /**
+     * Deletes a contact for good (DEC-035): its texts, everything still queued for it, the invitation
+     * it answered, its session and its stored identity. Nothing is sent; the contact is not told.
+     * Whatever it sends afterwards finds no route and is deleted unread; writing to each other again
+     * takes a new invitation, and its identity is then trusted afresh, like any new contact.
+     */
+    fun deleteContact(contactId: String) = atomically {
+        store.contact(contactId) ?: throw ConversationV2Exception("Unknown contact")
+        // Its pre-keys went when its HELLO used it; the row still holds the encrypted QR text.
+        store.invitationUsedBy(contactId)?.let { store.deleteInvitation(it.invitationId) }
+        store.deleteMessagesFor(contactId)
+        check(store.deleteContact(contactId)) { "Contact vanished during deletion" }
+        sessions.forget(contactId)
     }
 
     /**
@@ -485,7 +539,14 @@ class ConversationV2Service(
                 if (contact.state == V2ContactState.AWAITING_ACCEPTANCE) {
                     store.setContactState(contact.contactId, V2ContactState.ACTIVE)
                 }
-                if (store.storeIncomingText(contact.contactId, payload.messageId.toHex(), payload.text, now())) {
+                if (store.storeIncomingText(
+                        contact.contactId,
+                        payload.messageId.toHex(),
+                        payload.text,
+                        shownTimeOf(payload.sentAtEpochMillis, now(), store.latestIncomingTextTime(contact.contactId)),
+                        payload.replyTo?.toHex(),
+                    )
+                ) {
                     enqueue(contact, receiptFor(payload.messageId.toHex()))
                     IncomingV2Result.TEXT_ACCEPTED
                 } else {
@@ -536,7 +597,13 @@ class ConversationV2Service(
             is Decrypted.Payload -> {
                 val payload = decrypted.payload
                 if (payload is InnerPayloadV2.Text &&
-                    store.storeIncomingText(request.requestId, payload.messageId.toHex(), payload.text, now())
+                    store.storeIncomingText(
+                        request.requestId,
+                        payload.messageId.toHex(),
+                        payload.text,
+                        shownTimeOf(payload.sentAtEpochMillis, now(), store.latestIncomingTextTime(request.requestId)),
+                        payload.replyTo?.toHex(),
+                    )
                 ) {
                     IncomingV2Result.TEXT_ACCEPTED
                 } else {
@@ -633,7 +700,9 @@ class ConversationV2Service(
                 attemptCount = 0,
             ),
             visibleText,
-            now(),
+            // The very time the payload carries: the contact's phone sorts this text by it (DEC-034).
+            payload.sentAtEpochMillis,
+            (payload as? InnerPayloadV2.Text)?.replyTo?.toHex(),
         )
         return messageId
     }
@@ -683,6 +752,29 @@ class ConversationV2Service(
 
         /** At most this many rejected envelopes wait for the next sync behind a failed one (V2-01). */
         private const val MAX_DEFERRED_PER_SYNC = 10
+
+        /** A sender's own time is believed only this far before the moment its text arrived (DEC-034). */
+        const val SENDER_TIME_WINDOW_MILLIS = 60_000L
+
+        /** [setMuted] with this silences a chat until it is unmuted. */
+        const val MUTED_FOREVER = Long.MAX_VALUE
+
+        /**
+         * When an incoming text is shown, and so where it sorts (owner decision, DEC-034): at the time
+         * its sender's app put in it, so both phones show a conversation in the same order, if that time
+         * lies at most [SENDER_TIME_WINDOW_MILLIS] before its arrival here; otherwise at its arrival.
+         * Never before [notBefore], the time of the contact's previous text here: one that came late
+         * (and so shows at its arrival) must not end up below a later one that came in time.
+         *
+         * The time is inside the authenticated payload, so the relay cannot touch it; the contact can
+         * only move its own text up to a minute back, never ahead of its arrival or into the future.
+         */
+        fun shownTimeOf(sentAtEpochMillis: Long, receivedAtEpochMillis: Long, notBefore: Long? = null): Long {
+            val believed = sentAtEpochMillis <= receivedAtEpochMillis &&
+                receivedAtEpochMillis - sentAtEpochMillis <= SENDER_TIME_WINDOW_MILLIS
+            val shown = if (believed) sentAtEpochMillis else receivedAtEpochMillis
+            return if (notBefore != null && notBefore > shown) minOf(notBefore, receivedAtEpochMillis) else shown
+        }
 
         /**
          * Runs [block] under the process-wide protocol lock, so no protocol step can commit while it

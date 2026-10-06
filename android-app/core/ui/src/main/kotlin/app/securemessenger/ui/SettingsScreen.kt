@@ -1,5 +1,6 @@
 package app.securemessenger.ui
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.securemessenger.transport.RelayHealthStatus
+
+internal const val CHAT_SOUNDS_TAG = "settings_chat_sounds"
+
+/** The tag of a swipe-gesture choice in the settings; the suffix is the action's name in lower case. */
+internal const val SWIPE_OPTION_TAG_PREFIX = "settings_swipe_"
 
 /**
  * The settings in Telegram's layout (DEC-033): a gray ground with white sections, each with its
@@ -75,7 +81,7 @@ internal fun SettingsScreen(
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
             item {
-                SettingsGroup(stringResource(R.string.language)) {
+                SettingsGroup(stringResource(R.string.language), R.drawable.tg_msg_language) {
                     Column(Modifier.selectableGroup()) {
                         SelectableOptionRow(
                             label = stringResource(R.string.russian),
@@ -97,7 +103,7 @@ internal fun SettingsScreen(
                 }
             }
             item {
-                SettingsGroup(stringResource(R.string.theme_title)) {
+                SettingsGroup(stringResource(R.string.theme_title), R.drawable.tg_msg_theme) {
                     Column(Modifier.selectableGroup()) {
                         SelectableOptionRow(
                             label = stringResource(R.string.theme_system),
@@ -118,7 +124,7 @@ internal fun SettingsScreen(
                 }
             }
             item {
-                SettingsGroup(stringResource(R.string.settings_privacy_title)) {
+                SettingsGroup(stringResource(R.string.settings_privacy_title), R.drawable.tg_msg_secret) {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -135,14 +141,60 @@ internal fun SettingsScreen(
                     }
                 }
             }
+            // Chats exist only in debug builds (v2); a release build has nothing to set here.
+            if (notificationsAvailable) item {
+                SettingsGroup(stringResource(R.string.settings_chats_title), R.drawable.tg_msg_folders) {
+                    var sounds by remember { mutableStateOf(ChatSounds.enabled(context)) }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = sounds,
+                                role = Role.Switch,
+                                onValueChange = {
+                                    sounds = it
+                                    ChatSounds.set(context, it)
+                                },
+                            )
+                            .testTag(CHAT_SOUNDS_TAG)
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.chat_sounds_title))
+                            SettingsHint(stringResource(R.string.chat_sounds_hint))
+                        }
+                        Switch(checked = sounds, onCheckedChange = null)
+                    }
+                    // Telegram's "Swipe gesture": what a swipe to the left on a chat row does (DEC-035).
+                    var swipe by remember { mutableStateOf(ChatSwipeSetting.get(context)) }
+                    Text(stringResource(R.string.settings_swipe_title))
+                    Column(Modifier.selectableGroup()) {
+                        ChatSwipeAction.entries.forEach { action ->
+                            SelectableOptionRow(
+                                label = stringResource(action.label),
+                                selected = swipe == action,
+                                modifier = Modifier.testTag(SWIPE_OPTION_TAG_PREFIX + action.name.lowercase()),
+                            ) {
+                                swipe = action
+                                ChatSwipeSetting.set(context, action)
+                            }
+                        }
+                    }
+                }
+            }
             // Only where chats exist (debug builds, v2): a release build posts nothing.
             if (notificationsAvailable) {
                 item {
-                    SettingsGroup(stringResource(R.string.settings_notifications_title)) { NotificationSettingsSection() }
+                    SettingsGroup(stringResource(R.string.settings_notifications_title), R.drawable.tg_msg_notifications) {
+                        NotificationSettingsSection()
+                        // The background connection (DEC-034): new messages within half a minute.
+                        BackgroundConnectionSettings()
+                    }
                 }
             }
             item {
-                SettingsGroup(stringResource(R.string.relay_server)) {
+                SettingsGroup(stringResource(R.string.relay_server), R.drawable.tg_msg_stats) {
                     Text(stringResource(R.string.relay_server_explanation))
                     OutlinedTextField(
                         value = relayUrlInput,
@@ -190,7 +242,7 @@ internal fun SettingsScreen(
                 }
             }
             item {
-                SettingsGroup(stringResource(R.string.storage_title)) {
+                SettingsGroup(stringResource(R.string.storage_title), R.drawable.tg_msg_clear) {
                     OutlinedButton(onClick = { showDeleteDialog = true }) {
                         Text(stringResource(R.string.delete_local_data))
                     }
@@ -198,7 +250,7 @@ internal fun SettingsScreen(
             }
             if (debugQaToolsEnabled) {
                 item {
-                    SettingsGroup(stringResource(R.string.debug_qa_tools_title)) {
+                    SettingsGroup(stringResource(R.string.debug_qa_tools_title), R.drawable.tg_msg_help) {
                         Text(stringResource(R.string.debug_reset_test_data_explanation))
                         OutlinedButton(
                             onClick = { showTestResetDialog = true },
@@ -258,7 +310,7 @@ internal fun SettingsScreen(
 
 /** One white section of the settings with its accent-colored heading, on the gray ground. */
 @Composable
-private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SettingsGroup(title: String, @DrawableRes icon: Int, content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -266,7 +318,10 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(title, style = MessengerType.SectionTitle, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TelegramIcon(icon, tint = MaterialTheme.colorScheme.primary, size = 22.dp)
+            Text(title, style = MessengerType.SectionTitle, color = MaterialTheme.colorScheme.primary)
+        }
         content()
     }
 }

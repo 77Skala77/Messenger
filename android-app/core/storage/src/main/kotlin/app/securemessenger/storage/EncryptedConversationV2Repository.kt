@@ -117,6 +117,8 @@ class EncryptedConversationV2Repository(
                 state = contact.state.name,
                 createdAtEpochMillis = contact.createdAtEpochMillis,
                 verifiedAtEpochMillis = contact.verifiedAtEpochMillis,
+                pinnedAtEpochMillis = contact.pinnedAtEpochMillis,
+                mutedUntilEpochMillis = contact.mutedUntilEpochMillis,
             ),
         )
     }
@@ -134,11 +136,26 @@ class EncryptedConversationV2Repository(
     override fun setContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Boolean =
         dao.updateV2ContactVerified(contactId, verifiedAtEpochMillis) == 1
 
+    override fun setContactPinned(contactId: String, pinnedAtEpochMillis: Long?): Boolean =
+        dao.updateV2ContactPinned(contactId, pinnedAtEpochMillis) == 1
+
+    override fun setContactMuted(contactId: String, mutedUntilEpochMillis: Long?): Boolean =
+        dao.updateV2ContactMuted(contactId, mutedUntilEpochMillis) == 1
+
+    override fun deleteContact(contactId: String): Boolean = dao.deleteV2Contact(contactId) == 1
+
+    override fun hasText(contactId: String, innerMessageIdHex: String): Boolean = dao.countV2Texts(contactId, innerMessageIdHex) > 0
+
+    override fun latestIncomingTextTime(contactId: String): Long? = dao.getLatestV2IncomingTextTime(contactId)
+
+    override fun clearTexts(contactId: String): Int = dao.deleteV2SettledTexts(contactId)
+
     override fun storeIncomingText(
         contactId: String,
         innerMessageIdHex: String,
         text: String,
-        receivedAtEpochMillis: Long,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String?,
     ): Boolean {
         val messageId = newMessageId()
         return dao.insertV2Message(
@@ -150,12 +167,13 @@ class EncryptedConversationV2Repository(
                 innerMessageIdHex = innerMessageIdHex,
                 encryptedBody = encryptBody(text, messageId, contactId, outgoing = false),
                 status = V2MessageStatus.RECEIVED.name,
-                createdAtEpochMillis = receivedAtEpochMillis,
+                createdAtEpochMillis = createdAtEpochMillis,
                 peerQueueId = null,
                 envelope = null,
                 deliveryAttemptCount = 0,
                 nextRetryAtEpochMillis = null,
                 isRead = false,
+                replyToInnerIdHex = replyToInnerIdHex,
             ),
         ) != -1L
     }
@@ -174,8 +192,14 @@ class EncryptedConversationV2Repository(
 
     override fun contacts(): List<V2Contact> = dao.getV2Contacts().map(::readContact)
 
-    override fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long) {
+    override fun enqueueOutgoing(
+        envelope: V2OutgoingEnvelope,
+        visibleText: String?,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String?,
+    ) {
         require((envelope.kind == V2MessageKind.TEXT) == (visibleText != null)) { "Only TEXT carries visible text" }
+        require(replyToInnerIdHex == null || envelope.kind == V2MessageKind.TEXT) { "Only TEXT answers a text" }
         val inserted = dao.insertV2Message(
             V2MessageEntity(
                 messageId = envelope.messageId,
@@ -192,6 +216,7 @@ class EncryptedConversationV2Repository(
                 nextRetryAtEpochMillis = null,
                 // The user wrote it: nothing to see.
                 isRead = true,
+                replyToInnerIdHex = replyToInnerIdHex,
             ),
         )
         // Inner IDs are random 128-bit values: a collision means a bug, and silently dropping the
@@ -253,6 +278,8 @@ class EncryptedConversationV2Repository(
         state = V2ContactState.valueOf(entity.state),
         createdAtEpochMillis = entity.createdAtEpochMillis,
         verifiedAtEpochMillis = entity.verifiedAtEpochMillis,
+        pinnedAtEpochMillis = entity.pinnedAtEpochMillis,
+        mutedUntilEpochMillis = entity.mutedUntilEpochMillis,
     )
 
     private fun readMessage(entity: V2MessageEntity) = V2StoredMessage(
@@ -263,6 +290,7 @@ class EncryptedConversationV2Repository(
         text = readBody(entity).orEmpty(),
         status = V2MessageStatus.valueOf(entity.status),
         createdAtEpochMillis = entity.createdAtEpochMillis,
+        replyToInnerIdHex = entity.replyToInnerIdHex,
     )
 
     private fun readOutgoing(entity: V2MessageEntity): V2OutgoingEnvelope? {

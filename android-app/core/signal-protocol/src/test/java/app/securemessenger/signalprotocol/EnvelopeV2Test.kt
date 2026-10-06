@@ -5,6 +5,7 @@ import java.security.SecureRandom
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,6 +45,7 @@ class EnvelopeV2Test {
             InnerPayloadV2.Accept(RandomId.random(random), NOW),
             InnerPayloadV2.Text(RandomId.random(random), NOW, "x"),
             InnerPayloadV2.Text(RandomId.random(random), NOW, "y".repeat(InnerPayloadV2Codec.MAX_TEXT_BYTES)),
+            InnerPayloadV2.Text(RandomId.random(random), NOW, "ответ", replyTo = RandomId.random(random)),
             InnerPayloadV2.Receipt(RandomId.random(random), NOW, RandomId.random(random)),
         )
         payloads.forEach { payload ->
@@ -109,6 +111,47 @@ class EnvelopeV2Test {
             InnerPayloadV2Codec.encode(
                 InnerPayloadV2.Text(RandomId.random(random), NOW, "y".repeat(InnerPayloadV2Codec.MAX_TEXT_BYTES + 1)),
             )
+        }
+    }
+
+    /**
+     * DEC-035: a reply is type 5, a text followed by the 16-byte ID it answers. A plain text keeps
+     * type 3 and exactly its old bytes, so nothing changes for an app that predates replies.
+     */
+    @Test
+    fun aReplyCarriesTheIdItAnswersAndAPlainTextKeepsItsOldBytes() {
+        val messageId = RandomId.random(random)
+        val answered = RandomId.random(random)
+        val plain = InnerPayloadV2Codec.encode(InnerPayloadV2.Text(messageId, NOW, "ok"))
+        val reply = InnerPayloadV2Codec.encode(InnerPayloadV2.Text(messageId, NOW, "ok", replyTo = answered))
+
+        assertEquals(3, plain[5].toInt())
+        assertEquals(5, reply[5].toInt())
+        val textField = byteArrayOf(0, 0, 0, 2) + "ok".toByteArray()
+        assertArrayEquals(textField + byteArrayOf(0x80.toByte()), plain.copyOfRange(30, 30 + textField.size + 1))
+        assertArrayEquals(textField + answered.toByteArray() + byteArrayOf(0x80.toByte()), reply.copyOfRange(30, 30 + textField.size + 17))
+
+        val decoded = InnerPayloadV2Codec.decode(reply) as InnerPayloadV2.Text
+        assertEquals(answered, decoded.replyTo)
+        assertEquals("ok", decoded.text)
+        assertArrayEquals(reply, InnerPayloadV2Codec.encode(decoded))
+        assertNull((InnerPayloadV2Codec.decode(plain) as InnerPayloadV2.Text).replyTo)
+    }
+
+    @Test
+    fun aDamagedReplyIsRejected() {
+        val messageId = RandomId.random(random)
+        val reply = InnerPayloadV2Codec.encode(InnerPayloadV2.Text(messageId, NOW, "ok", RandomId.random(random)))
+        val idStart = 30 + 4 + 2
+        // Cut inside the ID it answers: the padding marker comes eight bytes too early.
+        expectMalformedPayload(reply.copyOf().also { bytes -> bytes[idStart + 8] = 0x80.toByte(); bytes.fill(0, idStart + 9, bytes.size) })
+        // A plain text relabelled as a reply has no ID to read.
+        val plain = InnerPayloadV2Codec.encode(InnerPayloadV2.Text(messageId, NOW, "ok"))
+        expectMalformedPayload(plain.copyOf().also { it[5] = 5 })
+        // A text cannot answer itself.
+        expectMalformedPayload(reply.copyOf().also { messageId.toByteArray().copyInto(it, idStart) })
+        assertThrows(IllegalArgumentException::class.java) {
+            InnerPayloadV2Codec.encode(InnerPayloadV2.Text(messageId, NOW, "ok", messageId))
         }
     }
 

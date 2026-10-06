@@ -237,6 +237,60 @@ class SecureDatabaseMigrationInstrumentedTest {
     }
 
     /**
+     * DEC-035: Room v11 only adds three nullable columns. Every row survives byte for byte, every chat
+     * is unpinned and unmuted, every stored text answers nothing, and the seen marks stay as they were.
+     */
+    @Test
+    fun migrationTenToElevenAddsPinMuteAndReplyAndKeepsEveryRow() {
+        migrationHelper.createDatabase(TEST_DATABASE, 10).use { db ->
+            db.execSQL("INSERT INTO local_profile (profileId, encryptedDisplayName, deviceId) VALUES ('local', X'0A0B', '')")
+            db.execSQL(
+                "INSERT INTO v2_contacts (contactId, encryptedDisplayName, identityKey, peerQueueId, peerRoutingTagHex, " +
+                    "localRoutingTagHex, state, createdAtEpochMillis, verifiedAtEpochMillis) " +
+                    "VALUES ('c', X'01', X'05', 'q3-peer', 'aa', 'bb', 'ACTIVE', 1, 7)",
+            )
+            listOf(
+                "('in', 'c', 0, 'TEXT', '01', X'0C0D', 'RECEIVED', 5, NULL, NULL, 0, NULL, 0)",
+                "('out', 'c', 1, 'TEXT', '02', X'0E', 'PENDING', 6, 'q3-peer', X'0F', 1, 9, 1)",
+            ).forEach { row ->
+                db.execSQL(
+                    "INSERT INTO v2_messages (messageId, contactId, outgoing, kind, innerMessageIdHex, encryptedBody, status, " +
+                        "createdAtEpochMillis, peerQueueId, envelope, deliveryAttemptCount, nextRetryAtEpochMillis, isRead) VALUES $row",
+                )
+            }
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(TEST_DATABASE, 11, true, SecureMessengerDatabase.MIGRATION_10_11)
+        migrated.query(
+            "SELECT messageId, isRead, hex(encryptedBody), status, hex(envelope), replyToInnerIdHex FROM v2_messages ORDER BY messageId",
+        ).use { cursor ->
+            assertEquals(2, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("in", cursor.getString(0))
+            assertEquals(0, cursor.getInt(1))
+            assertEquals("0C0D", cursor.getString(2))
+            assertTrue(cursor.isNull(5))
+            cursor.moveToNext()
+            assertEquals("out", cursor.getString(0))
+            assertEquals("PENDING", cursor.getString(3))
+            assertEquals("0F", cursor.getString(4))
+            assertTrue(cursor.isNull(5))
+        }
+        migrated.query(
+            "SELECT verifiedAtEpochMillis, hex(encryptedDisplayName), state, pinnedAtEpochMillis, mutedUntilEpochMillis FROM v2_contacts",
+        ).use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertEquals(7, cursor.getInt(0))
+            assertEquals("01", cursor.getString(1))
+            assertEquals("ACTIVE", cursor.getString(2))
+            assertTrue(cursor.isNull(3))
+            assertTrue(cursor.isNull(4))
+        }
+        migrated.close()
+    }
+
+    /**
      * DEC-029: Room v10 only adds two local columns. Every row survives byte for byte, existing
      * messages count as seen (no flood of old unread badges), and no contact is marked verified.
      */

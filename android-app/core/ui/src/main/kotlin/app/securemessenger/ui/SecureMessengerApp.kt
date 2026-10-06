@@ -68,9 +68,13 @@ private enum class Screen {
 /**
  * App shell: onboarding, the chat (v2, debug builds only; DEC-021), and settings. Release builds
  * show a "not for messaging" screen instead of a chat until an independent external audit (DEC-026).
+ *
+ * With [backgroundConnection] (the app's own activity), showing the chats also starts the background
+ * connection if the person wants it (DEC-034); screens under test leave it off, so no service and no
+ * permanent notification run while they do.
  */
 @Composable
-fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
+fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel(), backgroundConnection: Boolean = false) {
     val state by viewModel.state.collectAsState()
     // Onboarding or the main screen at the bottom; settings and the theme preview open over the main
     // screen with Telegram's transitions and swipe back (DEC-033).
@@ -120,6 +124,13 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                         )
                         Screen.MAIN ->
                             if (state.v2Available) {
+                                // Each time the chats come to the front: the moment Android allows the start.
+                                if (backgroundConnection) {
+                                    LifecycleStartEffect(Unit) {
+                                        BackgroundConnection.startIfWanted(context)
+                                        onStopOrDispose {}
+                                    }
+                                }
                                 ConversationV2Root(
                                     onOpenSettings = { nav.push(Screen.SETTINGS) },
                                     onLocalDataUnreadable = viewModel::checkLocalData,
@@ -203,35 +214,6 @@ private fun CenteredScrollableColumn(
     }
 }
 
-@Composable
-private fun OnboardingScreen(creatingProfile: Boolean, onCreateProfile: (String) -> Unit) {
-    var displayName by remember { mutableStateOf("") }
-    CenteredScrollableColumn(verticalArrangement = Arrangement.Center) {
-        Text(stringResource(R.string.mvp_badge), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.onboarding_title), style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(16.dp))
-        SecurityWarning(text = stringResource(R.string.mvp_warning))
-        Spacer(Modifier.height(16.dp))
-        Text(stringResource(R.string.onboarding_body))
-        Spacer(Modifier.height(20.dp))
-        OutlinedTextField(
-            value = displayName,
-            onValueChange = { displayName = it },
-            label = { Text(stringResource(R.string.display_name)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(16.dp))
-        // Off while a profile is being created, so a double tap cannot start a second one (STORE-04).
-        Button(
-            onClick = { onCreateProfile(displayName) },
-            enabled = displayName.isNotBlank() && !creatingProfile,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.create_profile))
-        }
-    }
-}
 
 /**
  * DEC-023: the stored data cannot be used. For [LocalDataProblem.UNREADABLE] and

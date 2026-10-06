@@ -685,6 +685,215 @@ class ConversationV2ServiceTest {
         assertEquals(1, alice.service.chatSummaries().single { it.contact.contactId == carolsRequest }.unreadCount)
     }
 
+    /**
+     * DEC-034: an incoming text sorts by the time its sender wrote it when that is at most a minute
+     * before it arrived, so both phones show the conversation in the same order, with the same times.
+     */
+    @Test
+    fun bothPhonesShowTheConversationInTheOrderItWasWritten() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "first, from Bob")
+        clock += 5_000
+        // Alice writes before she has fetched Bob's text.
+        alice.service.sendText(bobOnAlice, "second, from Alice")
+        clock += 20_000
+        alice.service.synchronize()
+        bob.service.synchronize()
+
+        val onAlice = alice.service.texts(bobOnAlice)
+        val onBob = bob.service.texts(aliceOnBob)
+        assertEquals(listOf("first, from Bob", "second, from Alice"), onAlice.map { it.text })
+        assertEquals(listOf("first, from Bob", "second, from Alice"), onBob.map { it.text })
+        assertEquals(onAlice.map { it.createdAtEpochMillis }, onBob.map { it.createdAtEpochMillis })
+    }
+
+    /**
+     * DEC-034: a text that came too late shows at its arrival; one written after it, that came in
+     * time, must still show below it, never above: a contact's texts keep their own order.
+     */
+    @Test
+    fun aContactsTextsKeepTheirOrderWhenTheFirstCameTooLate() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "A")
+        clock += 30_000
+        bob.service.sendText(aliceOnBob, "B")
+        clock += 50_000
+        // A is 80 seconds old here, B only 50.
+        alice.service.synchronize()
+
+        val texts = alice.service.texts(bobOnAlice)
+        assertEquals(listOf("A", "B"), texts.map { it.text })
+        assertEquals(listOf(clock, clock), texts.map { it.createdAtEpochMillis })
+        assertEquals(clock - 1, ConversationV2Service.shownTimeOf(clock - 10_000, clock, notBefore = clock - 1))
+        assertEquals("never later than the arrival", clock, ConversationV2Service.shownTimeOf(clock - 10_000, clock, notBefore = clock + 5))
+    }
+
+    /** DEC-034: the sender's time is believed only up to a minute back, and never ahead of the arrival. */
+    @Test
+    fun aTextOlderThanAMinuteOrDatedAheadShowsWhenItArrived() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "late")
+        clock += ConversationV2Service.SENDER_TIME_WINDOW_MILLIS + 1
+        alice.service.synchronize()
+        assertEquals(clock, alice.service.texts(bobOnAlice).single().createdAtEpochMillis)
+
+        val arrived = clock
+        val window = ConversationV2Service.SENDER_TIME_WINDOW_MILLIS
+        assertEquals(arrived, ConversationV2Service.shownTimeOf(arrived, arrived))
+        assertEquals(arrived - window, ConversationV2Service.shownTimeOf(arrived - window, arrived))
+        assertEquals(arrived, ConversationV2Service.shownTimeOf(arrived - window - 1, arrived))
+        // A sender whose clock runs ahead cannot push its text after later ones, or into the future.
+        assertEquals(arrived, ConversationV2Service.shownTimeOf(arrived + 1, arrived))
+        assertEquals(arrived, ConversationV2Service.shownTimeOf(Long.MAX_VALUE, arrived))
+    }
+
+    /** DEC-035: a reply names the text it answers by its inner ID; each phone finds it in its own copy. */
+    @Test
+    fun aReplyNamesTheTextItAnswersOnBothPhones() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "lunch?")
+        alice.service.synchronize()
+        val question = alice.service.texts(bobOnAlice).single()
+
+        alice.service.sendText(bobOnAlice, "yes", replyToInnerIdHex = question.innerMessageIdHex)
+        bob.service.synchronize()
+
+        val answerOnAlice = alice.service.texts(bobOnAlice).last()
+        val answerOnBob = bob.service.texts(aliceOnBob).last()
+        assertEquals("yes", answerOnBob.text)
+        assertEquals(question.innerMessageIdHex, answerOnAlice.replyToInnerIdHex)
+        assertEquals(question.innerMessageIdHex, answerOnBob.replyToInnerIdHex)
+        // On Bob's phone that ID belongs to his own text.
+        assertEquals("lunch?", bob.service.texts(aliceOnBob).single { it.innerMessageIdHex == answerOnBob.replyToInnerIdHex }.text)
+        // A reply is receipted like any text, and a plain text answers nothing.
+        alice.service.synchronize()
+        assertEquals(V2MessageStatus.DELIVERED, alice.store.statusOf(answerOnAlice.messageId))
+        assertNull(question.replyToInnerIdHex)
+    }
+
+    @Test
+    fun aReplyToATextThisPhoneDoesNotHaveIsRefusedAndQueuesNothing() = runBlocking {
+        val (_, bobOnAlice) = pair()
+        val before = alice.store.dump()
+        val unknown = RandomId.random(java.security.SecureRandom()).toHex()
+
+        val failure = assertThrows(ConversationV2Exception::class.java) {
+            runBlocking { alice.service.sendText(bobOnAlice, "?", replyToInnerIdHex = unknown) }
+        }
+        assertEquals("Unknown message", failure.message)
+        assertEquals(before, alice.store.dump())
+    }
+
+    /** DEC-035: pinning and muting are marks on this phone; they send nothing and change no protocol state. */
+    @Test
+    fun pinningAndMutingAreLocalMarksAndSendNothing() = runBlocking {
+        val (_, bobOnAlice) = pair()
+        bob.service.synchronize()
+        val queuedBefore = alice.store.outgoingKinds(bobOnAlice)
+        val relayBefore = relay.queued(bob.queueId).size
+
+        alice.service.setPinned(bobOnAlice, true)
+        alice.service.setMuted(bobOnAlice, ConversationV2Service.MUTED_FOREVER)
+        val marked = alice.service.chatSummaries().single().contact
+        assertEquals(clock, marked.pinnedAtEpochMillis)
+        assertTrue(marked.isMuted(clock))
+
+        alice.service.setPinned(bobOnAlice, false)
+        alice.service.setMuted(bobOnAlice, clock + 1_000)
+        val changed = alice.store.contact(bobOnAlice)!!
+        assertFalse(changed.pinned)
+        assertTrue(changed.isMuted(clock))
+        assertFalse("a mute for a while ends by itself", changed.isMuted(clock + 1_000))
+        assertEquals(V2ContactState.ACTIVE, changed.state)
+        assertThrows(ConversationV2Exception::class.java) { alice.service.setPinned("unknown-contact", true) }
+        assertThrows(ConversationV2Exception::class.java) { alice.service.setMuted("unknown-contact", null) }
+
+        alice.service.synchronize()
+        assertEquals(queuedBefore, alice.store.outgoingKinds(bobOnAlice))
+        assertEquals(relayBefore, relay.queued(bob.queueId).size)
+    }
+
+    /** DEC-035: marking a chat read from the list is local, like the "seen" mark of DEC-029. */
+    @Test
+    fun markingAChatReadFromTheListClearsItsCountAndSendsNothing() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "one")
+        bob.service.sendText(aliceOnBob, "two")
+        alice.service.synchronize()
+        bob.service.synchronize()
+        val relayBefore = relay.queued(bob.queueId).size
+
+        assertEquals(2, alice.service.markChatRead(bobOnAlice))
+        assertEquals(0, alice.service.chatSummaries().single().unreadCount)
+        alice.service.synchronize()
+        assertEquals(relayBefore, relay.queued(bob.queueId).size)
+    }
+
+    /**
+     * DEC-035: clearing a chat deletes its texts on this phone. A text still waiting to be sent stays
+     * (its envelope holds a committed ratchet step) and still goes out; the contact stays as it was.
+     */
+    @Test
+    fun clearingHistoryKeepsTextsStillBeingSentAndTheContact() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "from Bob")
+        alice.service.synchronize()
+        alice.service.sendText(bobOnAlice, "sent")
+        relay.failNextSends = 1
+        val waiting = alice.service.sendText(bobOnAlice, "still waiting")
+        assertEquals(V2MessageStatus.FAILED, alice.store.statusOf(waiting))
+
+        assertEquals(2, alice.service.clearHistory(bobOnAlice))
+        assertEquals(listOf("still waiting"), alice.service.texts(bobOnAlice).map { it.text })
+        assertEquals(V2ContactState.ACTIVE, alice.store.contact(bobOnAlice)!!.state)
+        assertThrows(ConversationV2Exception::class.java) { alice.service.clearHistory("unknown-contact") }
+
+        clock += 60 * 60_000L
+        alice.service.sendDue()
+        bob.service.synchronize()
+        assertEquals(listOf("from Bob", "sent", "still waiting"), bob.service.texts(aliceOnBob).map { it.text })
+    }
+
+    /**
+     * DEC-035: deleting a contact removes it with its texts, queued envelopes, session and identity.
+     * The contact is not told; what it sends afterwards finds no route and is deleted unread. Writing
+     * again takes a new invitation, and the identity is then trusted afresh, like any new contact.
+     */
+    @Test
+    fun aDeletedContactIsGoneWithItsKeysAndItsLaterTextsFindNoRoute() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "hello")
+        alice.service.synchronize()
+        relay.failNextSends = 1
+        alice.service.sendText(bobOnAlice, "never sent")
+        assertTrue(alice.store.invitationUsedBy(bobOnAlice) != null)
+
+        alice.service.deleteContact(bobOnAlice)
+        assertNull(alice.store.contact(bobOnAlice))
+        assertTrue(alice.service.texts(bobOnAlice).isEmpty())
+        assertTrue(alice.store.unsentOutgoing().isEmpty())
+        assertFalse(alice.sessions.hasSession(bobOnAlice))
+        assertNull(alice.sessions.identityOf(bobOnAlice))
+        assertNull(alice.store.invitationUsedBy(bobOnAlice))
+        assertThrows(ConversationV2Exception::class.java) { alice.service.deleteContact(bobOnAlice) }
+
+        bob.service.sendText(aliceOnBob, "are you there?")
+        assertEquals(listOf(IncomingV2Result.UNROUTABLE), alice.service.synchronize())
+        assertTrue(relay.queued(alice.queueId).isEmpty())
+
+        // Bob still has Alice, so he deletes her too; then a new invitation pairs them as new contacts.
+        bob.service.deleteContact(aliceOnBob)
+        val newAliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        alice.service.synchronize()
+        val newBobOnAlice = alice.store.requests().single().requestId
+        assertTrue(newBobOnAlice != bobOnAlice)
+        alice.service.acceptRequest(newBobOnAlice, "Bob")
+        bob.service.synchronize()
+        bob.service.sendText(newAliceOnBob, "hi again")
+        alice.service.synchronize()
+        assertEquals(listOf("hi again"), alice.service.texts(newBobOnAlice).map { it.text })
+    }
+
     /** Bob scans Alice's invitation and Alice accepts. Returns (Alice's ID on Bob, Bob's ID on Alice). */
     private suspend fun pair(): Pair<String, String> {
         val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")

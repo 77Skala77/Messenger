@@ -243,10 +243,33 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch(Dispatchers.IO) { refresh() }
     }
 
-    fun sendText(text: String) {
+    /** [replyToInnerIdHex] names the text this one answers (DEC-035), or null. */
+    fun sendText(text: String, replyToInnerIdHex: String? = null) {
         val contactId = mutableState.value.selectedContactId ?: return
         if (text.isBlank()) return
-        run(syncAfterwards = true) { it.sendText(contactId, text) }
+        run(syncAfterwards = true) { it.sendText(contactId, text, replyToInnerIdHex) }
+    }
+
+    // --- Chat management from the list and the chat's menu (DEC-035). All local; nothing is sent. ---
+
+    fun setPinned(contactIds: Collection<String>, pinned: Boolean) =
+        run { service -> contactIds.forEach { service.setPinned(it, pinned) } }
+
+    /** [mutedUntilEpochMillis] null unmutes; [ConversationV2Service.MUTED_FOREVER] mutes for good. */
+    fun setMuted(contactIds: Collection<String>, mutedUntilEpochMillis: Long?) =
+        run { service -> contactIds.forEach { service.setMuted(it, mutedUntilEpochMillis) } }
+
+    fun markChatsRead(contactIds: Collection<String>) {
+        contactIds.forEach { V2Notifications.cancelChat(getApplication(), it) }
+        run { service -> contactIds.forEach { service.markChatRead(it) } }
+    }
+
+    fun clearHistory(contactId: String) = run { it.clearHistory(contactId) }
+
+    /** Deletes the contacts with their keys and texts (owner decision, DEC-035), after the person confirmed. */
+    fun deleteChats(contactIds: Collection<String>) {
+        contactIds.forEach { V2Notifications.cancelChat(getApplication(), it) }
+        run { service -> contactIds.forEach { service.deleteContact(it) } }
     }
 
     fun synchronizeNow() = run(showRefreshing = true) { it.synchronize() }

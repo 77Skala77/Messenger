@@ -12,8 +12,25 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         // A tapped notification names the chat to open; a recreated activity has handled it already.
         if (savedInstanceState == null) V2OpenChat.take(intent)
+        preferSmoothestDisplayMode()
         setContent {
-            SecureMessengerApp()
+            SecureMessengerApp(backgroundConnection = true)
+        }
+    }
+
+    /**
+     * Asks for the display mode with the highest refresh rate at the screen's current size (120 Hz
+     * where the phone has it), so swipes and animations are as smooth as the screen allows. The system
+     * may still lower it (battery saver); nothing depends on it.
+     */
+    private fun preferSmoothestDisplayMode() {
+        val display = display ?: return
+        val current = display.mode
+        val best = display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .maxByOrNull { it.refreshRate } ?: return
+        if (best.refreshRate > current.refreshRate) {
+            window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId }
         }
     }
 

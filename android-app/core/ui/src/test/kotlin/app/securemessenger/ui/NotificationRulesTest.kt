@@ -25,7 +25,7 @@ class NotificationRulesTest {
 
         assertEquals(
             listOf(MessageNotice.Chat("alice", "Alice", 3), MessageNotice.Chat("carol", "Carol", 1)),
-            messageNotices(before, after, listOf(alice, bob, carol)),
+            messageNotices(before, after, listOf(alice, bob, carol), NOW),
         )
     }
 
@@ -35,7 +35,22 @@ class NotificationRulesTest {
         val before = UnseenSnapshot(mapOf("alice" to 2, "bob" to 1), emptySet())
         val after = UnseenSnapshot(mapOf("alice" to 2, "bob" to 0, "blocked" to 5), emptySet())
 
-        assertTrue(messageNotices(before, after, listOf(alice, bob, blocked)).isEmpty())
+        assertTrue(messageNotices(before, after, listOf(alice, bob, blocked), NOW).isEmpty())
+    }
+
+    /** DEC-035: a muted chat is not announced while the mute lasts; its texts are still counted. */
+    @Test
+    fun `a muted chat is announced only once its mute has ended`() {
+        val mutedForAWhile = contact("alice", "Alice", mutedUntil = NOW + 1_000)
+        val mutedForGood = contact("bob", "Bob", mutedUntil = Long.MAX_VALUE)
+        val before = UnseenSnapshot(emptyMap(), emptySet())
+        val after = UnseenSnapshot(mapOf("alice" to 1, "bob" to 1, "carol" to 1), emptySet())
+
+        assertEquals(listOf(MessageNotice.Chat("carol", "Carol", 1)), messageNotices(before, after, listOf(mutedForAWhile, mutedForGood, carol), NOW))
+        assertEquals(
+            listOf(MessageNotice.Chat("alice", "Alice", 1), MessageNotice.Chat("carol", "Carol", 1)),
+            messageNotices(before, after, listOf(mutedForAWhile, mutedForGood, carol), NOW + 1_000),
+        )
     }
 
     @Test
@@ -45,7 +60,7 @@ class NotificationRulesTest {
 
         assertEquals(
             listOf(MessageNotice.Request("r-new"), MessageNotice.Request("r-old")),
-            messageNotices(before, after, emptyList()),
+            messageNotices(before, after, emptyList(), NOW),
         )
     }
 
@@ -55,7 +70,7 @@ class NotificationRulesTest {
         val before = UnseenSnapshot(mapOf("dave" to 2), setOf("dave"))
         val after = UnseenSnapshot(mapOf("dave" to 2), emptySet())
 
-        assertTrue(messageNotices(before, after, listOf(contact("dave", "Dave"))).isEmpty())
+        assertTrue(messageNotices(before, after, listOf(contact("dave", "Dave")), NOW).isEmpty())
     }
 
     @Test
@@ -86,7 +101,7 @@ class NotificationRulesTest {
 
     @Test
     fun `the notification code never reads message texts or claimed names and stays private on the lock screen`() {
-        val sources = listOf("V2Notifications.kt", "NotificationRules.kt", "NotificationUi.kt", "V2BackgroundSync.kt")
+        val sources = listOf("V2Notifications.kt", "NotificationRules.kt", "NotificationUi.kt", "V2BackgroundSync.kt", "V2Connection.kt")
             .associateWith { File("src/main/kotlin/app/securemessenger/ui/$it").readText() }
         val forbidden = listOf(
             "MessagingStyle", "BigTextStyle", "InboxStyle", "setTicker", "RemoteInput", "lastText", "texts(",
@@ -104,6 +119,10 @@ class NotificationRulesTest {
         assertTrue(poster.contains(".setContentTitle(strings.lockScreenTitle)"))
     }
 
-    private fun contact(id: String, name: String, state: V2ContactState = V2ContactState.ACTIVE) =
-        V2Contact(id, name, ByteArray(33), "queue", "00", id, state, 1L)
+    private fun contact(id: String, name: String, state: V2ContactState = V2ContactState.ACTIVE, mutedUntil: Long? = null) =
+        V2Contact(id, name, ByteArray(33), "queue", "00", id, state, 1L, mutedUntilEpochMillis = mutedUntil)
+
+    private companion object {
+        const val NOW = 1_800_000_000_000L
+    }
 }

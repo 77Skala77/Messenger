@@ -21,6 +21,13 @@ class LocalizationResourcesTest {
         "NotificationUi.kt",
         "ScreenSecurity.kt",
         "SettingsScreen.kt",
+        "ChatSearch.kt",
+        "ChatSounds.kt",
+        "TelegramIcon.kt",
+        "ChatListActions.kt",
+        "MessageReplies.kt",
+        "OnboardingScreen.kt",
+        "V2Connection.kt",
         "TelegramTopBar.kt",
         "TelegramPopupMenu.kt",
         "TelegramAlertDialog.kt",
@@ -89,6 +96,26 @@ class LocalizationResourcesTest {
         assertTrue(worker.contains("if (!V2Availability.isAvailable(application)) return"))
     }
 
+    /**
+     * DEC-034: the background connection exists only where chats exist. Our release manifest declares
+     * no service, no receiver and none of their permissions, and the code refuses to run without v2.
+     */
+    @Test
+    fun `the background connection is debug only and guarded`() {
+        val mainManifest = File("src/main/AndroidManifest.xml").readText()
+        val debugManifest = File("src/debug/AndroidManifest.xml").readText()
+        val connection = File("src/main/kotlin/app/securemessenger/ui/V2Connection.kt").readText()
+        listOf(
+            "V2ConnectionService", "V2ConnectionStarter", "FOREGROUND_SERVICE_DATA_SYNC", "WAKE_LOCK",
+            "RECEIVE_BOOT_COMPLETED", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        ).forEach { name ->
+            assertFalse("the release manifest declares $name", mainManifest.contains(name))
+            assertTrue("the debug manifest lacks $name", debugManifest.contains(name))
+        }
+        assertTrue(connection.contains("if (!V2Availability.isAvailable(context) || !enabled(context)) return"))
+        assertTrue(connection.contains("if (!V2Availability.isAvailable(this) || !BackgroundConnection.enabled(this))"))
+    }
+
     @Test
     fun `message status labels distinguish relay acceptance from end to end delivery`() {
         val english = stringValues(File("src/main/res/values/strings.xml"))
@@ -147,6 +174,8 @@ class LocalizationResourcesTest {
 
         assertTrue(activity.contains("AppCompatActivity"))
         assertTrue(application.contains("LegacyReset.runOnce(this)"))
+        // The keyboard shortens the window, so the chat's top bar stays in view (owner's report, 2026-10-06).
+        assertTrue(appManifest.contains("android:windowSoftInputMode=\"adjustResize\""))
         assertFalse(appManifest.contains("android:name=\".MainActivity\"\n            android:screenOrientation"))
         assertTrue(appManifest.contains("android.permission.CAMERA"))
     }

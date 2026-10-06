@@ -134,6 +134,10 @@ data class V2ContactEntity(
      * null until then. A local mark only: it never leaves the phone.
      */
     val verifiedAtEpochMillis: Long? = null,
+    /** When the user pinned the chat to the top of the list (Room v11, DEC-035); null when not pinned. Local only. */
+    val pinnedAtEpochMillis: Long? = null,
+    /** Notifications stay silent until then (Room v11, DEC-035); null when not muted. Local only. */
+    val mutedUntilEpochMillis: Long? = null,
 )
 
 /** Message bodies are vault-encrypted (DEC-019 T1); queued ciphertext is dropped once sent. */
@@ -161,6 +165,11 @@ data class V2MessageEntity(
      */
     @ColumnInfo(defaultValue = "1")
     val isRead: Boolean,
+    /**
+     * The inner message ID of the text this one answers (Room v11, DEC-035); null for a plain text.
+     * A random ID that says nothing about the content; the quote is looked up when shown.
+     */
+    val replyToInnerIdHex: String? = null,
 )
 
 /** One chat's count of incoming texts not seen yet (DEC-029). */
@@ -367,6 +376,15 @@ interface SecureMessengerDao {
     @Query("UPDATE v2_contacts SET verifiedAtEpochMillis = :verifiedAtEpochMillis WHERE contactId = :contactId")
     fun updateV2ContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Int
 
+    @Query("UPDATE v2_contacts SET pinnedAtEpochMillis = :pinnedAtEpochMillis WHERE contactId = :contactId")
+    fun updateV2ContactPinned(contactId: String, pinnedAtEpochMillis: Long?): Int
+
+    @Query("UPDATE v2_contacts SET mutedUntilEpochMillis = :mutedUntilEpochMillis WHERE contactId = :contactId")
+    fun updateV2ContactMuted(contactId: String, mutedUntilEpochMillis: Long?): Int
+
+    @Query("DELETE FROM v2_contacts WHERE contactId = :contactId")
+    fun deleteV2Contact(contactId: String): Int
+
     /** Returns -1 when the message ID, or this contact's inner message ID, already exists. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertV2Message(message: V2MessageEntity): Long
@@ -374,7 +392,8 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 ORDER BY createdAtEpochMillis")
     fun getV2IncomingMessages(contactId: String): List<V2MessageEntity>
 
-    @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' ORDER BY createdAtEpochMillis, messageId")
+    /** Equal times keep the order the texts were stored in (rowid), never that of their random IDs (DEC-034). */
+    @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' ORDER BY createdAtEpochMillis, rowid")
     fun getV2Texts(contactId: String): List<V2MessageEntity>
 
     /** The last text of a chat in the order [getV2Texts] shows them, either direction. */
@@ -382,11 +401,14 @@ interface SecureMessengerDao {
         """
         SELECT * FROM v2_messages
         WHERE contactId = :contactId AND kind = 'TEXT'
-        ORDER BY createdAtEpochMillis DESC, messageId DESC
+        ORDER BY createdAtEpochMillis DESC, rowid DESC
         LIMIT 1
         """,
     )
     fun getLastV2Text(contactId: String): V2MessageEntity?
+
+    @Query("SELECT MAX(createdAtEpochMillis) FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 AND kind = 'TEXT'")
+    fun getLatestV2IncomingTextTime(contactId: String): Long?
 
     /** Incoming texts not seen yet, per contact or request (DEC-029); chats with none are absent. */
     @Query(
@@ -454,6 +476,16 @@ interface SecureMessengerDao {
     @Query("DELETE FROM v2_messages WHERE contactId = :contactId")
     fun deleteV2MessagesFor(contactId: String)
 
+    @Query("SELECT COUNT(*) FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' AND innerMessageIdHex = :innerMessageIdHex")
+    fun countV2Texts(contactId: String, innerMessageIdHex: String): Int
+
+    /**
+     * Clears a chat's history (DEC-035): incoming texts, and outgoing ones whose envelope is gone
+     * (handed to the relay, or delivered). An outgoing text still holding its envelope stays.
+     */
+    @Query("DELETE FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' AND (outgoing = 0 OR envelope IS NULL)")
+    fun deleteV2SettledTexts(contactId: String): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertV2AcceptedEnvelope(envelope: V2AcceptedEnvelopeEntity): Long
 
@@ -503,7 +535,7 @@ interface SecureMessengerDao {
         V2MessageEntity::class,
         V2AcceptedEnvelopeEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -514,7 +546,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
-                    MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                    MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                 )
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
@@ -835,6 +867,20 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `isRead` INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE `v2_contacts` ADD COLUMN `verifiedAtEpochMillis` INTEGER")
+            }
+        }
+
+        /**
+         * Phase 6 (DEC-035): a chat may be pinned or muted, and a text may answer another. Purely
+         * additive, three nullable columns: no row is deleted or reinterpreted, every chat starts
+         * unpinned and unmuted, and every stored text stays a plain text. Nothing here leaves the phone;
+         * the answered text's ID also travels inside the encrypted payload (type 5), never outside it.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `v2_contacts` ADD COLUMN `pinnedAtEpochMillis` INTEGER")
+                db.execSQL("ALTER TABLE `v2_contacts` ADD COLUMN `mutedUntilEpochMillis` INTEGER")
+                db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `replyToInnerIdHex` TEXT")
             }
         }
     }

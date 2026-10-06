@@ -8,14 +8,35 @@ private const val PREVIEW_MAX_CHARS = 200
 
 /**
  * When a chat last had something to show: its newest text in either direction, or, before the first
- * text, the day the contact was added. Both are this phone's own clock (never the contact's), so
- * the order cannot be steered from outside.
+ * text, the day the contact was added. An incoming text's time is the contact's own only within a
+ * minute before it arrived here (DEC-034), never later than its arrival, so the contact can move its
+ * chat at most a minute down the list, never up.
  */
 internal fun V2ChatSummary.lastActivityMillis(): Long = lastText?.createdAtEpochMillis ?: contact.createdAtEpochMillis
 
-/** The chat list's order (notes 2.6): the chat with the newest activity first; equal times by contact ID, so it never jumps. */
+/**
+ * The chat list's order (notes 2.6): pinned chats on top, the one pinned last first, like Telegram's
+ * (DEC-035); then the chat with the newest activity first; equal times by contact ID, so it never jumps.
+ */
 internal fun chatListOrder(chats: List<V2ChatSummary>): List<V2ChatSummary> =
-    chats.sortedWith(compareByDescending<V2ChatSummary> { it.lastActivityMillis() }.thenBy { it.contact.contactId })
+    chats.sortedWith(
+        compareByDescending<V2ChatSummary> { it.contact.pinnedAtEpochMillis ?: Long.MIN_VALUE }
+            .thenByDescending { it.lastActivityMillis() }
+            .thenBy { it.contact.contactId },
+    )
+
+/**
+ * The chats whose contact name or newest text contains [query] (case-insensitive, surrounding spaces
+ * ignored); an empty query keeps all. It works on what the list already holds, on this phone only.
+ */
+internal fun chatListSearch(chats: List<V2ChatSummary>, query: String): List<V2ChatSummary> {
+    val needle = query.trim()
+    if (needle.isEmpty()) return chats
+    return chats.filter {
+        it.contact.localDisplayName.contains(needle, ignoreCase = true) ||
+            it.lastText?.text?.contains(needle, ignoreCase = true) == true
+    }
+}
 
 /** What the second line of a chat row says. */
 internal sealed interface ChatPreview {

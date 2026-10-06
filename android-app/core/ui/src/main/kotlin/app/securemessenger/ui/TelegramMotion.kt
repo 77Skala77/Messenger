@@ -153,6 +153,26 @@ object TelegramMotion {
 
     /** Android's `AccelerateDecelerateInterpolator`, which finishing a swipe uses. */
     val AccelerateDecelerate: Easing = Easing { x -> (cos((x + 1.0) * PI) / 2.0).toFloat() + 0.5f }
+
+    // Swipe to reply (`ChatActivity`, its sliding view, DEC-035).
+
+    /** A bubble follows the finger at most this far to the left. */
+    val ReplySwipeMax = 80.dp
+
+    /** Pulled this far, the phone ticks once, and letting go answers the message. */
+    val ReplySwipeTrigger = 50.dp
+
+    /** The round reply sign appears once the bubble moved this far. */
+    val ReplyIconShow = 20.dp
+
+    /** The round reply sign is this wide. */
+    val ReplyIconSize = 32.dp
+
+    /** The bubble slides back in this long, decelerating. */
+    const val REPLY_SWIPE_BACK_MILLIS = 180
+
+    /** A message the person jumped to (from a quote) is highlighted this long. */
+    const val QUOTE_HIGHLIGHT_MILLIS = 1_500L
 }
 
 /** Pixels in [cm] centimetres on a screen of [xdpi] dots per inch (`AndroidUtilities.getPixelsInCM`). */
@@ -161,6 +181,13 @@ fun pixelsInCm(cm: Float, xdpi: Float): Float = cm * max(1f, xdpi / 2.54f)
 /** The swipe back begins: far enough sideways and clearly more sideways than up or down. */
 fun shouldStartBackSwipe(dx: Float, dy: Float, minDistancePx: Float): Boolean =
     dx >= minDistancePx && abs(dx) / TelegramMotion.SWIPE_AXIS_RATIO > dy
+
+/** The swipe to reply begins: the mirror of the swipe back, to the left (`ChatActivity`). */
+fun shouldStartReplySwipe(dx: Float, dy: Float, minDistancePx: Float): Boolean =
+    dx <= -minDistancePx && abs(dx) / TelegramMotion.SWIPE_AXIS_RATIO > dy
+
+/** Where a bubble is while the finger is [dx] px from where the swipe began: never right of its place, at most [maxPx] left. */
+fun replySwipeOffset(dx: Float, maxPx: Float): Float = min(0f, max(-maxPx, dx))
 
 /**
  * The finger came up at [x] (distance dragged, in px) on a screen [width] px wide, moving at

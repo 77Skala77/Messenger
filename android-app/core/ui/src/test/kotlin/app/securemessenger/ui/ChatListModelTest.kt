@@ -95,6 +95,40 @@ class ChatListModelTest {
 
     private fun ids(chats: List<V2ChatSummary>) = chats.map { it.contact.contactId }
 
+    /** DEC-035: pinned chats stay on top, the one pinned last first, whatever their activity. */
+    @Test
+    fun `pinned chats come first, the latest pin on top, then the rest by activity`() {
+        val busy = chat("busy", lastAt = 9_000L)
+        val pinnedEarly = chat("pinned-early", lastAt = 1_000L, pinnedAt = 100L)
+        val pinnedLate = chat("pinned-late", lastAt = 2_000L, pinnedAt = 200L)
+        val quiet = chat("quiet", lastAt = 3_000L)
+
+        assertEquals(
+            listOf("pinned-late", "pinned-early", "busy", "quiet"),
+            ids(chatListOrder(listOf(quiet, pinnedEarly, busy, pinnedLate))),
+        )
+    }
+
+    @Test
+    fun `search finds a chat by the contact name or the newest text, ignoring case and outer spaces`() {
+        val alice = chat("Alice", lastAt = 1L, text = "see you at the Station")
+        val bob = chat("Bob", lastAt = 2L, text = "lunch?")
+        val chats = listOf(alice, bob)
+
+        assertEquals(listOf("Alice"), ids(chatListSearch(chats, "  ali ")))
+        assertEquals(listOf("Alice"), ids(chatListSearch(chats, "STATION")))
+        assertEquals(listOf("Bob"), ids(chatListSearch(chats, "lunch")))
+        assertEquals(emptyList<String>(), ids(chatListSearch(chats, "zzz")))
+    }
+
+    @Test
+    fun `an empty search keeps every chat in its order`() {
+        val chats = listOf(chat("a", lastAt = 1L), chat("b", lastAt = 2L))
+
+        assertEquals(listOf("a", "b"), ids(chatListSearch(chats, "")))
+        assertEquals(listOf("a", "b"), ids(chatListSearch(chats, "   ")))
+    }
+
     private fun chat(
         id: String,
         lastAt: Long?,
@@ -104,8 +138,9 @@ class ChatListModelTest {
         outgoing: Boolean = false,
         status: V2MessageStatus = if (outgoing) V2MessageStatus.SENT else V2MessageStatus.RECEIVED,
         state: V2ContactState = V2ContactState.ACTIVE,
+        pinnedAt: Long? = null,
     ): V2ChatSummary {
-        val contact = V2Contact(id, id, ByteArray(33), "queue", "00", id, state, addedAt)
+        val contact = V2Contact(id, id, ByteArray(33), "queue", "00", id, state, addedAt, pinnedAtEpochMillis = pinnedAt)
         val last = lastAt?.let { V2StoredMessage("m-$id", id, outgoing, "00", text, status, it) }
         return V2ChatSummary(contact, last, unread)
     }

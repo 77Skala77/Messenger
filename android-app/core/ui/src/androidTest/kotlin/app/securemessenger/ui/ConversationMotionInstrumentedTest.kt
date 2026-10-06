@@ -49,7 +49,7 @@ class ConversationMotionInstrumentedTest {
                     V2Conversation(
                         contact = V2Contact("contact", "Alice Brown", ByteArray(33), "queue", "00", "01", V2ContactState.ACTIVE, now - DAY),
                         messages = messages,
-                        onSend = {},
+                        onSend = { _, _ -> },
                         onBack = {},
                         onOpenSafety = {},
                     )

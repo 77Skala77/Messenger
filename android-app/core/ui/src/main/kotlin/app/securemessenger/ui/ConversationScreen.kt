@@ -11,6 +11,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,18 +50,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -101,38 +109,77 @@ private const val BUBBLE_MIN_DP = 160
 /** Between the last line of text and the time that shares it. */
 private const val META_GAP_DP = 8
 
+/** What a chat's own menu does (DEC-035); all of it stays on this phone. Empty for screens shown without a pipeline. */
+internal class ConversationActions(
+    /** null lets notifications through again. */
+    val mute: (Long?) -> Unit = {},
+    val clearHistory: () -> Unit = {},
+    val delete: () -> Unit = {},
+)
+
 /**
  * The conversation (step 6e): a header with the contact, the messages as bubbles over the wallpaper
  * with date pills, and the input bar. The contact's safety number is one tap away on the header.
  * Nothing here sends anything about reading; ticks show the delivery state of our own texts only.
+ * A text can be answered (DEC-035): swipe its bubble to the left, or press it long; the answer then
+ * carries a quote of it. [onSend] gets the text and the inner ID of the text it answers, or null.
  */
 @Composable
 internal fun V2Conversation(
     contact: V2Contact,
     messages: List<V2StoredMessage>,
-    onSend: (String) -> Unit,
+    onSend: (text: String, replyToInnerIdHex: String?) -> Unit,
     onBack: () -> Unit,
     onOpenSafety: () -> Unit,
+    actions: ConversationActions = ConversationActions(),
 ) {
     var draft by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { ChatSounds.prepare(context) }
     val zone = remember { ZoneId.systemDefault() }
     val entries = remember(messages, zone) { conversationEntries(messages, zone) }
     val blocked = contact.state == V2ContactState.KEY_CHANGED
-    Scaffold(topBar = { ConversationHeader(contact, onBack, onOpenSafety) }) { padding ->
+    // The text being answered; once it is gone (the history was cleared) it can no longer be answered.
+    var replyingTo by remember(contact.contactId) { mutableStateOf<V2StoredMessage?>(null) }
+    LaunchedEffect(messages) {
+        val target = replyingTo ?: return@LaunchedEffect
+        if (messages.none { it.messageId == target.messageId }) replyingTo = null
+    }
+    val inputFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val you = stringResource(R.string.reply_you)
+    // A blocked contact (changed key) can be written to by nobody, so nothing can be answered either.
+    val startReply: ((V2StoredMessage) -> Unit)? = if (blocked) {
+        null
+    } else {
+        { message ->
+            replyingTo = message
+            runCatching { inputFocus.requestFocus() }
+            keyboard?.show()
+        }
+    }
+    Scaffold(topBar = { ConversationHeader(contact, onBack, onOpenSafety, actions) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ChatWallpaper(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize()) {
-                    MessageList(entries, zone)
+                    MessageList(entries, zone, contact.localDisplayName, startReply)
                     if (entries.isEmpty()) EmptyConversationNote(Modifier.align(Alignment.Center))
                 }
             }
+            ReplyPanel(
+                target = replyingTo?.let { ReplyTarget(if (it.outgoing) you else contact.localDisplayName, quoteLine(it.text)) },
+                onCancel = { replyingTo = null },
+            )
             MessageInputBar(
                 draft = draft,
                 onDraftChange = { draft = it },
                 enabled = !blocked,
+                focusRequester = inputFocus,
                 onSend = {
-                    onSend(draft)
+                    onSend(draft, replyingTo?.innerMessageIdHex)
+                    ChatSounds.playSent(context)
                     draft = ""
+                    replyingTo = null
                 },
             )
         }
@@ -140,7 +187,7 @@ internal fun V2Conversation(
 }
 
 @Composable
-private fun ConversationHeader(contact: V2Contact, onBack: () -> Unit, onOpenSafety: () -> Unit) {
+private fun ConversationHeader(contact: V2Contact, onBack: () -> Unit, onOpenSafety: () -> Unit, actions: ConversationActions) {
     val colors = MaterialTheme.messenger
     val blocked = contact.state == V2ContactState.KEY_CHANGED
     // An active contact says whether its safety number was compared (DEC-030); the other states say themselves.
@@ -150,6 +197,8 @@ private fun ConversationHeader(contact: V2Contact, onBack: () -> Unit, onOpenSaf
         contact.state == V2ContactState.ACTIVE -> stringResource(R.string.conversation_subtitle_unverified)
         else -> stateLabel(contact.state)
     }
+    val muted = contact.isMuted(System.currentTimeMillis())
+    var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
     TelegramTopBar(
         onBack = onBack,
         titleContent = {
@@ -164,7 +213,24 @@ private fun ConversationHeader(contact: V2Contact, onBack: () -> Unit, onOpenSaf
                 Avatar(contact.localDisplayName, contact.contactId, size = MessengerDimens.AvatarHeader)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(contact.localDisplayName, style = MessengerType.HeaderTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            contact.localDisplayName,
+                            style = MessengerType.HeaderTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (muted) {
+                            Spacer(Modifier.width(4.dp))
+                            TelegramIcon(
+                                R.drawable.tg_list_mute,
+                                tint = colors.hint,
+                                size = 18.dp,
+                                description = stringResource(R.string.chat_muted_description),
+                            )
+                        }
+                    }
                     Text(
                         subtitle,
                         style = MessengerType.HeaderSubtitle,
@@ -179,7 +245,26 @@ private fun ConversationHeader(contact: V2Contact, onBack: () -> Unit, onOpenSaf
                 }
             }
         },
+        actions = {
+            ConversationMenu(
+                muted = muted,
+                onMute = actions.mute,
+                onClear = { confirm = ChatConfirm.CLEAR },
+                onDelete = { confirm = ChatConfirm.DELETE },
+            )
+        },
     )
+    confirm?.let { kind ->
+        ChatConfirmDialog(
+            kind = kind,
+            count = 1,
+            onConfirm = {
+                confirm = null
+                if (kind == ChatConfirm.DELETE) actions.delete() else actions.clearHistory()
+            },
+            onDismiss = { confirm = null },
+        )
+    }
 }
 
 /** A chat with no messages yet says so on a pill over the wallpaper, like Telegram's empty chat. */
@@ -208,12 +293,20 @@ private const val SCROLL_DOWN_THRESHOLD_DP = 48
  * Newest message at the bottom, where the list also starts; a new one scrolls into view if the
  * person is near the end. The motion is Telegram's (DEC-033): new messages grow from 90 percent while
  * fading in and the rest slide to make room (250 ms), a date pill floats at the top while scrolling,
- * and a round button with a count takes the person back to the newest message.
+ * and a round button with a count takes the person back to the newest message. A bubble swiped to
+ * the left, or pressed long, is answered ([onReply]; null when nothing can be sent); a quote in a
+ * bubble jumps to the text it quotes and lights it up for a moment (DEC-035).
  */
 @Composable
-private fun MessageList(entries: List<ConversationEntry>, zone: ZoneId) {
+private fun MessageList(
+    entries: List<ConversationEntry>,
+    zone: ZoneId,
+    contactName: String,
+    onReply: ((V2StoredMessage) -> Unit)?,
+) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val density = LocalDensity.current
     val newestFirst = remember(entries) { entries.asReversed() }
     val newest = newestFirst.firstOrNull()
@@ -238,12 +331,42 @@ private fun MessageList(entries: List<ConversationEntry>, zone: ZoneId) {
         }
     }
     LaunchedEffect(showDown) { if (!showDown) arrivedBelow = 0 }
+    // A text that arrives in an open chat makes Telegram's short "in" sound, wherever it sorts in
+    // (by its sender's time it may land above our own latest, DEC-034). What loads in the first
+    // moments after the screen opened is the history: no sound for it.
+    val openedAt = remember { System.nanoTime() }
+    var knownIncoming by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(newestFirst) {
+        val incoming = newestFirst.mapNotNullTo(HashSet()) { entry ->
+            (entry as? ConversationEntry.Bubble)?.takeIf { !it.message.outgoing }?.key
+        }
+        val settled = System.nanoTime() - openedAt > HISTORY_GRACE_NANOS
+        if (settled && incoming.any { it !in knownIncoming }) ChatSounds.playReceived(context)
+        knownIncoming = incoming
+    }
+    // Quotes are looked up in this phone's own copy of the chat (DEC-035).
+    val byInnerId = remember(entries) {
+        entries.mapNotNull { (it as? ConversationEntry.Bubble)?.message }.associateBy { it.innerMessageIdHex }
+    }
+    var highlighted by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(highlighted) {
+        if (highlighted != null) {
+            delay(TelegramMotion.QUOTE_HIGHLIGHT_MILLIS)
+            highlighted = null
+        }
+    }
+    val jumpTo: (String) -> Unit = { innerId ->
+        val index = newestFirst.indexOfFirst { it is ConversationEntry.Bubble && it.message.innerMessageIdHex == innerId }
+        if (index >= 0) {
+            highlighted = newestFirst[index].key
+            scope.launch { listState.animateScrollToItem(index) }
+        }
+    }
 
     val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     val patterns = rememberDatePatterns()
     val nowMillis = remember { System.currentTimeMillis() }
     val maxBubble = (LocalConfiguration.current.screenWidthDp - BUBBLE_SCREEN_MARGIN_DP).coerceIn(BUBBLE_MIN_DP, BUBBLE_MAX_DP).dp
-    val openedAt = remember { System.nanoTime() }
     val seen = remember { mutableSetOf<String>() }
 
     // The floating date: the day of the oldest message in view, shown while scrolling.
@@ -303,13 +426,27 @@ private fun MessageList(entries: List<ConversationEntry>, zone: ZoneId) {
                 ) {
                     when (entry) {
                         is ConversationEntry.Day -> DateChip(formatDateChip(entry.timeMillis, nowMillis, zone, locale, patterns))
-                        is ConversationEntry.Bubble -> MessageBubble(
-                            message = entry.message,
-                            position = entry.position,
-                            time = formatMessageTime(entry.message.createdAtEpochMillis, zone, locale),
-                            maxWidth = maxBubble,
-                            enterProgress = { enter.value },
-                        )
+                        is ConversationEntry.Bubble -> {
+                            val message = entry.message
+                            ReplySwipe(
+                                enabled = onReply != null,
+                                outgoing = message.outgoing,
+                                onReply = { onReply?.invoke(message) },
+                            ) {
+                                MessageBubble(
+                                    message = message,
+                                    position = entry.position,
+                                    time = formatMessageTime(message.createdAtEpochMillis, zone, locale),
+                                    maxWidth = maxBubble,
+                                    enterProgress = { enter.value },
+                                    quote = quoteOf(message.replyToInnerIdHex, byInnerId),
+                                    contactName = contactName,
+                                    onQuoteClick = { message.replyToInnerIdHex?.let(jumpTo) },
+                                    onReply = onReply?.let { reply -> { reply(message) } },
+                                    highlighted = highlighted == entry.key,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -389,7 +526,11 @@ private fun ScrollDownButton(visible: Boolean, count: Int, onClick: () -> Unit, 
     }
 }
 
-/** One bubble (notes 2.1 to 2.3): its colors and shape from the series, the time and ticks at the bottom end. */
+/**
+ * One bubble (notes 2.1 to 2.3): its colors and shape from the series, the time and ticks at the
+ * bottom end, and above the text the quote of the text it answers, if any (DEC-035). A long press
+ * offers "Reply" ([onReply], null when nothing can be sent); so does the accessibility menu.
+ */
 @Composable
 private fun MessageBubble(
     message: V2StoredMessage,
@@ -397,13 +538,24 @@ private fun MessageBubble(
     time: String,
     maxWidth: Dp,
     enterProgress: () -> Float = { 1f },
+    quote: QuoteInfo? = null,
+    contactName: String = "",
+    onQuoteClick: () -> Unit = {},
+    onReply: (() -> Unit)? = null,
+    highlighted: Boolean = false,
 ) {
     val colors = MaterialTheme.messenger
     val outgoing = message.outgoing
     val shape = remember(outgoing, position) { BubbleShape(outgoing, position.tail, position.nearTop, position.nearBottom) }
     val strip = MessengerDimens.BubbleTailStrip.dp
+    val highlight by animateFloatAsState(if (highlighted) 1f else 0f, tween(TelegramMotion.LIST_MOVE_MILLIS), label = "highlight")
+    var menu by remember { mutableStateOf(false) }
+    val replyLabel = stringResource(R.string.reply_action)
     Row(
-        Modifier.fillMaxWidth().padding(bottom = if (position.tail) 6.dp else 2.dp),
+        Modifier
+            .fillMaxWidth()
+            .background(colors.link.copy(alpha = HIGHLIGHT_ALPHA * highlight))
+            .padding(bottom = if (position.tail) 6.dp else 2.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
     ) {
         Box(
@@ -415,7 +567,14 @@ private fun MessageBubble(
                     scaleY = scale
                 }
                 .testTag(MESSAGE_TAG_PREFIX + message.messageId)
-                .semantics(mergeDescendants = true) {}
+                .semantics(mergeDescendants = true) {
+                    if (onReply != null) {
+                        customActions = listOf(CustomAccessibilityAction(replyLabel) { onReply(); true })
+                    }
+                }
+                .pointerInput(onReply != null) {
+                    if (onReply != null) detectTapGestures(onLongPress = { menu = true })
+                }
                 .widthIn(max = maxWidth)
                 .background(if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming, shape)
                 .padding(
@@ -425,12 +584,34 @@ private fun MessageBubble(
                     bottom = 5.dp,
                 ),
         ) {
-            BubbleContent(message.text, MessengerType.MessageText, colors.messageText) {
-                MessageMeta(time, outgoing, message.status)
+            Column {
+                if (quote != null) {
+                    BubbleQuote(quote, contactName, outgoing, onQuoteClick, Modifier.testTag(QUOTE_TAG_PREFIX + message.messageId))
+                }
+                BubbleContent(message.text, MessengerType.MessageText, colors.messageText) {
+                    MessageMeta(time, outgoing, message.status)
+                }
+            }
+            if (onReply != null) {
+                TelegramPopupMenu(expanded = menu, onDismissRequest = { menu = false }, itemCount = 1) {
+                    Item(
+                        index = 0,
+                        icon = R.drawable.tg_ic_ab_reply,
+                        text = replyLabel,
+                        onClick = {
+                            menu = false
+                            onReply()
+                        },
+                        modifier = Modifier.testTag(MESSAGE_MENU_REPLY_TAG),
+                    )
+                }
             }
         }
     }
 }
+
+/** How strongly a message the person jumped to is lit up at first (Telegram's highlight). */
+private const val HIGHLIGHT_ALPHA = 0.18f
 
 @Composable
 private fun MessageMeta(time: String, outgoing: Boolean, status: V2MessageStatus) {
@@ -490,7 +671,13 @@ private fun BubbleContent(text: String, style: TextStyle, color: Color, meta: @C
  * key) can be written to by nobody: the field is off.
  */
 @Composable
-private fun MessageInputBar(draft: String, onDraftChange: (String) -> Unit, enabled: Boolean, onSend: () -> Unit) {
+private fun MessageInputBar(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    enabled: Boolean,
+    onSend: () -> Unit,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+) {
     val colors = MaterialTheme.messenger
     val canSend = enabled && draft.isNotBlank()
     Row(
@@ -505,7 +692,7 @@ private fun MessageInputBar(draft: String, onDraftChange: (String) -> Unit, enab
             cursorBrush = SolidColor(colors.fab),
             maxLines = INPUT_MAX_LINES,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            modifier = Modifier.weight(1f).testTag(MESSAGE_INPUT_TAG),
+            modifier = Modifier.weight(1f).focusRequester(focusRequester).testTag(MESSAGE_INPUT_TAG),
             decorationBox = { field ->
                 Box(Modifier.heightIn(min = 44.dp).padding(horizontal = 4.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
                     if (draft.isEmpty()) Text(stringResource(R.string.v2_message_hint), style = MessengerType.InputText, color = colors.hint)

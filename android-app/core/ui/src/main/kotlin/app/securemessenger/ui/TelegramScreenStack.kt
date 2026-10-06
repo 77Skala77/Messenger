@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -119,6 +120,8 @@ fun <T : Any> TelegramScreenStack(
     content: @Composable (T) -> Unit,
 ) {
     require(stack.isNotEmpty()) { "A stack always has its root" }
+    // The swipe gesture outlives recompositions; it always calls the caller's current lambda.
+    val swipedBack by rememberUpdatedState(onSwipeBack)
     val density = LocalDensity.current
     val xdpi = LocalContext.current.resources.displayMetrics.xdpi
     val scope = rememberCoroutineScope()
@@ -219,7 +222,7 @@ fun <T : Any> TelegramScreenStack(
                                             animationSpec = tween(backFinishMillis(x, width), easing = TelegramMotion.AccelerateDecelerate),
                                         ) { value, _ -> dragPx = value }
                                         book.swipeCommitted = true
-                                        onSwipeBack()
+                                        swipedBack()
                                     }
                                     dragForSize = -1
                                     dragPx = 0f

@@ -186,4 +186,64 @@
         <item quantity="many">%d непрочитанных сообщений</item>
         <item quantity="other">%d непрочитанного сообщения</item>
     </plurals>
+    <string name="chat_preview_you">Вы:</string>
+    <string name="search_chats">Поиск</string>
+    <string name="search_hint">Поиск по чатам</string>
+    <string name="search_clear">Очистить</string>
+    <string name="search_no_results">Ничего не найдено</string>
+    <string name="settings_chats_title">Чаты</string>
+    <string name="chat_sounds_title">Звуки в чатах</string>
+    <string name="chat_sounds_hint">Короткий звук при отправке сообщения и при получении в открытом чате. Не звучит, если телефон в беззвучном режиме или на вибрации.</string>    <string name="reply_you">Вы</string>
+    <string name="reply_unavailable">Сообщение недоступно</string>
+    <string name="reply_action">Ответить</string>
+    <string name="reply_cancel">Отменить ответ</string>
+    <string name="chat_menu_mute">Отключить уведомления</string>
+    <string name="chat_menu_unmute">Включить уведомления</string>
+    <string name="chat_menu_delete">Удалить чат</string>
+    <string name="mute_1h">На 1 час</string>
+    <string name="mute_8h">На 8 часов</string>
+    <string name="mute_2d">На 2 дня</string>
+    <string name="mute_forever">Навсегда</string>
+    <string name="chat_action_pin">Закрепить</string>
+    <string name="chat_action_unpin">Открепить</string>
+    <string name="chat_action_mute">Без звука</string>
+    <string name="chat_action_unmute">Со звуком</string>
+    <string name="chat_action_read">Прочитано</string>
+    <string name="chat_action_delete">Удалить</string>
+    <string name="chat_action_clear">Очистить историю</string>
+    <string name="chat_swipe_pin">Закрепить</string>
+    <string name="chat_swipe_read">Прочитано</string>
+    <string name="chat_swipe_mute">Без звука</string>
+    <string name="chat_swipe_delete">Удалить</string>
+    <string name="settings_swipe_title">Свайп влево по чату</string>
+    <string name="selection_close">Снять выделение</string>
+    <string name="chat_muted_description">Уведомления отключены</string>
+    <string name="chat_pinned_description">Закреплён</string>
+    <string name="delete_chat_title">Удалить чат?</string>
+    <plurals name="delete_chats_title">
+        <item quantity="one">Удалить %d чат?</item>
+        <item quantity="few">Удалить %d чата?</item>
+        <item quantity="many">Удалить %d чатов?</item>
+        <item quantity="other">Удалить %d чата?</item>
+    </plurals>
+    <string name="clear_history_title">Очистить историю?</string>
+    <plurals name="clear_histories_title">
+        <item quantity="one">Очистить историю %d чата?</item>
+        <item quantity="few">Очистить историю %d чатов?</item>
+        <item quantity="many">Очистить историю %d чатов?</item>
+        <item quantity="other">Очистить историю %d чата?</item>
+    </plurals>
+    <string name="delete_chats_text">Контакт, его ключи и все сообщения будут удалены с этого телефона. Собеседник об этом не узнает: то, что он пришлёт потом, не дойдёт. Чтобы снова переписываться, понадобится новое приглашение.</string>
+    <string name="clear_history_text">Сообщения будут удалены с этого телефона. Те, что ещё отправляются, останутся, пока не уйдут. У собеседника его копия останется.</string>
+    <string name="clear_history_confirm">Очистить</string>
+    <string name="connection_channel_name">Фоновое соединение</string>
+    <string name="connection_channel_description">Постоянное уведомление, пока приложение проверяет новые сообщения</string>
+    <string name="connection_notification_title">Проверка новых сообщений</string>
+    <string name="connection_notification_text">Каждые 30 секунд. Отключить можно в настройках.</string>
+    <string name="connection_setting_title">Фоновое соединение</string>
+    <string name="connection_setting_hint">Пока приложение закрыто, оно каждые 30 секунд проверяет новые сообщения, поэтому уведомления приходят быстро. Android при этом показывает постоянное уведомление, а телефон тратит больше заряда, особенно на мобильном интернете.</string>
+    <string name="battery_allowed">Работа в фоне разрешена: Android не будет усыплять приложение.</string>
+    <string name="battery_not_allowed">Android может усыплять приложение, и тогда сообщения будут приходить с опозданием.</string>
+    <string name="battery_allow">Разрешить работу в фоне</string>
+    <string name="battery_maker_hint">На некоторых телефонах (Xiaomi, Redmi и других) нужно ещё включить для приложения «Автозапуск» в настройках самого телефона.</string>
 </resources>

@@ -1,5 +1,6 @@
 package app.securemessenger.ui
 
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
@@ -8,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -39,7 +41,7 @@ import androidx.compose.ui.window.PopupProperties
 class TelegramPopupScope internal constructor(private val progress: () -> Float, private val count: Int) {
     /** One row of the menu, 48 dp high, 16 sp; it fades in and slides down from 6 dp above in its turn. */
     @Composable
-    fun Item(index: Int, text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    fun Item(index: Int, text: String, onClick: () -> Unit, modifier: Modifier = Modifier, @DrawableRes icon: Int? = null) {
         val slidePx = with(LocalDensity.current) { TelegramMotion.PopupItemSlide.toPx() }
         Row(
             modifier
@@ -54,6 +56,10 @@ class TelegramPopupScope internal constructor(private val progress: () -> Float,
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (icon != null) {
+                TelegramIcon(icon)
+                Spacer(Modifier.width(16.dp))
+            }
             Text(text, style = MessengerType.MenuItem, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
         }
     }

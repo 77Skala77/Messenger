@@ -27,7 +27,14 @@ object MessengerType {
     val TopBarTitleLandscape = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Medium, lineHeight = 22.sp, letterSpacing = 0.sp)
 
     /** An item in a popup menu: 16 sp (`ActionBarMenuSubItem`). */
-    val DialogTitle = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Medium, lineHeight = 26.sp, letterSpacing = 0.sp)
+    /** The first screen's title and text (Telegram's intro pages). */
+    val OnboardingTitle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Medium, lineHeight = 28.sp, letterSpacing = 0.sp)
+    val OnboardingText = TextStyle(fontSize = 15.sp, lineHeight = 21.sp, letterSpacing = 0.sp)
+
+    /** The author and the text of a quote in a bubble or above the input field (Telegram's reply block). */
+    val QuoteName = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 18.sp, letterSpacing = 0.sp)
+    val QuoteText = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 0.sp)
+    val DialogTitle =TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Medium, lineHeight = 26.sp, letterSpacing = 0.sp)
     val DialogText = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = 0.sp)
     val MenuItem =TextStyle(fontSize = 16.sp, lineHeight = 20.sp, letterSpacing = 0.sp)
 

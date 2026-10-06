@@ -85,9 +85,17 @@ class V2Contact(
      * A contact's identity key never changes, so the mark always belongs to the key it was set for.
      */
     val verifiedAtEpochMillis: Long? = null,
+    /** When the person pinned this chat to the top of the list (Room v11, DEC-035); null when not pinned. Local only. */
+    val pinnedAtEpochMillis: Long? = null,
+    /** Notifications for this chat stay silent until then (Room v11, DEC-035); null when not muted. Local only. */
+    val mutedUntilEpochMillis: Long? = null,
 ) {
     /** The mark counts only for a contact that is not blocked: a changed key is never "checked". */
     val safetyNumberChecked: Boolean get() = verifiedAtEpochMillis != null && state != V2ContactState.KEY_CHANGED
+
+    val pinned: Boolean get() = pinnedAtEpochMillis != null
+
+    fun isMuted(nowEpochMillis: Long): Boolean = mutedUntilEpochMillis?.let { it > nowEpochMillis } ?: false
 }
 
 sealed class V2Route {
@@ -116,7 +124,13 @@ class V2StoredMessage(
     val innerMessageIdHex: String,
     val text: String,
     val status: V2MessageStatus,
+    /**
+     * When the text is shown and sorted: for our own texts the time we wrote them, for incoming ones
+     * the sender's time when it lies within a minute before arrival, else the arrival (DEC-034).
+     */
     val createdAtEpochMillis: Long,
+    /** The inner message ID of the text this one answers (DEC-035), either direction; null for a plain text. */
+    val replyToInnerIdHex: String? = null,
 )
 
 /**
@@ -186,18 +200,54 @@ interface ConversationV2Store {
      */
     fun setContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Boolean
 
-    /** Returns false (and stores nothing) if this contact's message with that inner ID already exists. */
+    /**
+     * Pins (a time) or unpins (null) a chat (DEC-035). Returns false, changing nothing, if there is no
+     * such contact.
+     */
+    fun setContactPinned(contactId: String, pinnedAtEpochMillis: Long?): Boolean
+
+    /** Mutes a chat's notifications until a time, or unmutes it (null). False if there is no such contact. */
+    fun setContactMuted(contactId: String, mutedUntilEpochMillis: Long?): Boolean
+
+    /**
+     * Deletes the contact row only; its messages, session and invitation are the caller's to delete in
+     * the same transaction. Returns false if there was no such contact.
+     */
+    fun deleteContact(contactId: String): Boolean
+
+    /**
+     * Returns false (and stores nothing) if this contact's message with that inner ID already exists.
+     * [createdAtEpochMillis] is the time the text is shown and sorted by (DEC-034); [replyToInnerIdHex]
+     * the text it answers, as the sender named it (DEC-035), unchecked: it may be one this phone lacks.
+     */
     fun storeIncomingText(
         contactId: String,
         innerMessageIdHex: String,
         text: String,
-        receivedAtEpochMillis: Long,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String?,
     ): Boolean
+
+    /** Whether this chat holds a text, in either direction, with that inner message ID. */
+    fun hasText(contactId: String, innerMessageIdHex: String): Boolean
+
+    /** The shown time of this contact's (or request's) latest incoming text, or null if it has none (DEC-034). */
+    fun latestIncomingTextTime(contactId: String): Long?
+
+    /**
+     * Deletes this chat's texts that have nothing left to do (DEC-035): every incoming one, and every
+     * outgoing one already handed to the relay. A text still waiting to be sent keeps its envelope and
+     * stays; control messages are untouched. Returns how many were deleted.
+     */
+    fun clearTexts(contactId: String): Int
 
     /** Incoming texts of a contact or request, oldest first. */
     fun incomingTexts(contactId: String): List<V2StoredMessage>
 
-    /** Visible texts of a contact in both directions, oldest first (control messages excluded). */
+    /**
+     * Visible texts of a contact in both directions, oldest first (control messages excluded); texts
+     * with the same time in the order they were stored, never by their random IDs.
+     */
     fun texts(contactId: String): List<V2StoredMessage>
 
     /** The newest of [texts], in the same order, or null. */
@@ -215,8 +265,11 @@ interface ConversationV2Store {
     /** Every contact, oldest first. */
     fun contacts(): List<V2Contact>
 
-    /** [visibleText] is stored (encrypted) for TEXT only; control messages have none. */
-    fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long)
+    /**
+     * [visibleText] is stored (encrypted) for TEXT only; control messages have none. [replyToInnerIdHex]
+     * is the text a reply answers (DEC-035), TEXT only.
+     */
+    fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long, replyToInnerIdHex: String?)
 
     fun outgoing(messageId: String): V2OutgoingEnvelope?
 

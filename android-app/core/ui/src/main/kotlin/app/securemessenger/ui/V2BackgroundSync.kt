@@ -79,6 +79,8 @@ internal object V2Pipeline {
             }
             V2QueueCredentialStore(context.applicationContext, vault).clear()
         }
+        // Nothing is left to fetch for; the app starts it again once a new profile has chats.
+        BackgroundConnection.stop(context.applicationContext)
         // They name contacts that no longer exist on this phone.
         V2Notifications.cancelAll(context.applicationContext)
     }
@@ -201,7 +203,7 @@ internal object V2BackgroundNotices {
             failed
         }
         if (!V2Foreground.visible) {
-            V2Notifications.post(context, messageNotices(before, snapshot(service), service.contacts()))
+            V2Notifications.post(context, messageNotices(before, snapshot(service), service.contacts(), System.currentTimeMillis()))
         }
         if (failure != null) throw failure
     }

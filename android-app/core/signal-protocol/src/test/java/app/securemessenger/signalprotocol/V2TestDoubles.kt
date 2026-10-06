@@ -179,14 +179,41 @@ class InMemoryConversationV2Store : ConversationV2Store {
         return true
     }
 
-    private fun V2Contact.copy(state: V2ContactState = this.state, verifiedAtEpochMillis: Long? = this.verifiedAtEpochMillis) =
-        V2Contact(
-            contactId, localDisplayName, identityKey, peerQueueId, peerRoutingTagHex, localRoutingTagHex, state,
-            createdAtEpochMillis, verifiedAtEpochMillis,
-        )
+    @Synchronized
+    override fun setContactPinned(contactId: String, pinnedAtEpochMillis: Long?): Boolean {
+        val contact = contacts[contactId] ?: return false
+        contacts[contactId] = contact.copy(pinnedAtEpochMillis = pinnedAtEpochMillis)
+        return true
+    }
 
     @Synchronized
-    override fun storeIncomingText(contactId: String, innerMessageIdHex: String, text: String, receivedAtEpochMillis: Long): Boolean {
+    override fun setContactMuted(contactId: String, mutedUntilEpochMillis: Long?): Boolean {
+        val contact = contacts[contactId] ?: return false
+        contacts[contactId] = contact.copy(mutedUntilEpochMillis = mutedUntilEpochMillis)
+        return true
+    }
+
+    @Synchronized
+    override fun deleteContact(contactId: String): Boolean = contacts.remove(contactId) != null
+
+    private fun V2Contact.copy(
+        state: V2ContactState = this.state,
+        verifiedAtEpochMillis: Long? = this.verifiedAtEpochMillis,
+        pinnedAtEpochMillis: Long? = this.pinnedAtEpochMillis,
+        mutedUntilEpochMillis: Long? = this.mutedUntilEpochMillis,
+    ) = V2Contact(
+        contactId, localDisplayName, identityKey, peerQueueId, peerRoutingTagHex, localRoutingTagHex, state,
+        createdAtEpochMillis, verifiedAtEpochMillis, pinnedAtEpochMillis, mutedUntilEpochMillis,
+    )
+
+    @Synchronized
+    override fun storeIncomingText(
+        contactId: String,
+        innerMessageIdHex: String,
+        text: String,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String?,
+    ): Boolean {
         if (failNextIncomingStore) {
             failNextIncomingStore = false
             throw IllegalStateException("Simulated crash while storing")
@@ -196,20 +223,41 @@ class InMemoryConversationV2Store : ConversationV2Store {
         }
         val id = "local-${nextLocalId++}"
         messages[id] = Message(
-            V2StoredMessage(id, contactId, false, innerMessageIdHex, text, V2MessageStatus.RECEIVED, receivedAtEpochMillis),
+            V2StoredMessage(id, contactId, false, innerMessageIdHex, text, V2MessageStatus.RECEIVED, createdAtEpochMillis, replyToInnerIdHex),
             V2MessageKind.TEXT, V2MessageStatus.RECEIVED, null, null, 0, null, read = false,
         )
         return true
     }
 
     @Synchronized
+    override fun hasText(contactId: String, innerMessageIdHex: String): Boolean =
+        messages.values.any { it.kind == V2MessageKind.TEXT && it.stored.contactId == contactId && it.stored.innerMessageIdHex == innerMessageIdHex }
+
+    @Synchronized
+    override fun latestIncomingTextTime(contactId: String): Long? =
+        messages.values.filter { !it.stored.outgoing && it.kind == V2MessageKind.TEXT && it.stored.contactId == contactId }
+            .maxOfOrNull { it.stored.createdAtEpochMillis }
+
+    /** Like the Room query: incoming texts, and outgoing ones whose envelope is gone. */
+    @Synchronized
+    override fun clearTexts(contactId: String): Int {
+        val settled = messages.filterValues {
+            it.kind == V2MessageKind.TEXT && it.stored.contactId == contactId && (!it.stored.outgoing || it.envelope == null)
+        }.keys
+        settled.forEach(messages::remove)
+        return settled.size
+    }
+
+    @Synchronized
     override fun incomingTexts(contactId: String) =
         messages.values.filter { !it.stored.outgoing && it.stored.contactId == contactId }.map { it.stored }
 
-    /** In insertion order: the tests' clock only moves forward, so this is also the time order. */
+    /** By shown time, then local ID, like the Room query; insertion order breaks ties among equal IDs. */
     @Synchronized
     override fun texts(contactId: String) =
-        messages.values.filter { it.stored.contactId == contactId && it.kind == V2MessageKind.TEXT }.map(::visible)
+        messages.values.filter { it.stored.contactId == contactId && it.kind == V2MessageKind.TEXT }
+            .sortedBy { it.stored.createdAtEpochMillis }
+            .map(::visible)
 
     @Synchronized
     override fun lastText(contactId: String) = texts(contactId).lastOrNull()
@@ -229,21 +277,22 @@ class InMemoryConversationV2Store : ConversationV2Store {
 
     private fun visible(message: Message) = V2StoredMessage(
         message.stored.messageId, message.stored.contactId, message.stored.outgoing, message.stored.innerMessageIdHex,
-        message.stored.text, message.status, message.stored.createdAtEpochMillis,
+        message.stored.text, message.status, message.stored.createdAtEpochMillis, message.stored.replyToInnerIdHex,
     )
 
     @Synchronized
     override fun contacts() = contacts.values.toList()
 
     @Synchronized
-    override fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long) {
+    override fun enqueueOutgoing(envelope: V2OutgoingEnvelope, visibleText: String?, createdAtEpochMillis: Long, replyToInnerIdHex: String?) {
         require((envelope.kind == V2MessageKind.TEXT) == (visibleText != null))
+        require(replyToInnerIdHex == null || envelope.kind == V2MessageKind.TEXT)
         check(envelope.messageId !in messages)
         check(messages.values.none { it.stored.outgoing && it.stored.contactId == envelope.contactId && it.stored.innerMessageIdHex == envelope.innerMessageIdHex })
         messages[envelope.messageId] = Message(
             V2StoredMessage(
                 envelope.messageId, envelope.contactId, true, envelope.innerMessageIdHex, visibleText.orEmpty(),
-                V2MessageStatus.PENDING, createdAtEpochMillis,
+                V2MessageStatus.PENDING, createdAtEpochMillis, replyToInnerIdHex,
             ),
             envelope.kind, V2MessageStatus.PENDING, envelope.peerQueueId, envelope.envelope, envelope.attemptCount, null,
             read = true,
@@ -318,13 +367,15 @@ class InMemoryConversationV2Store : ConversationV2Store {
         contacts.values.forEach {
             add(
                 "contact ${it.contactId} ${it.state} ${it.localRoutingTagHex} ${it.peerRoutingTagHex} ${it.peerQueueId} " +
-                    "${hexOf(it.identityKey)} verified=${it.verifiedAtEpochMillis}",
+                    "${hexOf(it.identityKey)} verified=${it.verifiedAtEpochMillis} pinned=${it.pinnedAtEpochMillis} " +
+                    "muted=${it.mutedUntilEpochMillis}",
             )
         }
         messages.values.forEach {
             add(
                 "message ${it.stored.messageId} ${it.stored.contactId} ${it.kind} ${it.status} ${it.stored.innerMessageIdHex} " +
-                    "${it.stored.text} ${it.attemptCount} ${it.nextRetryAt} ${it.envelope?.let(::hexOf)}",
+                    "${it.stored.text} ${it.attemptCount} ${it.nextRetryAt} ${it.envelope?.let(::hexOf)} " +
+                    "at=${it.stored.createdAtEpochMillis} reply=${it.stored.replyToInnerIdHex}",
             )
         }
         accepted.keys.sorted().forEach { add("accepted $it") }

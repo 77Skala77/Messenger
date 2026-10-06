@@ -53,6 +53,7 @@ class V2DecoderFuzzTest {
             InnerPayloadV2.Accept(RandomId.random(secure), NOW),
             InnerPayloadV2.Text(RandomId.random(secure), NOW, "привет"),
             InnerPayloadV2.Text(RandomId.random(secure), NOW, "x".repeat(400)),
+            InnerPayloadV2.Text(RandomId.random(secure), NOW, "ответ", replyTo = RandomId.random(secure)),
             InnerPayloadV2.Receipt(RandomId.random(secure), NOW, RandomId.random(secure)),
         )
         var inputs = Fuzz.randomInputs(random, count = 1_000, maxLength = 2_048) + paddedRandomBodies(random)

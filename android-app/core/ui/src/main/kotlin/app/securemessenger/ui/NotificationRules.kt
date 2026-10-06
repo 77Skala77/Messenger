@@ -24,13 +24,19 @@ internal class UnseenSnapshot(val unseen: Map<String, Int>, val requestIds: Set<
 
 /**
  * What to announce after a sync: each contact whose count of unseen texts went up, and each request
- * that is new or got more texts. A blocked contact (changed key) is never announced. Message texts
- * are not even an input.
+ * that is new or got more texts. A blocked contact (changed key) is never announced, nor one the
+ * person muted until after [nowEpochMillis] (DEC-035): its texts are still counted in the app. Message
+ * texts are not even an input.
  */
-internal fun messageNotices(before: UnseenSnapshot, after: UnseenSnapshot, contacts: List<V2Contact>): List<MessageNotice> {
+internal fun messageNotices(
+    before: UnseenSnapshot,
+    after: UnseenSnapshot,
+    contacts: List<V2Contact>,
+    nowEpochMillis: Long,
+): List<MessageNotice> {
     fun grew(id: String) = (after.unseen[id] ?: 0) > (before.unseen[id] ?: 0)
     val chats = contacts
-        .filter { it.state != V2ContactState.KEY_CHANGED && grew(it.contactId) }
+        .filter { it.state != V2ContactState.KEY_CHANGED && !it.isMuted(nowEpochMillis) && grew(it.contactId) }
         .map { MessageNotice.Chat(it.contactId, it.localDisplayName, after.unseen[it.contactId] ?: 0) }
     val requests = after.requestIds
         .filter { it !in before.requestIds || grew(it) }

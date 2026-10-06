@@ -43,8 +43,8 @@ class ConversationV2StorageInstrumentedTest {
         repository.saveInvitation(invitation("inv-1", TAG_A, codeText = "smp-invite-v2:SEAL-KEY-MATERIAL"))
         repository.saveRequest(request("req-1", TAG_B, claimedName = "Claimed Name Mallory"))
         repository.saveContact(contact("contact-1", TAG_C, name = "Alice Private Name"))
-        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "incoming top secret", 10))
-        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_2), "outgoing top secret", 11)
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "incoming top secret", 10, null))
+        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_2), "outgoing top secret", 11, null)
 
         val rawValues = listOf(
             dao.getV2Invitation("inv-1")!!.encryptedCodeText,
@@ -97,9 +97,9 @@ class ConversationV2StorageInstrumentedTest {
 
     @Test
     fun duplicatesAreRecordedOnceAndInvitationsExpire() {
-        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "once", 1))
-        assertFalse(repository.storeIncomingText("contact-1", INNER_1, "again", 2))
-        assertTrue(repository.storeIncomingText("contact-2", INNER_1, "same inner ID, other contact", 3))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "once", 1, null))
+        assertFalse(repository.storeIncomingText("contact-1", INNER_1, "again", 2, null))
+        assertTrue(repository.storeIncomingText("contact-2", INNER_1, "same inner ID, other contact", 3, null))
         assertEquals(listOf("once"), repository.incomingTexts("contact-1").map { it.text })
 
         assertFalse(repository.isEnvelopeAccepted(DIGEST))
@@ -117,8 +117,8 @@ class ConversationV2StorageInstrumentedTest {
 
     @Test
     fun outgoingQueueRetriesThenDropsCiphertextAndReceiptsStayContactScoped() {
-        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_1), "hi", 1)
-        repository.enqueueOutgoing(outgoing("rcpt-1", "contact-1", V2MessageKind.RECEIPT, INNER_2), null, 2)
+        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_1), "hi", 1, null)
+        repository.enqueueOutgoing(outgoing("rcpt-1", "contact-1", V2MessageKind.RECEIPT, INNER_2), null, 2, null)
         assertEquals(listOf("out-1", "rcpt-1"), repository.unsentOutgoing().map { it.messageId })
 
         // A failed envelope stays first, with its retry time: the sender keeps the order (DEC-026).
@@ -140,10 +140,10 @@ class ConversationV2StorageInstrumentedTest {
         assertEquals("DELIVERED", dao.getV2OutgoingMessage("out-1")!!.status)
 
         assertThrows(IllegalArgumentException::class.java) {
-            repository.enqueueOutgoing(outgoing("bad", "contact-1", V2MessageKind.RECEIPT, INNER_3), "no text for receipts", 3)
+            repository.enqueueOutgoing(outgoing("bad", "contact-1", V2MessageKind.RECEIPT, INNER_3), "no text for receipts", 3, null)
         }
         assertThrows(IllegalStateException::class.java) {
-            repository.enqueueOutgoing(outgoing("dup", "contact-1", V2MessageKind.TEXT, INNER_1), "duplicate inner ID", 4)
+            repository.enqueueOutgoing(outgoing("dup", "contact-1", V2MessageKind.TEXT, INNER_1), "duplicate inner ID", 4, null)
         }
     }
 
@@ -153,9 +153,9 @@ class ConversationV2StorageInstrumentedTest {
      */
     @Test
     fun unsentEnvelopesKeepTheirInsertionOrderWhateverTheClockSays() {
-        repository.enqueueOutgoing(outgoing("z-first", "contact-1", V2MessageKind.ACCEPT, INNER_1), null, 7)
-        repository.enqueueOutgoing(outgoing("a-second", "contact-1", V2MessageKind.RECEIPT, INNER_2), null, 7)
-        repository.enqueueOutgoing(outgoing("m-third", "contact-1", V2MessageKind.RECEIPT, INNER_3), null, 3)
+        repository.enqueueOutgoing(outgoing("z-first", "contact-1", V2MessageKind.ACCEPT, INNER_1), null, 7, null)
+        repository.enqueueOutgoing(outgoing("a-second", "contact-1", V2MessageKind.RECEIPT, INNER_2), null, 7, null)
+        repository.enqueueOutgoing(outgoing("m-third", "contact-1", V2MessageKind.RECEIPT, INNER_3), null, 3, null)
         assertEquals(listOf("z-first", "a-second", "m-third"), repository.unsentOutgoing().map { it.messageId })
     }
 
@@ -165,7 +165,7 @@ class ConversationV2StorageInstrumentedTest {
         assertThrows(IllegalStateException::class.java) {
             transactions.inTransaction {
                 signalStore.saveSessionRecord(address, "ratchet-step".toByteArray())
-                repository.storeIncomingText("contact-1", INNER_1, "decrypted text", 1)
+                repository.storeIncomingText("contact-1", INNER_1, "decrypted text", 1, null)
                 repository.recordAcceptedEnvelope(DIGEST, 1)
                 throw IllegalStateException("simulated crash before commit")
             }
@@ -176,7 +176,7 @@ class ConversationV2StorageInstrumentedTest {
 
         val stored = transactions.inTransaction {
             signalStore.saveSessionRecord(address, "ratchet-step".toByteArray())
-            repository.storeIncomingText("contact-1", INNER_1, "decrypted text", 1)
+            repository.storeIncomingText("contact-1", INNER_1, "decrypted text", 1, null)
         }
         assertTrue(stored)
         assertArrayEquals("ratchet-step".toByteArray(), signalStore.loadSessionRecord(address))
@@ -188,7 +188,7 @@ class ConversationV2StorageInstrumentedTest {
         repository.saveInvitation(invitation("inv-1", TAG_A))
         repository.saveRequest(request("req-1", TAG_B))
         repository.saveContact(contact("contact-1", TAG_C))
-        repository.storeIncomingText("contact-1", INNER_1, "x", 1)
+        repository.storeIncomingText("contact-1", INNER_1, "x", 1, null)
         repository.recordAcceptedEnvelope(DIGEST, 1)
 
         LocalProfileRepository(dao, vault).wipeLocalData()
@@ -206,11 +206,11 @@ class ConversationV2StorageInstrumentedTest {
      */
     @Test
     fun unseenTextsAreCountedPerChatAndTheLastTextIsTheNewestInEitherDirection() {
-        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "first", 10))
-        assertTrue(repository.storeIncomingText("contact-1", INNER_2, "second", 20))
-        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_3), "my answer", 30)
-        repository.enqueueOutgoing(outgoing("rcpt-1", "contact-1", V2MessageKind.RECEIPT, INNER_4), null, 40)
-        assertTrue(repository.storeIncomingText("contact-2", INNER_1, "other chat", 15))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "first", 10, null))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_2, "second", 20, null))
+        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_3), "my answer", 30, null)
+        repository.enqueueOutgoing(outgoing("rcpt-1", "contact-1", V2MessageKind.RECEIPT, INNER_4), null, 40, null)
+        assertTrue(repository.storeIncomingText("contact-2", INNER_1, "other chat", 15, null))
 
         assertEquals(mapOf("contact-1" to 2, "contact-2" to 1), repository.unreadCounts())
         // The receipt is newer, but it is not a text.
@@ -222,7 +222,7 @@ class ConversationV2StorageInstrumentedTest {
         assertEquals(0, repository.markRead("contact-1"))
         assertEquals(mapOf("contact-2" to 1), repository.unreadCounts())
 
-        assertTrue(repository.storeIncomingText("contact-1", INNER_4, "newest", 50))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_4, "newest", 50, null))
         assertEquals(mapOf("contact-1" to 1, "contact-2" to 1), repository.unreadCounts())
         assertEquals("newest", repository.lastText("contact-1")!!.text)
     }
@@ -280,6 +280,83 @@ class ConversationV2StorageInstrumentedTest {
         repository.saveRequest(request("req-1", TAG_B))
         repository.saveContact(contact("contact-1", TAG_C))
         assertEquals(3, dao.countV2QueueHolders())
+    }
+
+    /** DEC-035 on Room: pin and mute are set and cleared on their own, kept across state changes, and refused for unknown contacts. */
+    @Test
+    fun pinAndMuteAreKeptPerContactAndSurviveStateChanges() {
+        repository.saveContact(contact("contact-1", TAG_A))
+        repository.saveContact(contact("contact-2", TAG_B))
+
+        assertTrue(repository.setContactPinned("contact-1", 1_000L))
+        assertTrue(repository.setContactMuted("contact-2", 9_000L))
+        repository.setContactState("contact-1", V2ContactState.ACTIVE)
+        assertEquals(1_000L, repository.contact("contact-1")!!.pinnedAtEpochMillis)
+        assertNull(repository.contact("contact-1")!!.mutedUntilEpochMillis)
+        assertTrue(repository.contact("contact-2")!!.isMuted(8_999L))
+        assertFalse(repository.contact("contact-2")!!.isMuted(9_000L))
+
+        assertTrue(repository.setContactPinned("contact-1", null))
+        assertTrue(repository.setContactMuted("contact-2", null))
+        assertEquals(listOf(null, null), repository.contacts().map { it.pinnedAtEpochMillis })
+        assertEquals(listOf(null, null), repository.contacts().map { it.mutedUntilEpochMillis })
+        assertFalse(repository.setContactPinned("missing", 1L))
+        assertFalse(repository.setContactMuted("missing", 1L))
+    }
+
+    /**
+     * DEC-035 on Room: clearing a chat deletes its settled texts only. An outgoing text that still
+     * holds its envelope stays, control rows stay, and other chats are untouched.
+     */
+    @Test
+    fun clearingAChatKeepsWhatIsStillToBeSentAndOtherChats() {
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "incoming", 1, null))
+        repository.enqueueOutgoing(outgoing("sent", "contact-1", V2MessageKind.TEXT, INNER_2), "sent", 2, null)
+        repository.recordSent("sent", attemptCount = 1)
+        repository.enqueueOutgoing(outgoing("waiting", "contact-1", V2MessageKind.TEXT, INNER_3), "waiting", 3, null)
+        repository.enqueueOutgoing(outgoing("receipt", "contact-1", V2MessageKind.RECEIPT, INNER_4), null, 4, null)
+        assertTrue(repository.storeIncomingText("contact-2", INNER_1, "other chat", 5, null))
+
+        assertEquals(2, repository.clearTexts("contact-1"))
+        assertEquals(listOf("waiting"), repository.texts("contact-1").map { it.text })
+        assertEquals(listOf("waiting", "receipt"), repository.unsentOutgoing().map { it.messageId })
+        assertEquals(listOf("other chat"), repository.texts("contact-2").map { it.text })
+        assertFalse(repository.hasText("contact-1", INNER_1))
+        assertTrue(repository.hasText("contact-1", INNER_3))
+        assertTrue(repository.hasText("contact-2", INNER_1))
+    }
+
+    /** DEC-035 on Room: a contact row goes on its own; the caller deletes the rest in the same transaction. */
+    @Test
+    fun aContactCanBeDeleted() {
+        repository.saveContact(contact("contact-1", TAG_A))
+        assertTrue(repository.deleteContact("contact-1"))
+        assertNull(repository.contact("contact-1"))
+        assertNull(repository.findRoute(TAG_A))
+        assertFalse(repository.deleteContact("contact-1"))
+    }
+
+    /**
+     * DEC-035 and DEC-034 on Room: a reply keeps the ID of the text it answers, in both directions;
+     * texts with the same time stay in the order they were stored, whatever their random IDs say;
+     * the newest incoming time is known per chat.
+     */
+    @Test
+    fun repliesKeepTheirReferenceAndEqualTimesKeepTheStoredOrder() {
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "question", 10, null))
+        repository.enqueueOutgoing(outgoing("z-answer", "contact-1", V2MessageKind.TEXT, INNER_2), "answer", 10, INNER_1)
+        assertTrue(repository.storeIncomingText("contact-1", INNER_3, "follow-up", 10, INNER_2))
+        repository.enqueueOutgoing(outgoing("a-last", "contact-1", V2MessageKind.TEXT, INNER_4), "last", 10, null)
+
+        val texts = repository.texts("contact-1")
+        assertEquals(listOf("question", "answer", "follow-up", "last"), texts.map { it.text })
+        assertEquals(listOf(null, INNER_1, INNER_2, null), texts.map { it.replyToInnerIdHex })
+        assertEquals("last", repository.lastText("contact-1")!!.text)
+        assertEquals(10L, repository.latestIncomingTextTime("contact-1"))
+        assertNull(repository.latestIncomingTextTime("contact-2"))
+        assertThrows(IllegalArgumentException::class.java) {
+            repository.enqueueOutgoing(outgoing("bad", "contact-1", V2MessageKind.RECEIPT, "d0d1d2d3d4d5d6d7d8d9dadbdcdddedf"), null, 11, INNER_1)
+        }
     }
 
     private fun V2Contact.withVerifiedAt(time: Long) = V2Contact(

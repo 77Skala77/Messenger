@@ -182,4 +182,60 @@
         <item quantity="one">%d unread message</item>
         <item quantity="other">%d unread messages</item>
     </plurals>
+    <string name="chat_preview_you">You:</string>
+    <string name="search_chats">Search</string>
+    <string name="search_hint">Search chats</string>
+    <string name="search_clear">Clear</string>
+    <string name="search_no_results">Nothing found</string>
+    <string name="settings_chats_title">Chats</string>
+    <string name="chat_sounds_title">Sounds in chats</string>
+    <string name="chat_sounds_hint">A short sound when you send a text and when one arrives in a chat that is open. Silent when the phone is on silent or vibrate.</string>    <string name="reply_you">You</string>
+    <string name="reply_unavailable">Message not available</string>
+    <string name="reply_action">Reply</string>
+    <string name="reply_cancel">Cancel reply</string>
+    <string name="chat_menu_mute">Mute notifications</string>
+    <string name="chat_menu_unmute">Unmute notifications</string>
+    <string name="chat_menu_delete">Delete chat</string>
+    <string name="mute_1h">For 1 hour</string>
+    <string name="mute_8h">For 8 hours</string>
+    <string name="mute_2d">For 2 days</string>
+    <string name="mute_forever">Forever</string>
+    <string name="chat_action_pin">Pin</string>
+    <string name="chat_action_unpin">Unpin</string>
+    <string name="chat_action_mute">Mute</string>
+    <string name="chat_action_unmute">Unmute</string>
+    <string name="chat_action_read">Mark as read</string>
+    <string name="chat_action_delete">Delete</string>
+    <string name="chat_action_clear">Clear history</string>
+    <string name="chat_swipe_pin">Pin</string>
+    <string name="chat_swipe_read">Mark as read</string>
+    <string name="chat_swipe_mute">Mute</string>
+    <string name="chat_swipe_delete">Delete</string>
+    <string name="settings_swipe_title">Swipe left on a chat</string>
+    <string name="selection_close">Cancel selection</string>
+    <string name="chat_muted_description">Notifications muted</string>
+    <string name="chat_pinned_description">Pinned</string>
+    <string name="delete_chat_title">Delete chat?</string>
+    <plurals name="delete_chats_title">
+        <item quantity="one">Delete %d chat?</item>
+        <item quantity="other">Delete %d chats?</item>
+    </plurals>
+    <string name="clear_history_title">Clear history?</string>
+    <plurals name="clear_histories_title">
+        <item quantity="one">Clear the history of %d chat?</item>
+        <item quantity="other">Clear the history of %d chats?</item>
+    </plurals>
+    <string name="delete_chats_text">The contact, its keys and all messages are deleted from this phone. The other person is not told: what they send afterwards will not arrive. To write to each other again, you will need a new invitation.</string>
+    <string name="clear_history_text">The messages are deleted from this phone. Messages still being sent stay until they are sent. The other person keeps their own copy.</string>
+    <string name="clear_history_confirm">Clear</string>
+    <string name="connection_channel_name">Background connection</string>
+    <string name="connection_channel_description">The permanent notification while the app checks for new messages</string>
+    <string name="connection_notification_title">Checking for new messages</string>
+    <string name="connection_notification_text">Every 30 seconds. You can turn it off in Settings.</string>
+    <string name="connection_setting_title">Background connection</string>
+    <string name="connection_setting_hint">While the app is closed, it checks for new messages every 30 seconds, so notifications come quickly. Android then shows a permanent notification, and the phone uses more battery, more so on mobile data.</string>
+    <string name="battery_allowed">Working in the background is allowed: Android will not put the app to sleep.</string>
+    <string name="battery_not_allowed">Android may put the app to sleep, and messages then arrive late.</string>
+    <string name="battery_allow">Allow working in the background</string>
+    <string name="battery_maker_hint">Some phones (Xiaomi, Redmi and others) also need “Autostart” turned on for the app in the phone’s own settings.</string>
 </resources>

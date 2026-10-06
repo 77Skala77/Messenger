@@ -81,6 +81,11 @@ sealed class InnerPayloadV2 {
         override val messageId: RandomId,
         override val sentAtEpochMillis: Long,
         val text: String,
+        /**
+         * The text this one answers, by its inner message ID (DEC-035), or null for a plain text.
+         * Only the reference travels: each phone shows the quote from its own copy of the conversation.
+         */
+        val replyTo: RandomId? = null,
     ) : InnerPayloadV2()
 
     /** "Delivered": the receiver authenticated, decrypted, and durably stored [originalMessageId]. */
@@ -95,6 +100,10 @@ sealed class InnerPayloadV2 {
  * Binary format: `"SMI2"`, version 1, type, message ID, sent-at time, type-specific fields, then
  * padding (`0x80` and zeros) to a multiple of [PADDING_BLOCK_BYTES] so that ciphertext sizes do not
  * reveal exact text lengths.
+ *
+ * A text that answers another (type 5, DEC-035) is a text (type 3) followed by the 16-byte inner
+ * message ID it answers. A plain text keeps type 3, byte for byte as before; an app that predates
+ * type 5 finds it unparseable and drops it after authentication, so it fails closed.
  */
 object InnerPayloadV2Codec {
     const val PADDING_BLOCK_BYTES = 160
@@ -106,6 +115,7 @@ object InnerPayloadV2Codec {
     private const val TYPE_ACCEPT = 2
     private const val TYPE_TEXT = 3
     private const val TYPE_RECEIPT = 4
+    private const val TYPE_TEXT_REPLY = 5
     private const val PADDING_MARKER: Byte = 0x80.toByte()
 
     fun encode(payload: InnerPayloadV2): ByteArray {
@@ -126,7 +136,9 @@ object InnerPayloadV2Codec {
             is InnerPayloadV2.Text -> {
                 val text = payload.text.toByteArray(Charsets.UTF_8)
                 require(text.size in 1..MAX_TEXT_BYTES) { "Invalid text length" }
+                require(payload.replyTo != payload.messageId) { "A text cannot answer itself" }
                 writer.field32(text)
+                payload.replyTo?.let { writer.raw(it.toByteArray()) }
             }
             is InnerPayloadV2.Receipt -> writer.raw(payload.originalMessageId.toByteArray())
         }
@@ -151,6 +163,12 @@ object InnerPayloadV2Codec {
             }
             TYPE_ACCEPT -> InnerPayloadV2.Accept(messageId, sentAt)
             TYPE_TEXT -> InnerPayloadV2.Text(messageId, sentAt, V2Text.decodeUtf8(reader.field32(1, MAX_TEXT_BYTES)))
+            TYPE_TEXT_REPLY -> {
+                val text = V2Text.decodeUtf8(reader.field32(1, MAX_TEXT_BYTES))
+                val replyTo = RandomId.fromBytes(reader.raw(RandomId.SIZE_BYTES))
+                if (replyTo == messageId) throw MalformedV2Exception("A text cannot answer itself")
+                InnerPayloadV2.Text(messageId, sentAt, text, replyTo)
+            }
             TYPE_RECEIPT -> InnerPayloadV2.Receipt(messageId, sentAt, RandomId.fromBytes(reader.raw(RandomId.SIZE_BYTES)))
             else -> throw MalformedV2Exception("Unsupported payload type")
         }
@@ -178,7 +196,7 @@ object InnerPayloadV2Codec {
     private fun typeOf(payload: InnerPayloadV2): Int = when (payload) {
         is InnerPayloadV2.Hello -> TYPE_HELLO
         is InnerPayloadV2.Accept -> TYPE_ACCEPT
-        is InnerPayloadV2.Text -> TYPE_TEXT
+        is InnerPayloadV2.Text -> if (payload.replyTo == null) TYPE_TEXT else TYPE_TEXT_REPLY
         is InnerPayloadV2.Receipt -> TYPE_RECEIPT
     }
 

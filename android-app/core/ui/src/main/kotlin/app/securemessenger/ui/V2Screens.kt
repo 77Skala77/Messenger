@@ -9,7 +9,11 @@ import android.os.Build
 import android.os.PersistableBundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -150,6 +155,16 @@ internal fun ConversationV2Root(
         }
         viewModel.newContactShown()
     }
+    // What the list and a chat's menu do to chats (DEC-035): all of it on this phone only.
+    val chatActions = remember(viewModel) {
+        ChatListActions(
+            pin = viewModel::setPinned,
+            mute = viewModel::setMuted,
+            markRead = viewModel::markChatsRead,
+            clearHistory = { ids -> ids.forEach(viewModel::clearHistory) },
+            delete = viewModel::deleteChats,
+        )
+    }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         TelegramScreenStack(stack = nav.items, onSwipeBack = goBack, modifier = Modifier.padding(padding)) { screen ->
             when (screen) {
@@ -168,6 +183,7 @@ internal fun ConversationV2Root(
                     onDecline = viewModel::declineRequest,
                     onRefresh = viewModel::synchronizeNow,
                     onSettings = onOpenSettings,
+                    actions = chatActions,
                 )
                 V2Screen.INVITE -> V2Invite(
                     code = state.invitationCode,
@@ -200,12 +216,21 @@ internal fun ConversationV2Root(
                                 onPauseOrDispose { viewModel.setConversationVisible(false) }
                             }
                         }
+                        val contactId = contact.contactId
                         V2Conversation(
                             contact = contact,
                             messages = state.messages,
                             onSend = viewModel::sendText,
                             onBack = goBack,
                             onOpenSafety = { nav.push(V2Screen.CONTACT_SAFETY) },
+                            // A deleted contact disappears from the state, and the screen then closes by itself.
+                            actions = remember(contactId) {
+                                ConversationActions(
+                                    mute = { until -> viewModel.setMuted(listOf(contactId), until) },
+                                    clearHistory = { viewModel.clearHistory(contactId) },
+                                    delete = { viewModel.deleteChats(listOf(contactId)) },
+                                )
+                            },
                         )
                     }
                 }
@@ -260,7 +285,10 @@ private fun <T : Any> rememberLatest(value: T?): T? {
 
 /**
  * The chat list (step 6d): the test banner, contact requests on top, then one row per chat with
- * the newest activity first, a round button for new chats, and pull down to fetch now.
+ * pinned chats first and then the newest activity first, a round button for new chats, and pull
+ * down to fetch now. Like Telegram's (DEC-035): a swipe to the left runs the action chosen in the
+ * settings, a long press selects chats and turns the top bar into their actions, and deleting or
+ * clearing asks first. Everything here stays on this phone.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -273,7 +301,9 @@ internal fun V2Home(
     onDecline: (String) -> Unit,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
+    actions: ChatListActions = ChatListActions(),
 ) {
+    val context = LocalContext.current
     val chats = remember(state.chats) { chatListOrder(state.chats) }
     val nowMillis = System.currentTimeMillis()
     val listState = rememberLazyListState()
@@ -290,14 +320,91 @@ internal fun V2Home(
             previousOffset = offset
         }
     }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // The selected chats (Telegram's action mode); a chat that is gone leaves the selection.
+    var selected by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    val present = remember(chats) { chats.map { it.contact.contactId }.toSet() }
+    LaunchedEffect(present) { selected = selected.filter { it in present } }
+    val selecting = selected.isNotEmpty()
+    var confirm by remember { mutableStateOf<Pair<ChatConfirm, List<String>>?>(null) }
+    fun toggle(contactId: String) {
+        selected = if (contactId in selected) selected - contactId else selected + contactId
+    }
+    BackHandler(enabled = searching || selecting) {
+        if (selecting) {
+            selected = emptyList()
+        } else {
+            searching = false
+            query = ""
+        }
+    }
+    val shown = if (searching) chatListSearch(chats, query) else chats
+    val swipeAction = ChatSwipeSetting.rememberChosen(context)
+    val selectedChats = chats.filter { it.contact.contactId in selected }
     Scaffold(
         topBar = {
-            TelegramTopBar(
-                title = stringResource(R.string.v2_title),
-                actions = { HomeMenu(onSettings) },
-            )
+            val bar = when {
+                selecting -> HomeBar.SELECTION
+                searching -> HomeBar.SEARCH
+                else -> HomeBar.TITLE
+            }
+            // The bars replace each other with a short cross-fade, like Telegram's.
+            AnimatedContent(
+                targetState = bar,
+                transitionSpec = {
+                    fadeIn(tween(TelegramMotion.DIALOG_FADE_MILLIS)) togetherWith fadeOut(tween(TelegramMotion.DIALOG_FADE_MILLIS))
+                },
+                label = "home bar",
+            ) { shownBar ->
+                when (shownBar) {
+                    HomeBar.SELECTION -> ChatSelectionBar(
+                        count = selected.size.coerceAtLeast(1),
+                        allPinned = selectedChats.isNotEmpty() && selectedChats.all { it.contact.pinned },
+                        allMuted = selectedChats.isNotEmpty() && selectedChats.all { it.contact.isMuted(nowMillis) },
+                        anyUnread = selectedChats.any { it.unreadCount > 0 },
+                        onClose = { selected = emptyList() },
+                        onPin = {
+                            actions.pin(selected, ChatSelection.pinAll(selectedChats.map { it.contact.pinned }))
+                            selected = emptyList()
+                        },
+                        onMute = {
+                            val mute = ChatSelection.muteAll(selectedChats.map { it.contact.isMuted(nowMillis) })
+                            actions.mute(selected, if (mute) MUTE_FROM_LIST else null)
+                            selected = emptyList()
+                        },
+                        onDelete = { confirm = ChatConfirm.DELETE to selected },
+                        onRead = {
+                            actions.markRead(selected)
+                            selected = emptyList()
+                        },
+                        onClear = { confirm = ChatConfirm.CLEAR to selected },
+                    )
+                    HomeBar.SEARCH -> ChatSearchBar(
+                        query = query,
+                        onQueryChange = { query = it },
+                        onClose = {
+                            searching = false
+                            query = ""
+                        },
+                    )
+                    HomeBar.TITLE -> TelegramTopBar(
+                        title = stringResource(R.string.v2_title),
+                        actions = {
+                            TopBarAction(
+                                onClick = { searching = true },
+                                description = stringResource(R.string.search_chats),
+                                modifier = Modifier.testTag(SEARCH_BUTTON_TAG),
+                            ) { TelegramIcon(R.drawable.tg_msg_search) }
+                            HomeMenu(onSettings)
+                        },
+                    )
+                }
+            }
         },
-        floatingActionButton = { NewChatFab(onInvite = onInvite, onAdd = onAdd, visible = fabVisible) },
+        floatingActionButton = {
+            NewChatFab(onInvite = onInvite, onAdd = onAdd, visible = fabVisible && !searching && !selecting)
+        },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.refreshing,
@@ -310,9 +417,21 @@ internal fun V2Home(
                 state = listState,
                 contentPadding = PaddingValues(bottom = 88.dp),
             ) {
-                item { SecurityWarning(stringResource(R.string.v2_qa_banner)) }
-                item { NotificationPromptCard(hasConversations = chats.isNotEmpty() || state.requests.isNotEmpty()) }
-                if (state.requests.isNotEmpty()) {
+                if (!searching) item { SecurityWarning(stringResource(R.string.v2_qa_banner)) }
+                if (!searching) item { NotificationPromptCard(hasConversations = chats.isNotEmpty() || state.requests.isNotEmpty()) }
+                if (searching) {
+                    if (shown.isEmpty()) {
+                        item {
+                            Text(
+                                stringResource(R.string.search_no_results),
+                                style = MessengerType.ListMessage,
+                                color = MaterialTheme.messenger.hint,
+                                modifier = Modifier.fillMaxWidth().padding(32.dp).testTag(SEARCH_EMPTY_TAG),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                    }
+                } else if (state.requests.isNotEmpty()) {
                     item {
                         Text(
                             stringResource(R.string.v2_requests_title),
@@ -328,21 +447,39 @@ internal fun V2Home(
                 } else if (chats.isEmpty()) {
                     item { EmptyChatList() }
                 }
-                items(chats, key = { it.contact.contactId }) { chat ->
+                items(shown, key = { it.contact.contactId }) { chat ->
+                    val contactId = chat.contact.contactId
+                    val pinned = chat.contact.pinned
+                    val muted = chat.contact.isMuted(nowMillis)
+                    val look = swipeLook(swipeAction, pinned = pinned, muted = muted, unread = chat.unreadCount > 0)
                     // A chat that gets a message slides to the top, and rows appear and go with a fade,
                     // by Telegram's `DialogsItemAnimator` (DEC-033).
-                    ChatListRow(
-                        chat,
-                        nowMillis,
-                        onClick = { onOpen(chat.contact.contactId) },
+                    SwipeActionRow(
+                        look = if (selecting || searching) null else look,
+                        onAction = {
+                            when (swipeAction) {
+                                ChatSwipeAction.PIN -> actions.pin(listOf(contactId), !pinned)
+                                ChatSwipeAction.READ -> actions.markRead(listOf(contactId))
+                                ChatSwipeAction.MUTE -> actions.mute(listOf(contactId), if (muted) null else MUTE_FROM_LIST)
+                                ChatSwipeAction.DELETE -> confirm = ChatConfirm.DELETE to listOf(contactId)
+                            }
+                        },
                         modifier = Modifier.animateItem(
                             fadeInSpec = tween(TelegramMotion.DIALOG_FADE_MILLIS, easing = TelegramMotion.Decelerate),
                             placementSpec = tween(TelegramMotion.LIST_MOVE_MILLIS, easing = TelegramMotion.Decelerate),
                             fadeOutSpec = tween(TelegramMotion.DIALOG_FADE_MILLIS, easing = TelegramMotion.Decelerate),
                         ),
-                    )
+                    ) {
+                        ChatListRow(
+                            chat,
+                            nowMillis,
+                            onClick = { if (selecting) toggle(contactId) else onOpen(contactId) },
+                            onLongClick = if (searching) null else ({ toggle(contactId) }),
+                            selected = contactId in selected,
+                        )
+                    }
                 }
-                item {
+                if (!searching) item {
                     Text(
                         stringResource(R.string.v2_background_sync_notice),
                         style = MaterialTheme.typography.bodySmall,
@@ -353,7 +490,22 @@ internal fun V2Home(
             }
         }
     }
+    confirm?.let { (kind, ids) ->
+        ChatConfirmDialog(
+            kind = kind,
+            count = ids.size,
+            onConfirm = {
+                if (kind == ChatConfirm.DELETE) actions.delete(ids) else actions.clearHistory(ids)
+                confirm = null
+                selected = emptyList()
+            },
+            onDismiss = { confirm = null },
+        )
+    }
 }
+
+/** Which bar is on top of the chat list. */
+private enum class HomeBar { TITLE, SEARCH, SELECTION }
 
 internal const val HOME_MENU_TAG = "home_menu"
 internal const val MENU_SETTINGS_TAG = "menu_settings"
@@ -371,6 +523,7 @@ internal fun HomeMenu(onSettings: () -> Unit) {
         TelegramPopupMenu(expanded = open, onDismissRequest = { open = false }, itemCount = 1) {
             Item(
                 index = 0,
+                icon = R.drawable.tg_msg_settings,
                 text = stringResource(R.string.settings),
                 onClick = {
                     open = false
@@ -672,24 +825,35 @@ internal fun V2SafetyNumber(
     onClearVerified: (contactId: String) -> Unit = {},
 ) {
     val colors = MaterialTheme.messenger
-    Scaffold(topBar = { NavigationTopBar(stringResource(R.string.v2_safety_number), onBack) }) { padding ->
+    Scaffold(
+        topBar = { NavigationTopBar(stringResource(R.string.v2_safety_number), onBack) },
+        containerColor = colors.sectionBackground,
+    ) { padding ->
+        // Telegram's profile page: a big avatar with the name on a white header, then white sections on gray.
         Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (contact != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Avatar(contact.localDisplayName, contact.contactId, size = MessengerDimens.AvatarList)
-                    Column {
-                        Text(contact.localDisplayName, style = MessengerType.HeaderTitle)
-                        Text(
-                            stateLabel(contact.state),
-                            style = MessengerType.HeaderSubtitle,
-                            color = if (contact.state == V2ContactState.KEY_CHANGED) MaterialTheme.colorScheme.error else colors.hint,
-                        )
-                    }
+                Column(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Avatar(contact.localDisplayName, contact.contactId, size = 96.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(contact.localDisplayName, style = MessengerType.HeaderTitle)
+                    Text(
+                        stateLabel(contact.state),
+                        style = MessengerType.HeaderSubtitle,
+                        color = if (contact.state == V2ContactState.KEY_CHANGED) MaterialTheme.colorScheme.error else colors.hint,
+                    )
                 }
             }
+            Column(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
             if (contact?.state == V2ContactState.AWAITING_ACCEPTANCE) {
                 // The invitation may have been used by someone else first: that answer never comes (I2).
                 Text(
@@ -731,6 +895,7 @@ internal fun V2SafetyNumber(
                         modifier = Modifier.fillMaxWidth().testTag(MARK_VERIFIED_TAG),
                     ) { Text(stringResource(R.string.verified_mark)) }
                 }
+            }
             }
         }
     }

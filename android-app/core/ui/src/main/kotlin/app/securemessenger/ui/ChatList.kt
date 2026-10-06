@@ -3,8 +3,11 @@ package app.securemessenger.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +38,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -63,26 +70,43 @@ private val ChatRowTextStart = ChatRowAvatarStart + MessengerDimens.AvatarList +
 /**
  * One chat in the list (notes 2.6): avatar, the contact's name and the time of the newest text,
  * under them that text (or the state) and the count of unseen texts. A tick before the time says
- * what became of our own newest text; it is never "read".
+ * what became of our own newest text; it is never "read". A muted chat has a speaker after its
+ * name and a gray counter; a pinned one a pin where the counter would be (DEC-035). A long press
+ * selects it ([onLongClick]); a selected chat has a check on its avatar and a shaded background.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun ChatListRow(chat: V2ChatSummary, nowMillis: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ChatListRow(
+    chat: V2ChatSummary,
+    nowMillis: Long,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    selected: Boolean = false,
+) {
     val colors = MaterialTheme.messenger
     val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     val patterns = rememberDatePatterns()
     val time = chat.lastText?.let { formatChatListTime(it.createdAtEpochMillis, nowMillis, ZoneId.systemDefault(), locale, patterns) }
     val tick = chatTick(chat)
+    val muted = chat.contact.isMuted(nowMillis)
+    val shade by animateFloatAsState(if (selected) 1f else 0f, tween(TelegramMotion.DIALOG_FADE_MILLIS), label = "selected row")
+    val selectionShade = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f * shade)
     Column(
         modifier
             .fillMaxWidth()
             .testTag(CHAT_ROW_TAG_PREFIX + chat.contact.contactId)
-            .clickable(onClick = onClick),
+            .background(selectionShade)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = ChatRowMinHeight).padding(start = ChatRowAvatarStart),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(chat.contact.localDisplayName, chat.contact.contactId, size = MessengerDimens.AvatarList)
+            Box {
+                Avatar(chat.contact.localDisplayName, chat.contact.contactId, size = MessengerDimens.AvatarList)
+                SelectedCheck(selected, Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp))
+            }
             Column(Modifier.weight(1f).padding(start = ChatRowAvatarGap, end = ChatRowEnd, top = 8.dp, bottom = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -91,8 +115,13 @@ internal fun ChatListRow(chat: V2ChatSummary, nowMillis: Long, onClick: () -> Un
                         color = colors.listName,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (muted) {
+                        Spacer(Modifier.width(4.dp))
+                        RowStateIcon(R.drawable.tg_list_mute, stringResource(R.string.chat_muted_description))
+                    }
+                    Spacer(Modifier.weight(1f))
                     if (tick != null) {
                         MessageTicks(tick, if (tick == TickKind.CLOCK) colors.listDate else colors.listTick)
                         Spacer(Modifier.width(4.dp))
@@ -102,7 +131,10 @@ internal fun ChatListRow(chat: V2ChatSummary, nowMillis: Long, onClick: () -> Un
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ChatPreviewText(chat, Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
-                    UnreadCounter(chat.unreadCount)
+                    if (chat.unreadCount == 0 && chat.contact.pinned) {
+                        RowStateIcon(R.drawable.tg_list_pin, stringResource(R.string.chat_pinned_description))
+                    }
+                    UnreadCounter(chat.unreadCount, muted)
                 }
             }
         }
@@ -118,10 +150,18 @@ internal fun ChatListRow(chat: V2ChatSummary, nowMillis: Long, onClick: () -> Un
 private fun ChatPreviewText(chat: V2ChatSummary, modifier: Modifier) {
     val colors = MaterialTheme.messenger
     val preview = chatPreview(chat)
+    val you = stringResource(R.string.chat_preview_you)
     val text = when (preview) {
-        is ChatPreview.LastText -> preview.text
-        is ChatPreview.ContactState -> stateLabel(preview.state)
-        ChatPreview.NoMessages -> stringResource(R.string.chat_preview_no_messages)
+        // Our own newest text starts with "You:" in the accent color, like Telegram's list.
+        is ChatPreview.LastText -> buildAnnotatedString {
+            if (preview.outgoing) {
+                withStyle(SpanStyle(color = colors.link)) { append(you) }
+                append(" ")
+            }
+            append(preview.text)
+        }
+        is ChatPreview.ContactState -> AnnotatedString(stateLabel(preview.state))
+        ChatPreview.NoMessages -> AnnotatedString(stringResource(R.string.chat_preview_no_messages))
     }
     val color = when {
         preview is ChatPreview.ContactState && preview.state == V2ContactState.KEY_CHANGED -> MaterialTheme.colorScheme.error
@@ -131,10 +171,10 @@ private fun ChatPreviewText(chat: V2ChatSummary, modifier: Modifier) {
     Text(text, style = MessengerType.ListMessage, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
 }
 
-/** The badge pops in, rolls its digits and shrinks away like Telegram's counter ([AnimatedUnreadBadge], DEC-033). */
+/** The badge pops in, rolls its digits and shrinks away like Telegram's counter ([AnimatedUnreadBadge], DEC-033); gray when muted. */
 @Composable
-private fun UnreadCounter(count: Int) {
-    AnimatedUnreadBadge(count)
+private fun UnreadCounter(count: Int, muted: Boolean) {
+    AnimatedUnreadBadge(count, muted = muted)
 }
 
 /** The list when nothing is in it yet: says what to do, in the round button's words. */
@@ -205,6 +245,7 @@ internal fun NewChatFab(onInvite: () -> Unit, onAdd: () -> Unit, modifier: Modif
                     onInvite()
                 },
                 modifier = Modifier.testTag(MENU_MY_INVITATION_TAG),
+                icon = R.drawable.tg_msg_qrcode,
             )
             Item(
                 index = 1,
@@ -214,6 +255,7 @@ internal fun NewChatFab(onInvite: () -> Unit, onAdd: () -> Unit, modifier: Modif
                     onAdd()
                 },
                 modifier = Modifier.testTag(MENU_ADD_CONTACT_TAG),
+                icon = R.drawable.tg_msg_contacts,
             )
         }
     }
