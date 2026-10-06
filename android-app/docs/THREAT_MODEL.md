@@ -324,7 +324,28 @@ name for the contact, and how many unseen texts there are; never the text, and n
 contact request claims. A locked phone shows only "New message" (the notification's public version)
 unless the person chose to show all notification content on the lock screen, which is Android's
 setting and not the app's to override. Android's notification history and apps the user granted
-notification access still learn the contact's local name and the count.
+notification access still learn the contact's local name and the count. A chat the person muted
+(DEC-035) is not announced while the mute lasts.
+
+Message order (DEC-034): an incoming text sorts by its sender's own time, taken from the
+authenticated payload, but only within the minute before it arrived and never before the contact's
+previous text. The relay cannot change that time; the contact can move its own text at most a
+minute back, never into the future and never ahead of its arrival, so it cannot raise its chat in
+the list. The shown time of a late text is its arrival.
+
+Background connection (DEC-034, debug builds only): a foreground service fetches every 30 seconds
+while the app is closed and keeps the processor awake. It runs the same pipeline under the same
+protocol lock and notification rules as the periodic work, holds no key of its own, logs nothing,
+and its permanent notification carries no message content. It widens nothing the relay could not
+already see, except a steadier fetch rhythm (the relay learns that this inbox is polled every
+30 seconds, as it already learned the 3-second rhythm while the app was open).
+
+Chat management (DEC-035) is local: pinning, muting, "mark as read" and clearing history send
+nothing. Deleting a chat deletes the contact with its session and stored identity (owner's
+choice); the contact is not told and sees its later texts stay at "sent to the delivery server".
+A new pairing afterwards trusts the identity afresh, as any first pairing does; the safety-number
+comparison is the defence, as before. A reply names the text it answers inside the encrypted
+payload; a contact can only make its own quotes point at the wrong text in its own chat.
 
 ## Relay Limitations
 

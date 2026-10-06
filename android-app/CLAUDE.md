@@ -31,11 +31,15 @@ mutable against the code before relying on it.
   and commit of the whole 6d still owed); 6e written the same day, also unverified on a phone;
   6f first part (screens, L2 upload state and retry) written the same day on Sonnet; the H1
   comparison step and verified mark (DEC-030) and 6f' notifications without text (DEC-031)
-  written on Opus the same day; 6g TQ-108 (DEC-032) written on Opus 2026-10-06; all of 6d–6g
-  still needs its phone check and commit; next the phone check (any model), then 6h on Sonnet
-  and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
-  migration (6d), the verified-mark rules (6f), the notification privacy rules (6f') and TQ-108
-  (6g). Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
+  written on Opus the same day; 6g TQ-108 (DEC-032) written on Opus 2026-10-06; 6d–6g and the
+  first Telegram port (DEC-033) checked on both phones and committed 2026-10-06 (`6a60deb`,
+  `bca1240`); block A (icons, sounds, search) on Sonnet and the Opus batch (DEC-034, DEC-035:
+  order, background connection, Room v11, replies, chat management) checked on both phones and by
+  the owner, committed 2026-10-06 (`7b53b33`); next: voice (messages or calls, owner to confirm),
+  designed on Opus; 6h on Sonnet later; **Opus 5.5 · High** for the Room
+  migrations, the verified-mark rules (6f), the notification privacy rules (6f'), TQ-108 (6g) and
+  anything touching the payload, storage or deletion. Routine test cases, docs, dependency updates
+  and pure UI polish: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
   (code and docs may be separate commits), message ends with the Co-Authored-By trailer of the
   current model. **Never push**: the session has no GitHub credentials; the owner pushes. Report how
@@ -131,7 +135,7 @@ mutable against the code before relying on it.
   has no `-Environment`; files with Cyrillic need a UTF-8 BOM to be read as UTF-8; `git commit -m`
   with a multi-line here-string breaks, use `git commit -F file`.
 - Room schemas are exported to `core/storage/schemas` and must be committed with every version
-  (currently 9.json). Migrations have instrumented tests.
+  (currently 11.json, DEC-035). Migrations have instrumented tests.
 
 ## Findings and owner ideas worth remembering
 
@@ -188,7 +192,13 @@ number shown, cleared with KEY_CHANGED, never sent); DEC-031 notifications witho
 posted only by the background sync while the app is not visible; chat screen polls only while
 started); DEC-032 TQ-108 (lost inbox secret blocks with its own screen; "Screen security" switch
 off by default, invitation screens unprotected by the owner's choice; used invitations withdrawn
-from the relay so a later scan is told; digests kept 30 days). Design docs:
+from the relay so a later scan is told; digests kept 30 days); DEC-033 Telegram's look and motion
+taken over directly (only the logo and the name stay out; translated to Compose, not embedded; icons
+and sounds used unchanged and listed in the notices; Source Sans 3); DEC-034 incoming texts sorted by
+the sender's authenticated time within one minute (never before the contact's previous text) and the
+background connection (foreground service every 30 s, on by default, debug manifest only, started by
+`MainActivity`, never by tests); DEC-035 pin, mute, mark read, clear history, delete chat with its
+contact and keys (owner's choice), replies as inner payload type 5, Room v11. Design docs:
 `docs/PROTOCOL_V2.md`, `docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md`
 (deferred), `docs/PHASE5_SECURITY_TEST_PLAN.md`, `docs/PHASE6_UI_PLAN.md`,
 `docs/PHASE6_THEME_NOTES.md`.

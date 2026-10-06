@@ -52,8 +52,18 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
 
 - Envelope (relay-visible): `SME2`, version, recipient-assigned routing tag, libsignal message
   type, ciphertext. No sender identifier; no trial decryption.
-- Inner payload (encrypted): `SMI2`, type (HELLO / ACCEPT / TEXT / RECEIPT), sender message ID,
-  sent-at time, body; padded to 160-byte blocks.
+- Inner payload (encrypted): `SMI2`, type (HELLO / ACCEPT / TEXT / RECEIPT / TEXT_REPLY), sender
+  message ID, sent-at time, body; padded to 160-byte blocks. TEXT_REPLY (type 5, DEC-035) is a TEXT
+  followed by the 16-byte inner message ID of the text it answers (either direction, same chat);
+  only the reference travels, each phone shows the quote from its own copy. A plain TEXT is type 3
+  exactly as before; an app that predates type 5 drops a reply after authenticating it.
+- An incoming text is shown and sorted at its sender's time if that lies at most 60 seconds before
+  its arrival, else at its arrival, and never before the contact's previous text; ties keep the
+  stored order (DEC-034). The relay cannot change that time; a contact can move its own text at most
+  a minute back, never ahead of its arrival.
+- Local only, never sent (DEC-035): pin, mute, "mark as read", clearing a chat's history (texts still
+  waiting to be sent stay), and deleting a contact with its session and identity; afterwards its
+  envelopes find no route and are deleted unread.
 - "Delivered" is set only by an authenticated RECEIPT naming the inner message ID, from the same
   contact the message was sent to. Relay message IDs are never trusted (DEC-020).
 - Each protocol step (decrypt + store, encrypt + enqueue) runs under one process-wide lock and one

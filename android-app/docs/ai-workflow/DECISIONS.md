@@ -71,6 +71,8 @@ When changing an accepted decision:
 | DEC-031 | Notifications without message text: who and how many, never what; requests never by their claimed name; locked screen "New message" only; posted only by the background sync while the app is not on screen | ACCEPTED |
 | DEC-033 | Telegram's look and motion taken over directly (owner, 2026-10-06): only the logo and the name stay out; code translated to Compose, not embedded; Source Sans 3; sync every 30 s and message order by sender time planned | ACCEPTED (widens DEC-027) |
 | DEC-032 | TQ-108: a lost inbox secret blocks with its own explanation; screen security a switch (off), invitation screens not protected; used invitations withdrawn from the relay; envelope digests kept 30 days | ACCEPTED |
+| DEC-034 | Message order by the sender's authenticated time (within one minute before arrival, never before the contact's previous text); background connection every 30 s through a foreground service (on by default, switch in settings, battery exemption asked) | ACCEPTED (owner, 2026-10-06) |
+| DEC-035 | Chat management and replies: pin, mute (for a time or for good), mark read, clear history, delete chat with its contact and keys (owner's choice); swipe and selection like Telegram; replies as inner payload type 5; Room v11 (three nullable columns) | ACCEPTED (owner, 2026-10-06) |
 
 ---
 
@@ -1502,6 +1504,133 @@ Android 13+ permission asked in context); this entry records the privacy rules t
 and its public version carry neither text nor claimed name; the public version says "New message"; the
 channel is never public; nothing while the app is on screen). Run on both phones 2026-10-06: it caught
 the wrong channel claim above (fixed); the rest passed.
+
+---
+
+## DEC-035 — Chat management and replies (Room v11, inner payload type 5)
+
+**Status:** ACCEPTED (2026-10-06, the owner's answers the same day: replies "yes"; "Delete chat"
+deletes the contact too).
+
+### Context
+
+The owner asked to finish the Telegram look with what its chat list and chats do: swipe a chat,
+select chats, pin, mute, delete, and answer a message by swiping it. Pins and mutes need a place to
+live; a reply needs to say which text it answers, which changes what a message carries.
+
+### Decision
+
+- **Pin, mute, mark read, clear history: on this phone only.** Nothing is sent, the contact is never
+  told. Pinned chats stay on top, the latest pin first. A mute lasts an hour, eight hours, two days
+  or for good (the chat's menu; the list and its swipe mute for good, as in Telegram); a muted chat
+  is not announced (DEC-031 rules otherwise unchanged) but its texts are still counted, with a gray
+  counter. "Mark as read" from the list sets the local "seen" mark of DEC-029 for the whole chat;
+  nothing about reading is ever sent.
+- **Clear history** deletes the chat's texts on this phone: every incoming one, and every outgoing
+  one already handed to the relay. A text still waiting to be sent keeps its envelope (a committed
+  ratchet step the contact's phone needs) and stays until it is sent. Receipts and the session stay.
+- **Delete chat deletes the contact (owner's choice)**: its texts, everything still queued for it,
+  the invitation it answered (whose pre-keys were already gone), its libsignal session and stored
+  identity, in one transaction under the protocol lock. Nothing is sent. Whatever it sends later
+  finds no route and is deleted from the relay unread (as any unknown tag, DEC-026); it sees "sent
+  to the delivery server", never "delivered". Writing to each other again takes a new invitation,
+  and the identity is then trusted afresh (TOFU), like any new contact; the person who still has
+  the contact must delete it too before a new pairing (one identity, one contact).
+- **Replies.** A text may answer another text of the same chat, in either direction. Inner payload
+  **type 5** = a text (type 3 fields) followed by the 16-byte inner message ID it answers. Only the
+  reference travels: each phone shows the quote from its own copy, or "Message not available" if it
+  does not have that text. A plain text keeps type 3, byte for byte. The sender refuses a reply to a
+  text it does not have; a receiver stores the reference unchecked (it only selects what is shown).
+- **Room v11** adds three nullable columns: `v2_contacts.pinnedAtEpochMillis`,
+  `v2_contacts.mutedUntilEpochMillis`, `v2_messages.replyToInnerIdHex`. Plain columns like the other
+  local marks (state, verified date); message bodies stay vault-encrypted.
+- **The look is Telegram's** (DEC-033): swipe a row to the left past 45 percent (or fling at
+  3500 px/s) for the action chosen in the settings (pin by default; read, mute or delete), with its
+  band, icon and reveal; a long press selects, and the top bar then pins, mutes, deletes, marks read
+  or clears the selection; a bubble swiped left 50 dp (start 0.4 cm, at most 80 dp) or pressed long
+  is answered; a quote jumps to the quoted text and lights it up.
+
+### Compatibility (AGENTS.md checklist)
+
+1. Old and new: payload type 5 is new; types 1 to 4 and the envelope are unchanged; Room v10 to v11
+   adds nullable columns only.
+2. Backward compatibility: an app that predates type 5 decrypts a reply, finds the type unknown,
+   keeps the ratchet step and drops the content (authenticated but unparseable), sends no receipt:
+   the reply is lost on that phone, safely. Both test phones get the same build.
+3. Migration and rollback: `MIGRATION_10_11` only adds columns; every row survives byte for byte
+   (instrumented test). A downgrade to a v10 build is not supported (Room refuses a newer schema),
+   as before.
+4. Downgrade and cross-protocol confusion: none; type 5 is read only by its own rule (strict, the
+   16-byte ID must be there, nothing may follow, a text cannot answer itself).
+5. Existing data: chats start unpinned and unmuted; stored texts answer nothing.
+6. Tests: `EnvelopeV2Test` (type 5 bytes, a plain text unchanged, damaged replies rejected),
+   `V2DecoderFuzzTest` (replies in the corpus), `ConversationV2ServiceTest` (reply on both phones,
+   unknown reply refused, pin and mute local, mark read sends nothing, clear keeps what is still to
+   be sent, deleted contact unroutable and re-paired afresh), `ConversationV2StorageInstrumentedTest`
+   and `SecureDatabaseMigrationInstrumentedTest` (Room v11), UI tests on the phones.
+
+### Security notes
+
+- Deletion is user-initiated and confirmed; `secure_delete` is on, the deleted rows were vault-
+  encrypted anyway; flash still gives no secure-erase guarantee.
+- After a deletion, a replay of an old envelope of that contact finds no route; libsignal's spent
+  keys stay the protection for contacts that remain (clearing history removes inner-ID duplicates
+  only for deleted texts; the envelope digests and libsignal refuse replays).
+- A contact can only confuse its own chat's quotes (a reply naming an ID it chose); no other chat,
+  no state and nothing outside the display depends on the reference.
+
+---
+
+## DEC-034 — Message order by the sender's time; background connection every 30 seconds
+
+**Status:** ACCEPTED (2026-10-06, the owner's decisions of the same day; written on Opus).
+
+### Context
+
+The owner saw the same conversation in a different order on the two phones: each phone sorted
+incoming texts by the time they arrived, which depends on when each phone happened to fetch. And
+with the screen locked, new messages were announced only when Android ran the periodic work (15
+minutes or more); the owner asked for at least once a minute, every 30 seconds being fine.
+
+### Decision
+
+- **Order.** An incoming text is shown, and sorted, at the time its sender's app put in it (inside
+  the encrypted, authenticated payload) if that time lies at most 60 seconds before its arrival
+  here; otherwise at its arrival. It is never shown before the contact's previous text here: one
+  that came too late (and so shows at its arrival) must not end up below a later one that came in
+  time. Our own texts are stored with exactly the time their payload carries, so both phones show
+  the same times. Texts with the same time keep the order they were stored in (Room `rowid`), never
+  that of their random IDs. The relay cannot touch the time; a contact can move its own text at
+  most a minute back and never ahead of its arrival, so it can neither push its chat up the list
+  nor place a text in the future. No wire or storage format changes.
+- **Background connection.** A foreground service (`V2ConnectionService`, type `dataSync`) runs the
+  same sync as the periodic work every 30 seconds while no screen of the app is visible, under the
+  same notification rules (DEC-031) and the same protocol lock. Android requires a permanent
+  notification for it ("Checking for new messages", no message content, silent). It is **on by
+  default** where chats exist and a switch in the settings turns it off; the app asks Android to
+  stop optimizing its battery (a button, Android's own question), and explains that some phones
+  (Xiaomi, Redmi) also need "Autostart". A partial wake lock keeps the processor awake between
+  rounds (renewed each round with a timeout, so it lapses if the loop dies); it starts when the
+  chats are shown, after the phone starts, and after an update; it stops for good on a lost key,
+  unreadable data or a lost inbox secret, like the periodic work, and when the local data is
+  deleted. The service, its receiver and their permissions exist only in debug builds (the debug
+  manifest), where v2 exists; release builds have none of them.
+
+### Consequences and limits
+
+- Battery: the processor stays awake while the connection runs, and the radio wakes every 30
+  seconds; on mobile data that costs noticeably more than Wi-Fi. The owner accepted this.
+- Android limits: targetSdk 34 keeps `dataSync` services without a time limit; with targetSdk 35
+  Android allows them six hours a day, so a later SDK update needs another approach (TASK_QUEUE).
+  Phone makers' battery managers may still stop the service; the periodic work stays the fallback.
+- Still not a timely-delivery guarantee (AGENTS.md): best effort, now usually within half a minute.
+
+### Evidence
+
+`ConversationV2ServiceTest` (both phones show the same order and times; a late first text keeps
+its place; the window and the future rule), `NotificationRulesTest` (a muted chat is not announced),
+`LocalizationResourcesTest` (the service and its permissions are in the debug manifest only, the
+code refuses to run without v2), device runs on both phones. Results: HANDOFF.
 
 ---
 

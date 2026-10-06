@@ -70,6 +70,11 @@ Reverify branch, HEAD, issues, pull requests, and repository state before starti
 7. TQ-008 — Add dependency verification, locking, and SBOM workflow
 8. ~~TQ-009 — Update outdated dependencies and AGP (51 lint warnings)~~ — DONE 2026-09-30
 
+**TQ-111 (open, low, added 2026-10-06 with DEC-034):** before raising `targetSdk` to 35 or later,
+redesign the background connection: Android limits `dataSync` foreground services of such apps to
+six hours a day and forbids starting them from `BOOT_COMPLETED`. Options to weigh then: a shorter
+type with the periodic work as fallback, or a push channel. Nothing to do while targetSdk is 34.
+
 Phase 1 of `REWRITE_PLAN.md` (steps 1a–1f) replaced TQ-100 to TQ-103 and TQ-105. Multi-device
 (TQ-104), the independent audit (TQ-106), and the production relay (TQ-107) remain blocked on
 later phases of that plan, which is the primary active plan.

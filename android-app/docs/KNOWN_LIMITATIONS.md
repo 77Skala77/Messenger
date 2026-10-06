@@ -54,6 +54,18 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 
 - Foreground polling (chat open) and WorkManager sync (about every 15 minutes or later) are best
   effort. Android may delay background work; timely offline delivery is not guaranteed.
+- The background connection (DEC-034, debug builds, on by default) fetches every 30 seconds while
+  the app is closed, through a foreground service with a permanent notification and a wake lock. It
+  costs battery (more on mobile data). Phone makers' battery managers (Xiaomi, Redmi and others) may
+  still stop it unless the app is allowed to run in the background and to autostart; the periodic
+  work stays the fallback. It relies on targetSdk 34: Android 15 rules for apps targeting 35 allow
+  such a service six hours a day, so raising targetSdk needs another design first.
+- Message order (DEC-034): both phones agree only for texts that arrived within a minute of being
+  written; a text that came later shows at its arrival. Clocks that differ by more than a few
+  seconds between the phones can still swap two texts written at nearly the same moment.
+- Replies (DEC-035) are not shown by an app that predates them (inner payload type 5): such an app
+  drops the reply. A deleted contact is not told; its later texts stay at "sent to the delivery
+  server" on its phone.
 - The relay can delete, delay, reorder, replay, or withhold encrypted blobs. Authenticated
   encryption does not prevent denial of service. Unauthenticated or unroutable blobs are never
   accepted; the app deletes them once decided (DEC-026), but anyone who knows a queue ID can still
