@@ -52,6 +52,25 @@ class ConversationV2StateTest {
     }
 
     @Test
+    fun `an invitation upload state lasts only as long as the invitation`() {
+        val failed = ConversationV2UiState(invitationUpload = InvitationUpload.FAILED)
+
+        // The invitation is still there: what is known about its upload stays.
+        assertEquals(InvitationUpload.FAILED, failed.withSnapshot(snapshotFor("alice")).invitationUpload)
+
+        // Used or expired: nothing is known any more.
+        val gone = V2Snapshot(
+            contacts = emptyList(),
+            requests = emptyList(),
+            invitationCode = null,
+            selectedContactId = null,
+            messages = emptyList(),
+            safetyNumber = null,
+        )
+        assertEquals(InvitationUpload.UNKNOWN, failed.withSnapshot(gone).invitationUpload)
+    }
+
+    @Test
     fun `leaving a chat while a refresh reads it shows nothing of it`() {
         val refreshed = ConversationV2UiState(selectedContactId = null).withSnapshot(snapshotFor("alice"))
 

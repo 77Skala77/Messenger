@@ -79,7 +79,16 @@ class V2Contact(
     val localRoutingTagHex: String,
     val state: V2ContactState,
     val createdAtEpochMillis: Long,
-)
+    /**
+     * When the person confirmed that the safety number on this phone matches the one on the
+     * contact's phone (audit H1, DEC-030); null until then. A local mark only: it is never sent.
+     * A contact's identity key never changes, so the mark always belongs to the key it was set for.
+     */
+    val verifiedAtEpochMillis: Long? = null,
+) {
+    /** The mark counts only for a contact that is not blocked: a changed key is never "checked". */
+    val safetyNumberChecked: Boolean get() = verifiedAtEpochMillis != null && state != V2ContactState.KEY_CHANGED
+}
 
 sealed class V2Route {
     class ToContact(val contact: V2Contact) : V2Route()
@@ -110,6 +119,17 @@ class V2StoredMessage(
     val createdAtEpochMillis: Long,
 )
 
+/**
+ * One row of the chat list: the contact, its newest text in either direction, and how many of its
+ * incoming texts the user has not seen yet. The count is a local mark only (DEC-029); nothing about
+ * reading is ever sent, so it is not a read receipt.
+ */
+class V2ChatSummary(
+    val contact: V2Contact,
+    val lastText: V2StoredMessage?,
+    val unreadCount: Int,
+)
+
 interface ConversationV2Store {
     /** Contact first, then pending request, then an unused invitation with this tag. */
     fun findRoute(localRoutingTagHex: String): V2Route?
@@ -118,6 +138,13 @@ interface ConversationV2Store {
 
     /** Returns false if the digest was already recorded. */
     fun recordAcceptedEnvelope(digestHex: String, acceptedAtEpochMillis: Long): Boolean
+
+    /**
+     * Forgets digests accepted before [cutoffEpochMillis]; returns how many (second review I5). A
+     * replay of a forgotten envelope is still rejected: libsignal refuses spent message keys and
+     * pre-keys, and inner message IDs are unique per contact.
+     */
+    fun forgetAcceptedEnvelopesBefore(cutoffEpochMillis: Long): Int
 
     fun saveInvitation(invitation: V2Invitation)
 
@@ -150,7 +177,14 @@ interface ConversationV2Store {
 
     fun contactWithIdentity(identityKey: ByteArray): V2Contact?
 
+    /** Setting [V2ContactState.KEY_CHANGED] also clears the verified mark: it belonged to the old key. */
     fun setContactState(contactId: String, state: V2ContactState)
+
+    /**
+     * Sets or clears (null) the verified mark (DEC-030). Returns false, changing nothing, if there is
+     * no such contact. Only the person's explicit confirmation of a matching number may set it.
+     */
+    fun setContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Boolean
 
     /** Returns false (and stores nothing) if this contact's message with that inner ID already exists. */
     fun storeIncomingText(
@@ -165,6 +199,18 @@ interface ConversationV2Store {
 
     /** Visible texts of a contact in both directions, oldest first (control messages excluded). */
     fun texts(contactId: String): List<V2StoredMessage>
+
+    /** The newest of [texts], in the same order, or null. */
+    fun lastText(contactId: String): V2StoredMessage?
+
+    /**
+     * How many incoming texts of each contact or request the user has not seen yet (DEC-029);
+     * chats without any are absent. A local mark only, never sent.
+     */
+    fun unreadCounts(): Map<String, Int>
+
+    /** Marks every incoming text of a contact or request as seen; returns how many changed. */
+    fun markRead(contactId: String): Int
 
     /** Every contact, oldest first. */
     fun contacts(): List<V2Contact>

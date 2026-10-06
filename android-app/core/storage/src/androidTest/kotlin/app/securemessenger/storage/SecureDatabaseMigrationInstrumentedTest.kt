@@ -5,6 +5,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -231,6 +232,59 @@ class SecureDatabaseMigrationInstrumentedTest {
             assertEquals(1, cursor.count)
             cursor.moveToFirst()
             assertEquals("0C0D", cursor.getString(0))
+        }
+        migrated.close()
+    }
+
+    /**
+     * DEC-029: Room v10 only adds two local columns. Every row survives byte for byte, existing
+     * messages count as seen (no flood of old unread badges), and no contact is marked verified.
+     */
+    @Test
+    fun migrationNineToTenAddsTheSeenMarkAndTheVerifiedDateAndKeepsEveryRow() {
+        migrationHelper.createDatabase(TEST_DATABASE, 9).use { db ->
+            db.execSQL("INSERT INTO local_profile (profileId, encryptedDisplayName, deviceId) VALUES ('local', X'0A0B', '')")
+            db.execSQL(
+                "INSERT INTO v2_contacts (contactId, encryptedDisplayName, identityKey, peerQueueId, peerRoutingTagHex, " +
+                    "localRoutingTagHex, state, createdAtEpochMillis) VALUES ('c', X'01', X'05', 'q3-peer', 'aa', 'bb', 'ACTIVE', 1)",
+            )
+            listOf(
+                "('in', 'c', 0, 'TEXT', '01', X'0C0D', 'RECEIVED', 5, NULL, NULL, 0, NULL)",
+                "('out', 'c', 1, 'TEXT', '02', X'0E', 'PENDING', 6, 'q3-peer', X'0F', 1, 9)",
+            ).forEach { row ->
+                db.execSQL(
+                    "INSERT INTO v2_messages (messageId, contactId, outgoing, kind, innerMessageIdHex, encryptedBody, status, " +
+                        "createdAtEpochMillis, peerQueueId, envelope, deliveryAttemptCount, nextRetryAtEpochMillis) VALUES $row",
+                )
+            }
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(TEST_DATABASE, 10, true, SecureMessengerDatabase.MIGRATION_9_10)
+        migrated.query(
+            "SELECT messageId, isRead, hex(encryptedBody), status, hex(envelope), nextRetryAtEpochMillis FROM v2_messages ORDER BY messageId",
+        ).use { cursor ->
+            assertEquals(2, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("in", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertEquals("0C0D", cursor.getString(2))
+            cursor.moveToNext()
+            assertEquals("out", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertEquals("PENDING", cursor.getString(3))
+            assertEquals("0F", cursor.getString(4))
+            assertEquals(9, cursor.getInt(5))
+        }
+        migrated.query("SELECT verifiedAtEpochMillis, hex(encryptedDisplayName), state FROM v2_contacts").use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertTrue(cursor.isNull(0))
+            assertEquals("01", cursor.getString(1))
+            assertEquals("ACTIVE", cursor.getString(2))
+        }
+        migrated.query("SELECT hex(encryptedDisplayName) FROM local_profile").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("0A0B", cursor.getString(0))
         }
         migrated.close()
     }

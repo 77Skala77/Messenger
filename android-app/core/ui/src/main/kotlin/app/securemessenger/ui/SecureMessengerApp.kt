@@ -22,7 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -30,9 +30,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.securemessenger.transport.RelayHealthStatus
 import com.google.zxing.BarcodeFormat
@@ -71,27 +72,34 @@ private enum class Screen {
 @Composable
 fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    var screen by remember { mutableStateOf(Screen.ONBOARDING) }
+    // Onboarding or the main screen at the bottom; settings and the theme preview open over the main
+    // screen with Telegram's transitions and swipe back (DEC-033).
+    val nav = rememberNavStack(Screen.ONBOARDING)
     val context = LocalContext.current
     var themeMode by remember { mutableStateOf(ThemeController.selected(context)) }
+    var screenSecurity by remember { mutableStateOf(ScreenSecurity.enabled(context)) }
+    SecureWindowEffect(enabled = screenSecurity)
+    // While any screen of the app is visible, the background sync posts no notifications (DEC-031).
+    LifecycleStartEffect(Unit) {
+        V2Foreground.visible = true
+        onStopOrDispose { V2Foreground.visible = false }
+    }
 
     LaunchedEffect(state.profileKnown, state.profileCreated) {
         if (state.profileKnown) {
-            screen = when {
-                !state.profileCreated -> Screen.ONBOARDING
-                screen == Screen.ONBOARDING -> Screen.MAIN
-                else -> screen
+            when {
+                !state.profileCreated -> nav.set(listOf(Screen.ONBOARDING))
+                nav.top == Screen.ONBOARDING -> nav.set(listOf(Screen.MAIN))
             }
         }
     }
 
     // System Back (button or gesture) from settings goes one screen back, like the app's own Back
-    // button (TQ-109); from the theme preview it goes back to settings. Off everywhere else: the
-    // main screen, onboarding and the "data cannot be read" screen have nothing to go back to, so
-    // the system behaves as usual there. Open dialogs handle Back themselves and close first.
-    BackHandler(
-        enabled = (screen == Screen.SETTINGS || screen == Screen.THEME_PREVIEW) && state.localDataProblem == null,
-    ) { screen = if (screen == Screen.THEME_PREVIEW) Screen.SETTINGS else Screen.MAIN }
+    // button (TQ-109) and the swipe back; from the theme preview it goes back to settings. Off
+    // everywhere else: the main screen, onboarding and the "data cannot be read" screen have nothing
+    // to go back to, so the system behaves as usual there. Open dialogs handle Back themselves and
+    // close first.
+    BackHandler(enabled = nav.canPop && state.localDataProblem == null) { nav.pop() }
 
     MessengerTheme(themeMode) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -104,45 +112,53 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                     onDeleteLocalData = viewModel::deleteLocalData,
                 )
             } else if (state.profileKnown) {
-                when (screen) {
-                    Screen.ONBOARDING -> OnboardingScreen(
-                        creatingProfile = state.creatingProfile,
-                        onCreateProfile = viewModel::createProfile,
-                    )
-                    Screen.MAIN ->
-                        if (state.v2Available) {
-                            ConversationV2Root(
-                                onOpenSettings = { screen = Screen.SETTINGS },
-                                onLocalDataUnreadable = viewModel::checkLocalData,
-                            )
-                        } else {
-                            NotForMessagingScreen(onOpenSettings = { screen = Screen.SETTINGS })
-                        }
-                    Screen.SETTINGS -> SettingsScreen(
-                        relayServerUrl = state.relayServerUrl,
-                        relayHealthStatus = state.relayHealthStatus,
-                        allowInsecureRelayHttp = state.allowInsecureRelayHttp,
-                        debugQaToolsEnabled = state.debugQaToolsEnabled,
-                        isPhysicalDevice = state.isPhysicalDevice,
-                        themeMode = themeMode,
-                        onThemeSelected = { mode ->
-                            themeMode = mode
-                            ThemeController.select(context, mode)
-                        },
-                        onOpenThemePreview = { screen = Screen.THEME_PREVIEW },
-                        onBack = { screen = Screen.MAIN },
-                        onSaveRelayUrl = viewModel::saveRelayServerUrl,
-                        onCheckRelay = viewModel::checkRelayServer,
-                        onSynchronizeNow = viewModel::synchronizeInBackground,
-                        onDeleteLocalData = viewModel::deleteLocalData,
-                        onResetTestData = viewModel::resetTestDataForQa,
-                    )
-                    // Only the debug tools lead here; a release build never shows the button.
-                    Screen.THEME_PREVIEW -> if (state.debugQaToolsEnabled) ThemePreviewScreen(onBack = { screen = Screen.SETTINGS })
+                TelegramScreenStack(stack = nav.items, onSwipeBack = { nav.pop() }) { screen ->
+                    when (screen) {
+                        Screen.ONBOARDING -> OnboardingScreen(
+                            creatingProfile = state.creatingProfile,
+                            onCreateProfile = viewModel::createProfile,
+                        )
+                        Screen.MAIN ->
+                            if (state.v2Available) {
+                                ConversationV2Root(
+                                    onOpenSettings = { nav.push(Screen.SETTINGS) },
+                                    onLocalDataUnreadable = viewModel::checkLocalData,
+                                )
+                            } else {
+                                NotForMessagingScreen(onOpenSettings = { nav.push(Screen.SETTINGS) })
+                            }
+                        Screen.SETTINGS -> SettingsScreen(
+                            relayServerUrl = state.relayServerUrl,
+                            relayHealthStatus = state.relayHealthStatus,
+                            allowInsecureRelayHttp = state.allowInsecureRelayHttp,
+                            debugQaToolsEnabled = state.debugQaToolsEnabled,
+                            isPhysicalDevice = state.isPhysicalDevice,
+                            notificationsAvailable = state.v2Available,
+                            screenSecurity = screenSecurity,
+                            onScreenSecurityChanged = { enabled ->
+                                screenSecurity = enabled
+                                ScreenSecurity.set(context, enabled)
+                            },
+                            themeMode = themeMode,
+                            onThemeSelected = { mode ->
+                                themeMode = mode
+                                ThemeController.select(context, mode)
+                            },
+                            onOpenThemePreview = { nav.push(Screen.THEME_PREVIEW) },
+                            onBack = { nav.pop() },
+                            onSaveRelayUrl = viewModel::saveRelayServerUrl,
+                            onCheckRelay = viewModel::checkRelayServer,
+                            onSynchronizeNow = viewModel::synchronizeInBackground,
+                            onDeleteLocalData = viewModel::deleteLocalData,
+                            onResetTestData = viewModel::resetTestDataForQa,
+                        )
+                        // Only the debug tools lead here; a release build never shows the button.
+                        Screen.THEME_PREVIEW -> if (state.debugQaToolsEnabled) ThemePreviewScreen(onBack = { nav.pop() })
+                    }
                 }
             }
             if (state.legacyResetNotice) {
-                AlertDialog(
+                TelegramAlertDialog(
                     onDismissRequest = viewModel::dismissLegacyResetNotice,
                     title = { Text(stringResource(R.string.legacy_reset_title)) },
                     text = { Text(stringResource(R.string.legacy_reset_body)) },
@@ -154,7 +170,7 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel()) {
                 )
             } else if (state.relayResetNotice) {
                 // DEC-024: the v2 test conversations were deleted once for the relay-queue change.
-                AlertDialog(
+                TelegramAlertDialog(
                     onDismissRequest = viewModel::dismissRelayResetNotice,
                     title = { Text(stringResource(R.string.relay_reset_title)) },
                     text = { Text(stringResource(R.string.relay_reset_body)) },
@@ -207,14 +223,19 @@ private fun OnboardingScreen(creatingProfile: Boolean, onCreateProfile: (String)
         )
         Spacer(Modifier.height(16.dp))
         // Off while a profile is being created, so a double tap cannot start a second one (STORE-04).
-        Button(onClick = { onCreateProfile(displayName) }, enabled = displayName.isNotBlank() && !creatingProfile) {
+        Button(
+            onClick = { onCreateProfile(displayName) },
+            enabled = displayName.isNotBlank() && !creatingProfile,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text(stringResource(R.string.create_profile))
         }
     }
 }
 
 /**
- * DEC-023: the stored data cannot be used. For [LocalDataProblem.UNREADABLE] the user may delete
+ * DEC-023: the stored data cannot be used. For [LocalDataProblem.UNREADABLE] and
+ * [LocalDataProblem.RECEIVE_QUEUE_LOST] (DEC-032) the user may delete
  * the local data (confirmed) and start over; nothing is deleted automatically, because a failure
  * that only looked final must not cost the user their data.
  */
@@ -225,27 +246,28 @@ internal fun LocalDataProblemScreen(
     onDeleteLocalData: () -> Unit,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
-    val unreadable = problem == LocalDataProblem.UNREADABLE
+    // Only a temporary problem may pass by itself; the others need the confirmed fresh start.
+    val needsFreshStart = problem != LocalDataProblem.TEMPORARY
+    val (title, body) = when (problem) {
+        LocalDataProblem.UNREADABLE -> R.string.local_data_unreadable_title to R.string.local_data_unreadable_body
+        LocalDataProblem.TEMPORARY -> R.string.local_data_temporary_title to R.string.local_data_temporary_body
+        LocalDataProblem.RECEIVE_QUEUE_LOST -> R.string.receive_queue_lost_title to R.string.receive_queue_lost_body
+    }
     // Scrollable: these buttons are the only way out of this state, also in landscape (Phase 5 F12).
     CenteredScrollableColumn(verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
-        Text(
-            stringResource(if (unreadable) R.string.local_data_unreadable_title else R.string.local_data_temporary_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        SecurityWarning(
-            stringResource(if (unreadable) R.string.local_data_unreadable_body else R.string.local_data_temporary_body),
-        )
+        Text(stringResource(title), style = MaterialTheme.typography.headlineSmall)
+        SecurityWarning(stringResource(body))
         Button(onClick = onCheckAgain, modifier = Modifier.testTag(CHECK_AGAIN_TAG)) {
             Text(stringResource(R.string.local_data_check_again))
         }
-        if (unreadable) {
+        if (needsFreshStart) {
             OutlinedButton(onClick = { showDeleteDialog = true }, modifier = Modifier.testTag(DELETE_AND_RESTART_TAG)) {
                 Text(stringResource(R.string.local_data_delete_and_restart))
             }
         }
     }
     if (showDeleteDialog) {
-        AlertDialog(
+        TelegramAlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text(stringResource(R.string.delete_local_data)) },
             text = { Text(stringResource(R.string.delete_warning)) },
@@ -268,17 +290,17 @@ internal const val THEME_OPTION_SYSTEM = "theme_option_system"
 internal const val THEME_OPTION_LIGHT = "theme_option_light"
 internal const val THEME_OPTION_DARK = "theme_option_dark"
 internal const val THEME_PREVIEW_BUTTON_TAG = "theme_preview_button"
+internal const val SCREEN_SECURITY_TAG = "settings_screen_security"
 internal const val CHECK_AGAIN_TAG = "local_data_check_again"
 internal const val DELETE_AND_RESTART_TAG = "local_data_delete_and_restart"
 internal const val CONFIRM_DELETE_TAG = "local_data_confirm_delete"
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotForMessagingScreen(onOpenSettings: () -> Unit) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.home_title)) },
+            TelegramTopBar(
+                title = stringResource(R.string.home_title),
                 actions = { TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.settings)) } },
             )
         },
@@ -290,180 +312,6 @@ private fun NotForMessagingScreen(onOpenSettings: () -> Unit) {
     }
 }
 
-@Composable
-private fun SettingsScreen(
-    relayServerUrl: String,
-    relayHealthStatus: RelayHealthStatus?,
-    allowInsecureRelayHttp: Boolean,
-    debugQaToolsEnabled: Boolean,
-    isPhysicalDevice: Boolean,
-    themeMode: AppThemeMode,
-    onThemeSelected: (AppThemeMode) -> Unit,
-    onOpenThemePreview: () -> Unit,
-    onBack: () -> Unit,
-    onSaveRelayUrl: (String) -> Unit,
-    onCheckRelay: (String) -> Unit,
-    onSynchronizeNow: () -> Unit,
-    onDeleteLocalData: () -> Unit,
-    onResetTestData: () -> Unit,
-) {
-    val context = LocalContext.current
-    var selectedLanguage by remember { mutableStateOf(LanguageController.selected(context)) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showTestResetDialog by remember { mutableStateOf(false) }
-    var relayUrlInput by remember(relayServerUrl) { mutableStateOf(relayServerUrl) }
-    val addressWarning = relayClientAddressWarning(relayUrlInput, isPhysicalDevice)
-    Scaffold(topBar = { NavigationTopBar(stringResource(R.string.settings), onBack) }) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item { Text(stringResource(R.string.language), style = MaterialTheme.typography.titleLarge) }
-            item {
-                Column(Modifier.selectableGroup()) {
-                    SelectableOptionRow(
-                        label = stringResource(R.string.russian),
-                        selected = selectedLanguage == AppLanguage.RUSSIAN,
-                        modifier = Modifier.testTag("language_option_ru"),
-                    ) {
-                        selectedLanguage = AppLanguage.RUSSIAN
-                        LanguageController.select(context, selectedLanguage)
-                    }
-                    SelectableOptionRow(
-                        label = stringResource(R.string.english),
-                        selected = selectedLanguage == AppLanguage.ENGLISH,
-                        modifier = Modifier.testTag("language_option_en"),
-                    ) {
-                        selectedLanguage = AppLanguage.ENGLISH
-                        LanguageController.select(context, selectedLanguage)
-                    }
-                }
-            }
-            item { Text(stringResource(R.string.theme_title), style = MaterialTheme.typography.titleLarge) }
-            item {
-                Column(Modifier.selectableGroup()) {
-                    SelectableOptionRow(
-                        label = stringResource(R.string.theme_system),
-                        selected = themeMode == AppThemeMode.SYSTEM,
-                        modifier = Modifier.testTag(THEME_OPTION_SYSTEM),
-                    ) { onThemeSelected(AppThemeMode.SYSTEM) }
-                    SelectableOptionRow(
-                        label = stringResource(R.string.theme_light),
-                        selected = themeMode == AppThemeMode.LIGHT,
-                        modifier = Modifier.testTag(THEME_OPTION_LIGHT),
-                    ) { onThemeSelected(AppThemeMode.LIGHT) }
-                    SelectableOptionRow(
-                        label = stringResource(R.string.theme_dark),
-                        selected = themeMode == AppThemeMode.DARK,
-                        modifier = Modifier.testTag(THEME_OPTION_DARK),
-                    ) { onThemeSelected(AppThemeMode.DARK) }
-                }
-            }
-            item { Text(stringResource(R.string.relay_server), style = MaterialTheme.typography.titleLarge) }
-            item {
-                Text(stringResource(R.string.relay_server_explanation))
-                OutlinedTextField(
-                    value = relayUrlInput,
-                    onValueChange = { relayUrlInput = it },
-                    label = { Text(stringResource(R.string.relay_server_url)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(stringResource(R.string.relay_server_example), style = MaterialTheme.typography.bodySmall)
-                if (relayUrlInput.trim().startsWith("http://", ignoreCase = true)) {
-                    SecurityWarning(
-                        stringResource(
-                            if (allowInsecureRelayHttp) R.string.http_relay_debug_warning
-                            else R.string.https_relay_required,
-                        ),
-                    )
-                    if (allowInsecureRelayHttp) {
-                        Text(stringResource(R.string.http_debug_lan_only), style = MaterialTheme.typography.bodySmall)
-                        Text(stringResource(R.string.use_https_for_different_networks), style = MaterialTheme.typography.bodySmall)
-                    }
-                } else if (relayTestMode(relayUrlInput) == RelayTestMode.PUBLIC_RELAY) {
-                    Text(stringResource(R.string.public_relay_tunnel_notice), style = MaterialTheme.typography.bodySmall)
-                }
-                when (addressWarning) {
-                    RelayClientAddressWarning.PHONE_LOOPBACK ->
-                        SecurityWarning(stringResource(R.string.relay_phone_loopback_warning))
-                    RelayClientAddressWarning.UNSPECIFIED_BIND_ADDRESS ->
-                        SecurityWarning(stringResource(R.string.relay_unspecified_address_warning))
-                    null -> Unit
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onSaveRelayUrl(relayUrlInput) }) {
-                        Text(stringResource(R.string.save_relay_server))
-                    }
-                    OutlinedButton(onClick = { onCheckRelay(relayUrlInput) }) {
-                        Text(stringResource(R.string.check_relay_server))
-                    }
-                }
-                if (relayHealthStatus != null) {
-                    Text(relayHealthLabel(relayHealthStatus), fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(onClick = onSynchronizeNow) {
-                    Text(stringResource(R.string.synchronize_now))
-                }
-                Text(stringResource(R.string.background_sync_notice), style = MaterialTheme.typography.bodySmall)
-            }
-            item { Text(stringResource(R.string.storage_title), style = MaterialTheme.typography.titleLarge) }
-            item {
-                OutlinedButton(onClick = { showDeleteDialog = true }) {
-                    Text(stringResource(R.string.delete_local_data))
-                }
-            }
-            if (debugQaToolsEnabled) {
-                item {
-                    Text(stringResource(R.string.debug_qa_tools_title), style = MaterialTheme.typography.titleLarge)
-                    Text(stringResource(R.string.debug_reset_test_data_explanation))
-                    OutlinedButton(
-                        onClick = { showTestResetDialog = true },
-                        modifier = Modifier.testTag("debug_reset_test_data"),
-                    ) {
-                        Text(stringResource(R.string.reset_test_data))
-                    }
-                    OutlinedButton(onClick = onOpenThemePreview, modifier = Modifier.testTag(THEME_PREVIEW_BUTTON_TAG)) {
-                        Text(stringResource(R.string.theme_preview_open))
-                    }
-                }
-            }
-            item { Text(stringResource(R.string.no_secrets_logs), fontWeight = FontWeight.Bold) }
-        }
-    }
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(stringResource(R.string.delete_local_data)) },
-            text = { Text(stringResource(R.string.delete_warning)) },
-            confirmButton = {
-                TextButton(onClick = { showDeleteDialog = false; onDeleteLocalData() }) {
-                    Text(stringResource(R.string.delete_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text(stringResource(R.string.cancel)) }
-            },
-        )
-    }
-    if (showTestResetDialog) {
-        AlertDialog(
-            onDismissRequest = { showTestResetDialog = false },
-            title = { Text(stringResource(R.string.reset_test_data)) },
-            text = { Text(stringResource(R.string.reset_test_data_warning)) },
-            confirmButton = {
-                TextButton(
-                    onClick = { showTestResetDialog = false; onResetTestData() },
-                    modifier = Modifier.testTag("confirm_debug_reset_test_data"),
-                ) {
-                    Text(stringResource(R.string.reset_test_data_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTestResetDialog = false }) { Text(stringResource(R.string.cancel)) }
-            },
-        )
-    }
-}
 
 @Composable
 internal fun SelectableOptionRow(
@@ -524,18 +372,13 @@ internal fun SecurityWarning(text: String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NavigationTopBar(title: String, onBack: () -> Unit, actions: @Composable () -> Unit = {}) {
-    TopAppBar(
-        title = { Text(title) },
-        navigationIcon = { TextButton(onClick = onBack) { Text(stringResource(R.string.back)) } },
-        actions = { actions() },
-    )
+    TelegramTopBar(title = title, onBack = onBack, actions = { actions() })
 }
 
 @Composable
-private fun relayHealthLabel(status: RelayHealthStatus): String = when (status) {
+internal fun relayHealthLabel(status: RelayHealthStatus): String = when (status) {
     RelayHealthStatus.AVAILABLE -> stringResource(R.string.relay_available)
     RelayHealthStatus.UNAVAILABLE -> stringResource(R.string.relay_unavailable)
     RelayHealthStatus.CONNECTION_ERROR -> stringResource(R.string.relay_connection_error)

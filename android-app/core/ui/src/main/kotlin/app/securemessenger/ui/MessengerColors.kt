@@ -100,6 +100,83 @@ internal val DarkMessengerColors = MessengerColors(
 
 internal val LocalMessengerColors = staticCompositionLocalOf { LightMessengerColors }
 
+/** [a] at 0, [b] at 1, and in between the colors of both, so a theme change fades instead of jumping. */
+internal fun lerp(a: MessengerColors, b: MessengerColors, t: Float): MessengerColors {
+    if (t <= 0f) return a
+    if (t >= 1f) return b
+    fun mix(x: Color, y: Color) = androidx.compose.ui.graphics.lerp(x, y, t)
+    return MessengerColors(
+        bubbleIncoming = mix(a.bubbleIncoming, b.bubbleIncoming),
+        bubbleOutgoing = mix(a.bubbleOutgoing, b.bubbleOutgoing),
+        messageText = mix(a.messageText, b.messageText),
+        timeIncoming = mix(a.timeIncoming, b.timeIncoming),
+        timeOutgoing = mix(a.timeOutgoing, b.timeOutgoing),
+        tickOutgoing = mix(a.tickOutgoing, b.tickOutgoing),
+        clockOutgoing = mix(a.clockOutgoing, b.clockOutgoing),
+        listTick = mix(a.listTick, b.listTick),
+        listName = mix(a.listName, b.listName),
+        listMessage = mix(a.listMessage, b.listMessage),
+        listDate = mix(a.listDate, b.listDate),
+        hint = mix(a.hint, b.hint),
+        link = mix(a.link, b.link),
+        badge = mix(a.badge, b.badge),
+        badgeMuted = mix(a.badgeMuted, b.badgeMuted),
+        badgeText = mix(a.badgeText, b.badgeText),
+        fab = mix(a.fab, b.fab),
+        fabIcon = mix(a.fabIcon, b.fabIcon),
+        chip = mix(a.chip, b.chip),
+        chipText = mix(a.chipText, b.chipText),
+        wallpaperBase = mix(a.wallpaperBase, b.wallpaperBase),
+        wallpaperPattern = mix(a.wallpaperPattern, b.wallpaperPattern),
+        sectionBackground = mix(a.sectionBackground, b.sectionBackground),
+    )
+}
+
+/** The same for Material's roles. */
+internal fun lerp(a: ColorScheme, b: ColorScheme, t: Float): ColorScheme {
+    if (t <= 0f) return a
+    if (t >= 1f) return b
+    fun mix(x: Color, y: Color) = androidx.compose.ui.graphics.lerp(x, y, t)
+    return a.copy(
+        primary = mix(a.primary, b.primary),
+        onPrimary = mix(a.onPrimary, b.onPrimary),
+        primaryContainer = mix(a.primaryContainer, b.primaryContainer),
+        onPrimaryContainer = mix(a.onPrimaryContainer, b.onPrimaryContainer),
+        inversePrimary = mix(a.inversePrimary, b.inversePrimary),
+        secondary = mix(a.secondary, b.secondary),
+        onSecondary = mix(a.onSecondary, b.onSecondary),
+        secondaryContainer = mix(a.secondaryContainer, b.secondaryContainer),
+        onSecondaryContainer = mix(a.onSecondaryContainer, b.onSecondaryContainer),
+        tertiary = mix(a.tertiary, b.tertiary),
+        onTertiary = mix(a.onTertiary, b.onTertiary),
+        tertiaryContainer = mix(a.tertiaryContainer, b.tertiaryContainer),
+        onTertiaryContainer = mix(a.onTertiaryContainer, b.onTertiaryContainer),
+        background = mix(a.background, b.background),
+        onBackground = mix(a.onBackground, b.onBackground),
+        surface = mix(a.surface, b.surface),
+        onSurface = mix(a.onSurface, b.onSurface),
+        surfaceVariant = mix(a.surfaceVariant, b.surfaceVariant),
+        onSurfaceVariant = mix(a.onSurfaceVariant, b.onSurfaceVariant),
+        surfaceTint = mix(a.surfaceTint, b.surfaceTint),
+        inverseSurface = mix(a.inverseSurface, b.inverseSurface),
+        inverseOnSurface = mix(a.inverseOnSurface, b.inverseOnSurface),
+        error = mix(a.error, b.error),
+        onError = mix(a.onError, b.onError),
+        errorContainer = mix(a.errorContainer, b.errorContainer),
+        onErrorContainer = mix(a.onErrorContainer, b.onErrorContainer),
+        outline = mix(a.outline, b.outline),
+        outlineVariant = mix(a.outlineVariant, b.outlineVariant),
+        scrim = mix(a.scrim, b.scrim),
+        surfaceBright = mix(a.surfaceBright, b.surfaceBright),
+        surfaceDim = mix(a.surfaceDim, b.surfaceDim),
+        surfaceContainer = mix(a.surfaceContainer, b.surfaceContainer),
+        surfaceContainerHigh = mix(a.surfaceContainerHigh, b.surfaceContainerHigh),
+        surfaceContainerHighest = mix(a.surfaceContainerHighest, b.surfaceContainerHighest),
+        surfaceContainerLow = mix(a.surfaceContainerLow, b.surfaceContainerLow),
+        surfaceContainerLowest = mix(a.surfaceContainerLowest, b.surfaceContainerLowest),
+    )
+}
+
 /** `MaterialTheme.messenger.bubbleOutgoing`, next to `MaterialTheme.colorScheme`. */
 val MaterialTheme.messenger: MessengerColors
     @Composable

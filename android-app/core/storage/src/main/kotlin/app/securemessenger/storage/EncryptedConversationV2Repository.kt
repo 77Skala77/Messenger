@@ -46,6 +46,8 @@ class EncryptedConversationV2Repository(
     override fun recordAcceptedEnvelope(digestHex: String, acceptedAtEpochMillis: Long): Boolean =
         dao.insertV2AcceptedEnvelope(V2AcceptedEnvelopeEntity(digestHex, acceptedAtEpochMillis)) != -1L
 
+    override fun forgetAcceptedEnvelopesBefore(cutoffEpochMillis: Long): Int = dao.deleteV2AcceptedEnvelopesBefore(cutoffEpochMillis)
+
     override fun saveInvitation(invitation: V2Invitation) {
         dao.insertV2Invitation(
             V2InvitationEntity(
@@ -114,6 +116,7 @@ class EncryptedConversationV2Repository(
                 localRoutingTagHex = contact.localRoutingTagHex,
                 state = contact.state.name,
                 createdAtEpochMillis = contact.createdAtEpochMillis,
+                verifiedAtEpochMillis = contact.verifiedAtEpochMillis,
             ),
         )
     }
@@ -125,7 +128,11 @@ class EncryptedConversationV2Repository(
 
     override fun setContactState(contactId: String, state: V2ContactState) {
         check(dao.updateV2ContactState(contactId, state.name) == 1) { "Unknown v2 contact" }
+        if (state == V2ContactState.KEY_CHANGED) dao.updateV2ContactVerified(contactId, null)
     }
+
+    override fun setContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Boolean =
+        dao.updateV2ContactVerified(contactId, verifiedAtEpochMillis) == 1
 
     override fun storeIncomingText(
         contactId: String,
@@ -148,6 +155,7 @@ class EncryptedConversationV2Repository(
                 envelope = null,
                 deliveryAttemptCount = 0,
                 nextRetryAtEpochMillis = null,
+                isRead = false,
             ),
         ) != -1L
     }
@@ -156,6 +164,13 @@ class EncryptedConversationV2Repository(
         dao.getV2IncomingMessages(contactId).filter { it.kind == V2MessageKind.TEXT.name }.map(::readMessage)
 
     override fun texts(contactId: String): List<V2StoredMessage> = dao.getV2Texts(contactId).map(::readMessage)
+
+    override fun lastText(contactId: String): V2StoredMessage? = dao.getLastV2Text(contactId)?.let(::readMessage)
+
+    override fun unreadCounts(): Map<String, Int> =
+        dao.getV2UnreadCounts().associate { row -> row.contactId to row.unreadCount }
+
+    override fun markRead(contactId: String): Int = dao.markV2MessagesRead(contactId)
 
     override fun contacts(): List<V2Contact> = dao.getV2Contacts().map(::readContact)
 
@@ -175,6 +190,8 @@ class EncryptedConversationV2Repository(
                 envelope = envelope.envelope,
                 deliveryAttemptCount = envelope.attemptCount,
                 nextRetryAtEpochMillis = null,
+                // The user wrote it: nothing to see.
+                isRead = true,
             ),
         )
         // Inner IDs are random 128-bit values: a collision means a bug, and silently dropping the
@@ -235,6 +252,7 @@ class EncryptedConversationV2Repository(
         localRoutingTagHex = entity.localRoutingTagHex,
         state = V2ContactState.valueOf(entity.state),
         createdAtEpochMillis = entity.createdAtEpochMillis,
+        verifiedAtEpochMillis = entity.verifiedAtEpochMillis,
     )
 
     private fun readMessage(entity: V2MessageEntity) = V2StoredMessage(

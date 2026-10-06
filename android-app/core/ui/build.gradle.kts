@@ -40,6 +40,8 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // Already in the app through activity-compose; declared to know when a conversation is on screen.
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.zxing.embedded)

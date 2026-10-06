@@ -85,8 +85,9 @@ class LegacyResetInstrumentedTest {
     @Test
     fun theQueueReadSecretIsStoredEncryptedAndSurvivesReopening() {
         val vault = JcaLocalVaultCipher(ByteArray(32) { 9 })
-        val created = V2QueueCredentialStore(context, vault).getOrCreate()
-        val reopened = V2QueueCredentialStore(context, vault).getOrCreate()
+        val created = V2QueueCredentialStore(context, vault).getOrCreate(knownToSomeone = false)
+        // Once contacts may know it, the stored queue is what comes back (R6).
+        val reopened = V2QueueCredentialStore(context, vault).getOrCreate(knownToSomeone = true)
 
         assertEquals(created.queueId, reopened.queueId)
         val stored = queuePreferences().all.values.joinToString()
@@ -94,7 +95,10 @@ class LegacyResetInstrumentedTest {
         assertFalse(stored.contains(created.queueId))
     }
 
-    /** Phase 5 F10: a damaged stored secret is a rejected record (DEC-023), never a generic failure. */
+    /**
+     * Phase 5 F10: a damaged stored secret is a rejected record (DEC-023), never a generic failure.
+     * Second review R6 (DEC-032): while anyone may know the queue it is a lost queue, never replaced.
+     */
     @Test
     fun aDamagedQueueSecretIsARejectedRecord() {
         val vault = JcaLocalVaultCipher(ByteArray(32) { 9 })
@@ -102,7 +106,11 @@ class LegacyResetInstrumentedTest {
         val notAuthentic = Base64.getEncoder().encodeToString(ByteArray(40))
         for (damaged in listOf("not base64!", notAuthentic, wrongLength)) {
             queuePreferences().edit().putString(V2QueueCredentialStore.READ_SECRET, damaged).commit()
-            assertThrows(damaged, VaultRecordRejectedException::class.java) { V2QueueCredentialStore(context, vault).getOrCreate() }
+            assertThrows(damaged, VaultRecordRejectedException::class.java) { V2QueueCredentialStore(context, vault).stored() }
+            assertThrows(damaged, ReceiveQueueLostException::class.java) {
+                V2QueueCredentialStore(context, vault).getOrCreate(knownToSomeone = true)
+            }
+            assertEquals("nothing replaced it", damaged, queuePreferences().getString(V2QueueCredentialStore.READ_SECRET, null))
         }
     }
 

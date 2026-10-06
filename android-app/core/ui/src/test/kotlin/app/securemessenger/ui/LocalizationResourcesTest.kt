@@ -12,6 +12,19 @@ class LocalizationResourcesTest {
         "SecureMessengerApp.kt",
         "SecureMessengerViewModel.kt",
         "V2Screens.kt",
+        "ChatList.kt",
+        "ChatListModel.kt",
+        "ConversationScreen.kt",
+        "ConversationModel.kt",
+        "V2Notifications.kt",
+        "NotificationRules.kt",
+        "NotificationUi.kt",
+        "ScreenSecurity.kt",
+        "SettingsScreen.kt",
+        "TelegramTopBar.kt",
+        "TelegramPopupMenu.kt",
+        "TelegramAlertDialog.kt",
+        "TelegramScreenStack.kt",
         "ConversationV2ViewModel.kt",
         "V2BackgroundSync.kt",
         "LegacyReset.kt",
@@ -92,7 +105,9 @@ class LocalizationResourcesTest {
 
     @Test
     fun `http warnings are wired and the settings use fully selectable rows`() {
-        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        // The settings moved to their own file in the Telegram port; the rules are checked over both.
+        val source = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText() +
+            File("src/main/kotlin/app/securemessenger/ui/SettingsScreen.kt").readText()
         val v2 = File("src/main/kotlin/app/securemessenger/ui/V2Screens.kt").readText()
         val scanner = File("src/main/kotlin/app/securemessenger/ui/PortraitQrCaptureActivity.kt").readText()
         val manifest = File("src/main/AndroidManifest.xml").readText()
@@ -112,7 +127,8 @@ class LocalizationResourcesTest {
 
     @Test
     fun `destructive actions are confirmed and the debug reset is debug only`() {
-        val app = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText()
+        val app = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerApp.kt").readText() +
+            File("src/main/kotlin/app/securemessenger/ui/SettingsScreen.kt").readText()
         val viewModel = File("src/main/kotlin/app/securemessenger/ui/SecureMessengerViewModel.kt").readText()
 
         assertTrue(app.contains("showTestResetDialog"))

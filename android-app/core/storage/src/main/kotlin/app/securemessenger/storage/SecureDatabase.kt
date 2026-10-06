@@ -1,6 +1,7 @@
 package app.securemessenger.storage
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -128,6 +129,11 @@ data class V2ContactEntity(
     val localRoutingTagHex: String,
     val state: String,
     val createdAtEpochMillis: Long,
+    /**
+     * When the user confirmed that the safety numbers match (Room v10, DEC-029; meaning DEC-030);
+     * null until then. A local mark only: it never leaves the phone.
+     */
+    val verifiedAtEpochMillis: Long? = null,
 )
 
 /** Message bodies are vault-encrypted (DEC-019 T1); queued ciphertext is dropped once sent. */
@@ -149,6 +155,18 @@ data class V2MessageEntity(
     val envelope: ByteArray?,
     val deliveryAttemptCount: Int,
     val nextRetryAtEpochMillis: Long?,
+    /**
+     * False for an incoming text the user has not seen on screen yet (Room v10, DEC-029): the
+     * chat list counts these. A local mark only, never sent: it is not a read receipt.
+     */
+    @ColumnInfo(defaultValue = "1")
+    val isRead: Boolean,
+)
+
+/** One chat's count of incoming texts not seen yet (DEC-029). */
+data class V2UnreadCountRow(
+    val contactId: String,
+    val unreadCount: Int,
 )
 
 /** Digests of accepted v2 envelopes: a byte-identical re-delivery is deleted without decryption. */
@@ -346,6 +364,9 @@ interface SecureMessengerDao {
     @Query("UPDATE v2_contacts SET state = :state WHERE contactId = :contactId")
     fun updateV2ContactState(contactId: String, state: String): Int
 
+    @Query("UPDATE v2_contacts SET verifiedAtEpochMillis = :verifiedAtEpochMillis WHERE contactId = :contactId")
+    fun updateV2ContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Int
+
     /** Returns -1 when the message ID, or this contact's inner message ID, already exists. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertV2Message(message: V2MessageEntity): Long
@@ -355,6 +376,31 @@ interface SecureMessengerDao {
 
     @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' ORDER BY createdAtEpochMillis, messageId")
     fun getV2Texts(contactId: String): List<V2MessageEntity>
+
+    /** The last text of a chat in the order [getV2Texts] shows them, either direction. */
+    @Query(
+        """
+        SELECT * FROM v2_messages
+        WHERE contactId = :contactId AND kind = 'TEXT'
+        ORDER BY createdAtEpochMillis DESC, messageId DESC
+        LIMIT 1
+        """,
+    )
+    fun getLastV2Text(contactId: String): V2MessageEntity?
+
+    /** Incoming texts not seen yet, per contact or request (DEC-029); chats with none are absent. */
+    @Query(
+        """
+        SELECT contactId, COUNT(*) AS unreadCount FROM v2_messages
+        WHERE outgoing = 0 AND kind = 'TEXT' AND isRead = 0
+        GROUP BY contactId
+        """,
+    )
+    fun getV2UnreadCounts(): List<V2UnreadCountRow>
+
+    /** Marks every incoming message of a chat as seen; returns how many changed (DEC-029). */
+    @Query("UPDATE v2_messages SET isRead = 1 WHERE contactId = :contactId AND outgoing = 0 AND isRead = 0")
+    fun markV2MessagesRead(contactId: String): Int
 
     @Query("SELECT * FROM v2_contacts ORDER BY createdAtEpochMillis, contactId")
     fun getV2Contacts(): List<V2ContactEntity>
@@ -414,6 +460,17 @@ interface SecureMessengerDao {
     @Query("SELECT COUNT(*) FROM v2_accepted_envelopes WHERE digestHex = :digestHex")
     fun countV2AcceptedEnvelope(digestHex: String): Int
 
+    /** Forgets digests accepted before [cutoffEpochMillis] (second review I5); returns how many. */
+    @Query("DELETE FROM v2_accepted_envelopes WHERE acceptedAtEpochMillis < :cutoffEpochMillis")
+    fun deleteV2AcceptedEnvelopesBefore(cutoffEpochMillis: Long): Int
+
+    /** Contacts, requests and invitations: everything that may know this phone's receive queue (second review R6). */
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM v2_contacts) + (SELECT COUNT(*) FROM v2_contact_requests) " +
+            "+ (SELECT COUNT(*) FROM v2_invitations)",
+    )
+    fun countV2QueueHolders(): Int
+
     @Query("DELETE FROM v2_invitations")
     fun deleteV2Invitations()
 
@@ -446,7 +503,7 @@ interface SecureMessengerDao {
         V2MessageEntity::class,
         V2AcceptedEnvelopeEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -457,7 +514,7 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
-                    MIGRATION_7_8, MIGRATION_8_9,
+                    MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                 )
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
@@ -766,5 +823,19 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             "signal_session_records", "signal_identity_records", "signal_prekey_records",
             "signal_signed_prekey_records", "signal_kyber_prekey_records", "signal_kyber_base_key_uses",
         )
+
+        /**
+         * Phase 6, step 6d (DEC-029): a "seen" mark on every message, for the chat list's unread
+         * counters, and the time a contact's safety number was confirmed, used from step 6f. Purely
+         * additive: no row is deleted or reinterpreted, nothing protocol-related changes, and
+         * existing messages count as seen, so the update brings no flood of old unread badges.
+         * Neither value ever leaves the phone.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `isRead` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `v2_contacts` ADD COLUMN `verifiedAtEpochMillis` INTEGER")
+            }
+        }
     }
 }

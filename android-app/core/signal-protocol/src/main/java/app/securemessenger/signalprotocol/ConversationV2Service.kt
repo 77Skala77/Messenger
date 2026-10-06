@@ -5,6 +5,7 @@ import app.securemessenger.domain.RelayQueueCredentials
 import app.securemessenger.domain.TransportClient
 import app.securemessenger.signalstore.ConversationV2Store
 import app.securemessenger.signalstore.ProtocolTransactionRunner
+import app.securemessenger.signalstore.V2ChatSummary
 import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2ContactState
@@ -85,6 +86,30 @@ class ConversationV2Service(
 
     fun texts(contactId: String): List<V2StoredMessage> = atomically { store.texts(contactId) }
 
+    /**
+     * The texts of a conversation the user is looking at. Its incoming texts are marked seen in the
+     * same step that reads them, so a text that arrives a moment later stays unread until it is
+     * actually shown (DEC-029). The mark is local only: nothing about reading is sent.
+     */
+    fun textsMarkingRead(contactId: String): List<V2StoredMessage> = atomically {
+        store.markRead(contactId)
+        store.texts(contactId)
+    }
+
+    /** One row per contact for the chat list: its newest text and its count of unseen texts (DEC-029). */
+    fun chatSummaries(): List<V2ChatSummary> = atomically {
+        val unread = store.unreadCounts()
+        store.contacts().map { contact ->
+            V2ChatSummary(contact, store.lastText(contact.contactId), unread[contact.contactId] ?: 0)
+        }
+    }
+
+    /**
+     * How many incoming texts of each contact and request are unseen (DEC-029), without reading any
+     * text: compared before and after a background sync to decide what to notify (DEC-031).
+     */
+    fun unreadCounts(): Map<String, Int> = atomically { store.unreadCounts() }
+
     /** Texts held for a pending request (never receipted before acceptance). */
     fun heldTexts(requestId: String): List<V2StoredMessage> = atomically { store.incomingTexts(requestId) }
 
@@ -132,6 +157,18 @@ class ConversationV2Service(
     }
 
     /**
+     * Uploads the sealed bundle of the invitation the screen shows (the newest unused, unexpired
+     * one) again: the person's "try again" after a failed or unknown upload (audit L2). The bundle
+     * is public and sealed, so sending it twice reveals nothing; a scanner keeps only the blob that
+     * matches the QR's digest.
+     */
+    suspend fun retryCurrentInvitationUpload() {
+        val invitation = atomically { store.latestUsableInvitation(now()) }
+            ?: throw ConversationV2Exception("No usable invitation")
+        uploadInvitation(invitation)
+    }
+
+    /**
      * Scans a peer's invitation: fetches and verifies the committed bundle, starts the session,
      * stores the contact as awaiting acceptance, and queues HELLO. Returns the new contact ID.
      * Throws [InvitationRejectedException] or [ConversationV2Exception] without changing state.
@@ -166,9 +203,18 @@ class ConversationV2Service(
         return contactId
     }
 
-    suspend fun acceptRequest(requestId: String, localName: String) {
+    /**
+     * Accepts a contact request. [comparedSafetyNumber] is the number the person compared and found
+     * matching (audit H1, DEC-030), or null if they accept without comparing. The contact is marked
+     * verified only if that number is still the request's number; if it is not, nothing is accepted.
+     */
+    suspend fun acceptRequest(requestId: String, localName: String, comparedSafetyNumber: String? = null) {
         atomically {
             val request = store.request(requestId) ?: throw ConversationV2Exception("Unknown request")
+            val verifiedAt = comparedSafetyNumber?.let { compared ->
+                requireSameSafetyNumber(request.requestId, compared)
+                now()
+            }
             val contact = V2Contact(
                 contactId = request.requestId,
                 localDisplayName = localName,
@@ -178,6 +224,7 @@ class ConversationV2Service(
                 localRoutingTagHex = request.localRoutingTagHex,
                 state = V2ContactState.ACTIVE,
                 createdAtEpochMillis = now(),
+                verifiedAtEpochMillis = verifiedAt,
             )
             store.saveContact(contact)
             store.deleteRequest(requestId)
@@ -195,6 +242,43 @@ class ConversationV2Service(
             store.deleteRequest(requestId)
             store.deleteMessagesFor(requestId)
             sessions.forget(requestId)
+        }
+    }
+
+    /**
+     * The person confirmed that [comparedSafetyNumber], the number they saw for this contact, matches
+     * the one on the contact's phone (audit H1, DEC-030). Marks the contact verified only if that is
+     * still its number and the contact is not blocked; otherwise throws and changes nothing. Allowed
+     * while waiting for acceptance: both identity keys, and so the number, are already final.
+     */
+    fun markVerified(contactId: String, comparedSafetyNumber: String) = atomically {
+        val contact = store.contact(contactId) ?: throw ConversationV2Exception("Unknown contact")
+        if (contact.state == V2ContactState.KEY_CHANGED) throw ConversationV2Exception("Contact is blocked")
+        requireSameSafetyNumber(contactId, comparedSafetyNumber)
+        check(store.setContactVerified(contactId, now()))
+    }
+
+    /**
+     * Forgets envelope digests older than [ACCEPTED_DIGEST_RETENTION_MILLIS] (second review I5). They
+     * only spare a decryption for byte-identical re-deliveries, which the relay drops after a day; a
+     * replay of a forgotten envelope is still rejected by libsignal and the inner message IDs.
+     */
+    fun forgetOldEnvelopeDigests(): Int = atomically { store.forgetAcceptedEnvelopesBefore(now() - ACCEPTED_DIGEST_RETENTION_MILLIS) }
+
+    /** Removes the verified mark; the person can set it again after a new comparison. */
+    fun clearVerified(contactId: String) = atomically {
+        if (!store.setContactVerified(contactId, null)) throw ConversationV2Exception("Unknown contact")
+    }
+
+    /**
+     * The number the person compared must be the number of the identity stored now: a stale screen,
+     * or any other mix-up, must never mark a contact whose number the person did not see.
+     */
+    private fun requireSameSafetyNumber(contactOrRequestId: String, compared: String) {
+        val current = sessions.safetyNumber(contactOrRequestId) ?: throw ConversationV2Exception("Unknown identity")
+        val comparedDigits = compared.filter(Char::isDigit)
+        if (comparedDigits.isEmpty() || comparedDigits != current.filter(Char::isDigit)) {
+            throw ConversationV2Exception("Safety number changed")
         }
     }
 
@@ -279,6 +363,7 @@ class ConversationV2Service(
 
     /** [processIncoming]; with [mayDefer], a rejected envelope stays on the relay and null is returned. */
     private suspend fun decide(blob: RelayEncryptedBlob, envelope: EnvelopeV2?, mayDefer: Boolean): IncomingV2Result? {
+        var burned: V2Invitation? = null
         val result = if (envelope == null) {
             IncomingV2Result.UNAUTHENTICATED
         } else {
@@ -295,7 +380,7 @@ class ConversationV2Service(
                             if (now() > route.invitation.expiresAtEpochMillis + InvitationV2.CLOCK_SKEW_MILLIS) {
                                 IncomingV2Result.UNROUTABLE
                             } else {
-                                helloForInvitation(route.invitation, envelope)
+                                helloForInvitation(route.invitation, envelope).also { burned = route.invitation }
                             }
                     }
                     if (!outcome.authenticated) throw Rejected(outcome)
@@ -308,7 +393,29 @@ class ConversationV2Service(
         }
         if (mayDefer && !result.authenticated) return null
         transport.deleteMessage(localReceiveQueue, blob.messageId)
+        // An accepted HELLO used the invitation up (committed): its sealed bundle goes too, so whoever
+        // scans the code later is told at once that it no longer works (second review I2).
+        if (result.authenticated) burned?.let { withdrawBundle(it) }
         return result
+    }
+
+    /**
+     * Deletes a used invitation's sealed bundle from its mailbox, best effort: the bundle holds only
+     * public keys, and if the relay cannot be reached it expires there with the invitation. Whoever
+     * scans the code afterwards finds nothing and is told the invitation no longer works; the
+     * invitation itself was single use all along (DEC-026).
+     */
+    private suspend fun withdrawBundle(invitation: V2Invitation) {
+        try {
+            val mailbox = InvitationV2.decodeCode(invitation.codeText).mailbox
+            transport.fetchMessages(mailbox)
+                .filter { it.opaqueCiphertext.contentEquals(invitation.sealedBundle) }
+                .forEach { transport.deleteMessage(mailbox, it.messageId) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The verdict stands either way; a later scan then waits in vain, as before.
+        }
     }
 
     private fun decodeOrNull(bytes: ByteArray): EnvelopeV2? =
@@ -567,6 +674,9 @@ class ConversationV2Service(
 
         /** The relay returns at most this many of the oldest messages per fetch (DEC-026). */
         const val RELAY_PAGE_SIZE = 100
+
+        /** Envelope digests are kept this long (second review I5): far beyond the relay's one-day lifetime. */
+        const val ACCEPTED_DIGEST_RETENTION_MILLIS = 30L * 24 * 60 * 60 * 1000
 
         /** A sync stops after this many pages; the rest waits for the next one. */
         private const val MAX_PAGES_PER_SYNC = 10

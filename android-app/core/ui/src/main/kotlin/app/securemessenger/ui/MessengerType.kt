@@ -13,12 +13,26 @@ object MessengerType {
     val ListName = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Medium)
     val ListMessage = TextStyle(fontSize = 16.sp)
     val ListTime = TextStyle(fontSize = 13.sp)
-    val MessageText = TextStyle(fontSize = 16.sp)
-    val MessageTime = TextStyle(fontSize = 12.sp)
+    // Material's body style adds a 24 sp line height and letter spacing; a bubble wants a tighter line.
+    val MessageText = TextStyle(fontSize = 16.sp, lineHeight = 21.sp, letterSpacing = 0.sp)
+    val MessageTime = TextStyle(fontSize = 12.sp, lineHeight = 14.sp, letterSpacing = 0.sp)
     val DateChip = TextStyle(fontSize = 14.sp)
     val HeaderTitle = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Medium)
     val HeaderSubtitle = TextStyle(fontSize = 14.sp)
-    val InputText = TextStyle(fontSize = 18.sp)
+    // Not merged into Material's body style (a text field takes its style as given): name the typeface.
+    val InputText = TextStyle(fontSize = 18.sp, fontFamily = SourceSans3)
+
+    /** The title in the top bar: 20 sp, medium (`ActionBar.java`; 18 sp in landscape). */
+    val TopBarTitle = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Medium, lineHeight = 24.sp, letterSpacing = 0.sp)
+    val TopBarTitleLandscape = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Medium, lineHeight = 22.sp, letterSpacing = 0.sp)
+
+    /** An item in a popup menu: 16 sp (`ActionBarMenuSubItem`). */
+    val DialogTitle = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Medium, lineHeight = 26.sp, letterSpacing = 0.sp)
+    val DialogText = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = 0.sp)
+    val MenuItem =TextStyle(fontSize = 16.sp, lineHeight = 20.sp, letterSpacing = 0.sp)
+
+    /** A heading in settings: 15 sp, medium, in the accent color. */
+    val SectionTitle = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium, lineHeight = 20.sp, letterSpacing = 0.sp)
     val BadgeText = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold)
 }
 

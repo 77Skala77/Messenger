@@ -42,39 +42,49 @@ class SystemBackInstrumentedTest {
     @Test
     fun theChatScreensGoBackToTheListAndTheListLeavesToTheSystem() {
         composeRule.runOnUiThread { composeRule.activity.setContent { ConversationV2Root(onOpenSettings = {}, onLocalDataUnreadable = {}) } }
-        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MY_INVITATION) }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) }
         assertFalse("nothing to go back to on the list", hasBackHandler())
 
         // Invitation screen -> list.
-        composeRule.onNodeWithTag(MY_INVITATION).performClick()
+        chooseFromNewChatMenu(MY_INVITATION)
         composeRule.waitUntil(TIMEOUT_MILLIS) { exists(CREATE_INVITATION) }
         assertTrue(hasBackHandler())
         pressSystemBack()
-        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MY_INVITATION) && !exists(CREATE_INVITATION) }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) && !exists(CREATE_INVITATION) }
         assertFalse(hasBackHandler())
 
         // Add-contact screen -> list.
-        composeRule.onNodeWithTag(ADD_CONTACT).performClick()
+        chooseFromNewChatMenu(ADD_CONTACT)
         composeRule.waitUntil(TIMEOUT_MILLIS) { exists(CODE_INPUT) }
         assertTrue(hasBackHandler())
         pressSystemBack()
-        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MY_INVITATION) && !exists(CODE_INPUT) }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) && !exists(CODE_INPUT) }
         assertFalse(hasBackHandler())
+    }
+
+    /** The round button of the chat list opens a menu; its two entries lead to the invitation and add screens (step 6d). */
+    private fun chooseFromNewChatMenu(entryTag: String) {
+        composeRule.onNodeWithTag(NEW_CHAT_BUTTON).performClick()
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(entryTag) }
+        composeRule.onNodeWithTag(entryTag).performClick()
     }
 
     @Test
     fun settingsGoesBackToTheMainScreen() {
         withDatabase { database -> LocalProfileRepository(database.dao(), AndroidKeystoreVaultCipher()).createProfile("Alice") }
         composeRule.runOnUiThread { composeRule.activity.setContent { SecureMessengerApp() } }
-        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MY_INVITATION) }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) }
         assertFalse("nothing to go back to on the main screen", hasBackHandler())
 
-        composeRule.onNodeWithText(composeRule.activity.getString(R.string.settings)).performClick()
+        // Settings sits in the top bar's menu now (step 6h port).
+        composeRule.onNodeWithTag(HOME_MENU_TAG).performClick()
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MENU_SETTINGS_TAG) }
+        composeRule.onNodeWithTag(MENU_SETTINGS_TAG).performClick()
         composeRule.waitUntil(TIMEOUT_MILLIS) { exists(LANGUAGE_OPTION) }
         assertTrue(hasBackHandler())
 
         pressSystemBack()
-        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MY_INVITATION) && !exists(LANGUAGE_OPTION) }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) && !exists(LANGUAGE_OPTION) }
         assertFalse(hasBackHandler())
     }
 
@@ -82,7 +92,7 @@ class SystemBackInstrumentedTest {
     @Test
     fun onboardingHasNothingToGoBackTo() {
         composeRule.runOnUiThread { composeRule.activity.setContent { SecureMessengerApp() } }
-        composeRule.waitUntil(TIMEOUT_MILLIS) { composeRule.onAllNodesWithTagCount(MY_INVITATION) == 0 && onboardingShown() }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { composeRule.onAllNodesWithTagCount(NEW_CHAT_BUTTON) == 0 && onboardingShown() }
         assertFalse(hasBackHandler())
     }
 
@@ -122,6 +132,7 @@ class SystemBackInstrumentedTest {
 
     private companion object {
         const val TIMEOUT_MILLIS = 10_000L
+        const val NEW_CHAT_BUTTON = CHAT_LIST_FAB_TAG
         const val MY_INVITATION = "v2_my_invitation"
         const val CREATE_INVITATION = "v2_create_invitation"
         const val ADD_CONTACT = "v2_add_contact"

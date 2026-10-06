@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -82,7 +83,13 @@ class ThemeComponentsInstrumentedTest {
         }
         composeRule.onNodeWithTag("empty").assertWidthIsEqualTo(0.dp)
         composeRule.onNodeWithTag("single").assertHeightIsEqualTo(MessengerDimens.BadgeHeight)
-        composeRule.onNodeWithTag("single").assertWidthIsEqualTo(MessengerDimens.BadgeHeight)
+        // A single digit is round at the normal font size. The badge text is in sp, so with a larger
+        // system font (the Redmi's 1.15) the digit is wider and the badge grows with it: by design.
+        if (composeRule.activity.resources.configuration.fontScale <= 1.0f) {
+            composeRule.onNodeWithTag("single").assertWidthIsEqualTo(MessengerDimens.BadgeHeight)
+        } else {
+            composeRule.onNodeWithTag("single").assertWidthIsAtLeast(MessengerDimens.BadgeHeight)
+        }
         composeRule.onNodeWithTag("avatar").assertWidthIsEqualTo(52.dp)
         composeRule.onNodeWithTag("avatar").assertHeightIsEqualTo(52.dp)
     }

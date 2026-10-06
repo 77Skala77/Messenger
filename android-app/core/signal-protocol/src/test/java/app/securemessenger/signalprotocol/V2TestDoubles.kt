@@ -29,13 +29,15 @@ class InMemoryConversationV2Store : ConversationV2Store {
         var envelope: ByteArray?,
         var attemptCount: Int,
         var nextRetryAt: Long?,
+        var read: Boolean,
     )
 
     private val invitations = linkedMapOf<String, V2Invitation>()
     private val requests = linkedMapOf<String, V2ContactRequest>()
     private val contacts = linkedMapOf<String, V2Contact>()
     private val messages = linkedMapOf<String, Message>()
-    private val accepted = mutableSetOf<String>()
+    /** Digest of each accepted envelope, and when it was accepted. */
+    private val accepted = linkedMapOf<String, Long>()
     private var nextLocalId = 0
 
     /** Fault injection: the next incoming text store throws, as if the process died there. */
@@ -50,16 +52,16 @@ class InMemoryConversationV2Store : ConversationV2Store {
         val savedRequests = LinkedHashMap(requests)
         val savedContacts = LinkedHashMap(contacts)
         val savedMessages = messages.mapValues { (_, m) ->
-            Message(m.stored, m.kind, m.status, m.peerQueueId, m.envelope, m.attemptCount, m.nextRetryAt)
+            Message(m.stored, m.kind, m.status, m.peerQueueId, m.envelope, m.attemptCount, m.nextRetryAt, m.read)
         }
-        val savedAccepted = accepted.toSet()
+        val savedAccepted = LinkedHashMap(accepted)
         return {
             synchronized(this) {
                 invitations.clear(); invitations.putAll(savedInvitations)
                 requests.clear(); requests.putAll(savedRequests)
                 contacts.clear(); contacts.putAll(savedContacts)
                 messages.clear(); messages.putAll(savedMessages)
-                accepted.clear(); accepted.addAll(savedAccepted)
+                accepted.clear(); accepted.putAll(savedAccepted)
             }
         }
     }
@@ -75,7 +77,21 @@ class InMemoryConversationV2Store : ConversationV2Store {
     override fun isEnvelopeAccepted(digestHex: String) = digestHex in accepted
 
     @Synchronized
-    override fun recordAcceptedEnvelope(digestHex: String, acceptedAtEpochMillis: Long) = accepted.add(digestHex)
+    override fun recordAcceptedEnvelope(digestHex: String, acceptedAtEpochMillis: Long): Boolean {
+        if (digestHex in accepted) return false
+        accepted[digestHex] = acceptedAtEpochMillis
+        return true
+    }
+
+    @Synchronized
+    override fun forgetAcceptedEnvelopesBefore(cutoffEpochMillis: Long): Int {
+        val old = accepted.filterValues { it < cutoffEpochMillis }.keys
+        old.forEach(accepted::remove)
+        return old.size
+    }
+
+    @Synchronized
+    fun acceptedDigestCount(): Int = accepted.size
 
     @Synchronized
     override fun saveInvitation(invitation: V2Invitation) {
@@ -151,11 +167,23 @@ class InMemoryConversationV2Store : ConversationV2Store {
     @Synchronized
     override fun setContactState(contactId: String, state: V2ContactState) {
         val contact = checkNotNull(contacts[contactId]) { "Unknown v2 contact" }
-        contacts[contactId] = V2Contact(
-            contact.contactId, contact.localDisplayName, contact.identityKey, contact.peerQueueId,
-            contact.peerRoutingTagHex, contact.localRoutingTagHex, state, contact.createdAtEpochMillis,
-        )
+        // Like the Room repository: a changed key takes the verified mark with it.
+        val verifiedAt = if (state == V2ContactState.KEY_CHANGED) null else contact.verifiedAtEpochMillis
+        contacts[contactId] = contact.copy(state = state, verifiedAtEpochMillis = verifiedAt)
     }
+
+    @Synchronized
+    override fun setContactVerified(contactId: String, verifiedAtEpochMillis: Long?): Boolean {
+        val contact = contacts[contactId] ?: return false
+        contacts[contactId] = contact.copy(verifiedAtEpochMillis = verifiedAtEpochMillis)
+        return true
+    }
+
+    private fun V2Contact.copy(state: V2ContactState = this.state, verifiedAtEpochMillis: Long? = this.verifiedAtEpochMillis) =
+        V2Contact(
+            contactId, localDisplayName, identityKey, peerQueueId, peerRoutingTagHex, localRoutingTagHex, state,
+            createdAtEpochMillis, verifiedAtEpochMillis,
+        )
 
     @Synchronized
     override fun storeIncomingText(contactId: String, innerMessageIdHex: String, text: String, receivedAtEpochMillis: Long): Boolean {
@@ -169,7 +197,7 @@ class InMemoryConversationV2Store : ConversationV2Store {
         val id = "local-${nextLocalId++}"
         messages[id] = Message(
             V2StoredMessage(id, contactId, false, innerMessageIdHex, text, V2MessageStatus.RECEIVED, receivedAtEpochMillis),
-            V2MessageKind.TEXT, V2MessageStatus.RECEIVED, null, null, 0, null,
+            V2MessageKind.TEXT, V2MessageStatus.RECEIVED, null, null, 0, null, read = false,
         )
         return true
     }
@@ -178,14 +206,31 @@ class InMemoryConversationV2Store : ConversationV2Store {
     override fun incomingTexts(contactId: String) =
         messages.values.filter { !it.stored.outgoing && it.stored.contactId == contactId }.map { it.stored }
 
+    /** In insertion order: the tests' clock only moves forward, so this is also the time order. */
     @Synchronized
     override fun texts(contactId: String) =
-        messages.values.filter { it.stored.contactId == contactId && it.kind == V2MessageKind.TEXT }.map {
-            V2StoredMessage(
-                it.stored.messageId, it.stored.contactId, it.stored.outgoing, it.stored.innerMessageIdHex,
-                it.stored.text, it.status, it.stored.createdAtEpochMillis,
-            )
-        }
+        messages.values.filter { it.stored.contactId == contactId && it.kind == V2MessageKind.TEXT }.map(::visible)
+
+    @Synchronized
+    override fun lastText(contactId: String) = texts(contactId).lastOrNull()
+
+    @Synchronized
+    override fun unreadCounts(): Map<String, Int> =
+        messages.values.filter { !it.stored.outgoing && it.kind == V2MessageKind.TEXT && !it.read }
+            .groupingBy { it.stored.contactId }
+            .eachCount()
+
+    @Synchronized
+    override fun markRead(contactId: String): Int {
+        val unread = messages.values.filter { !it.stored.outgoing && it.stored.contactId == contactId && !it.read }
+        unread.forEach { it.read = true }
+        return unread.size
+    }
+
+    private fun visible(message: Message) = V2StoredMessage(
+        message.stored.messageId, message.stored.contactId, message.stored.outgoing, message.stored.innerMessageIdHex,
+        message.stored.text, message.status, message.stored.createdAtEpochMillis,
+    )
 
     @Synchronized
     override fun contacts() = contacts.values.toList()
@@ -201,6 +246,7 @@ class InMemoryConversationV2Store : ConversationV2Store {
                 V2MessageStatus.PENDING, createdAtEpochMillis,
             ),
             envelope.kind, V2MessageStatus.PENDING, envelope.peerQueueId, envelope.envelope, envelope.attemptCount, null,
+            read = true,
         )
     }
 
@@ -270,7 +316,10 @@ class InMemoryConversationV2Store : ConversationV2Store {
             add("request ${it.requestId} ${it.localRoutingTagHex} ${it.peerRoutingTagHex} ${it.peerQueueId} ${hexOf(it.identityKey)} ${it.claimedDisplayName}")
         }
         contacts.values.forEach {
-            add("contact ${it.contactId} ${it.state} ${it.localRoutingTagHex} ${it.peerRoutingTagHex} ${it.peerQueueId} ${hexOf(it.identityKey)}")
+            add(
+                "contact ${it.contactId} ${it.state} ${it.localRoutingTagHex} ${it.peerRoutingTagHex} ${it.peerQueueId} " +
+                    "${hexOf(it.identityKey)} verified=${it.verifiedAtEpochMillis}",
+            )
         }
         messages.values.forEach {
             add(
@@ -278,7 +327,7 @@ class InMemoryConversationV2Store : ConversationV2Store {
                     "${it.stored.text} ${it.attemptCount} ${it.nextRetryAt} ${it.envelope?.let(::hexOf)}",
             )
         }
-        accepted.sorted().forEach { add("accepted $it") }
+        accepted.keys.sorted().forEach { add("accepted $it") }
     }
 
     private fun Message.toEnvelope(): V2OutgoingEnvelope? {
@@ -319,6 +368,9 @@ class FakeRelay : TransportClient {
     private var nextId = 0
     var failNextSends = 0
 
+    /** Fault injection: fetches and deletes on these queues fail, as if the relay were unreachable for them. */
+    val unreachableQueues = mutableSetOf<String>()
+
     /** Like the real relay (DEC-026), a fetch returns only the oldest messages, at most this many. */
     var pageSize = ConversationV2Service.RELAY_PAGE_SIZE
 
@@ -334,10 +386,16 @@ class FakeRelay : TransportClient {
         }
 
     override suspend fun fetchMessages(queue: RelayQueueCredentials): List<RelayEncryptedBlob> =
-        synchronized(this) { blobs.values.filter { it.queueId == queue.queueId }.take(pageSize) }
+        synchronized(this) {
+            if (queue.queueId in unreachableQueues) throw java.io.IOException("relay unreachable")
+            blobs.values.filter { it.queueId == queue.queueId }.take(pageSize)
+        }
 
     override suspend fun deleteMessage(queue: RelayQueueCredentials, messageId: String) {
-        synchronized(this) { if (blobs[messageId]?.queueId == queue.queueId) blobs.remove(messageId) }
+        synchronized(this) {
+            if (queue.queueId in unreachableQueues) throw java.io.IOException("relay unreachable")
+            if (blobs[messageId]?.queueId == queue.queueId) blobs.remove(messageId)
+        }
     }
 
     @Synchronized

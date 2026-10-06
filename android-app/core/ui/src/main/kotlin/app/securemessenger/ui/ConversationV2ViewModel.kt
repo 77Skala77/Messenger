@@ -8,6 +8,7 @@ import app.securemessenger.signalprotocol.ConversationV2Service
 import app.securemessenger.signalprotocol.InvitationRejectedException
 import app.securemessenger.signalprotocol.InvitationRejection
 import app.securemessenger.signalprotocol.MalformedV2Exception
+import app.securemessenger.signalstore.V2ChatSummary
 import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2StoredMessage
@@ -38,17 +39,35 @@ enum class V2Notice {
     BLOCKED,
 }
 
+/**
+ * Whether the invitation on screen reached the relay (audit L2). [UNKNOWN] after a restart, when
+ * only the stored invitation is known; "send again" is always allowed then.
+ */
+enum class InvitationUpload { UNKNOWN, UPLOADED, FAILED }
+
 class V2RequestView(val request: V2ContactRequest, val safetyNumber: String?, val heldTextCount: Int)
 
 data class ConversationV2UiState(
     val ready: Boolean = false,
     val contacts: List<V2Contact> = emptyList(),
+    /** One row per contact for the chat list: newest text and count of unseen texts (DEC-029). */
+    val chats: List<V2ChatSummary> = emptyList(),
     val requests: List<V2RequestView> = emptyList(),
     val invitationCode: String? = null,
+    val invitationUpload: InvitationUpload = InvitationUpload.UNKNOWN,
+    /** True while an invitation is being created or uploaded again. */
+    val invitationBusy: Boolean = false,
     val selectedContactId: String? = null,
     val messages: List<V2StoredMessage> = emptyList(),
     val safetyNumber: String? = null,
     val notice: V2Notice? = null,
+    /** True while a fetch the person asked for (pull down on the chat list) is running. */
+    val refreshing: Boolean = false,
+    /**
+     * The contact this phone just added by scanning or pasting an invitation: the screen opens the
+     * comparison of its safety number once (owner decision, DEC-030), then clears it.
+     */
+    val newContactId: String? = null,
     /** DEC-023: the vault key disappeared while the chat was open; the app must re-check its data. */
     val localDataUnreadable: Boolean = false,
 )
@@ -61,6 +80,7 @@ internal class V2Snapshot(
     val selectedContactId: String?,
     val messages: List<V2StoredMessage>,
     val safetyNumber: String?,
+    val chats: List<V2ChatSummary> = emptyList(),
 )
 
 /**
@@ -72,8 +92,11 @@ internal fun ConversationV2UiState.withSnapshot(snapshot: V2Snapshot): Conversat
     val sameContact = selectedContactId == snapshot.selectedContactId
     return copy(
         contacts = snapshot.contacts,
+        chats = snapshot.chats,
         requests = snapshot.requests,
         invitationCode = snapshot.invitationCode,
+        // With no invitation left (used or expired) nothing is known about an upload any more.
+        invitationUpload = if (snapshot.invitationCode == null) InvitationUpload.UNKNOWN else invitationUpload,
         messages = if (sameContact) snapshot.messages else messages,
         safetyNumber = if (sameContact) snapshot.safetyNumber else safetyNumber,
     )
@@ -82,8 +105,9 @@ internal fun ConversationV2UiState.withSnapshot(snapshot: V2Snapshot): Conversat
 /**
  * UI state holder for the v2 pipeline (DEC-021). In a release build v2 is unavailable, and this
  * class never builds the pipeline, never creates a libsignal identity, and never touches the relay.
- * While the chat screen is open it fetches every few seconds; otherwise best-effort background
- * sync (`V2SyncWorker`) takes over. Several coroutines change the state, so every change is an
+ * While the chat screen is on screen (started) it fetches every few seconds; otherwise best-effort
+ * background sync (`V2SyncWorker`) takes over, and only it announces new messages (DEC-031), so a
+ * text fetched here was always seen in the app. Several coroutines change the state, so every change is an
  * atomic [update]: none of them may write back a stale copy over a newer one (audit SESS-01).
  */
 class ConversationV2ViewModel(application: Application) : AndroidViewModel(application) {
@@ -97,9 +121,17 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     private var pollJob: Job? = null
 
     /**
-     * Builds the pipeline and starts fetching. Called each time the chat screen enters
-     * composition, so a local wipe never leaves a stale service behind. Creating the pipeline also
-     * creates this device's libsignal identity if none exists.
+     * True only while the conversation screen is shown with the app in front: then, and only then,
+     * its incoming texts count as seen (DEC-029). The UI sets it from the lifecycle.
+     */
+    @Volatile
+    private var conversationVisible = false
+
+    /**
+     * Builds the pipeline and starts fetching. Called each time the chat screen is started (shown,
+     * or back from the background), so a local wipe never leaves a stale service behind; [stop]
+     * runs when it is stopped. Creating the pipeline also creates this device's libsignal identity
+     * if none exists.
      */
     fun start() {
         if (!available) return
@@ -136,38 +168,78 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
                 throw cancelled
             } catch (_: VaultKeyUnavailableException) {
                 localDataLost()
+            } catch (_: ReceiveQueueLostException) {
+                // Second review R6 (DEC-032): the app re-checks and explains, like a lost key.
+                localDataLost()
             } catch (_: Exception) {
                 mutableState.update { it.copy(notice = V2Notice.FAILED) }
             }
         }
     }
 
-    /** Stops foreground fetching: the chat screen left composition or local data was deleted. */
+    /** Stops foreground fetching: the chat screen was stopped (app in the background) or left, or local data was deleted. */
     fun stop() {
         pollJob?.cancel()
         pollJob = null
         service = null
     }
 
-    fun createInvitation() = run(successNotice = V2Notice.INVITATION_READY) { it.createInvitation() }
+    fun createInvitation() = run(successNotice = V2Notice.INVITATION_READY, uploadsInvitation = true) { it.createInvitation() }
+
+    /** The person's "try again" for the invitation on screen (audit L2). */
+    fun retryInvitationUpload() =
+        run(successNotice = V2Notice.INVITATION_READY, uploadsInvitation = true) { it.retryCurrentInvitationUpload() }
 
     fun addContactFromCode(code: String, localName: String) {
         if (code.isBlank() || localName.isBlank()) {
             mutableState.update { it.copy(notice = V2Notice.INVALID_CODE) }
             return
         }
-        run(successNotice = V2Notice.REQUEST_SENT, syncAfterwards = true) { it.acceptInvitation(code, localName.trim()) }
+        run(successNotice = V2Notice.REQUEST_SENT, syncAfterwards = true) { service ->
+            val contactId = service.acceptInvitation(code, localName.trim())
+            mutableState.update { it.copy(newContactId = contactId) }
+        }
     }
 
-    fun acceptRequest(requestId: String, localName: String) {
+    /** The screen has opened the comparison for the contact just added. */
+    fun newContactShown() {
+        mutableState.update { it.copy(newContactId = null) }
+    }
+
+    /**
+     * [comparedSafetyNumber] is the number shown with the request when the person confirmed that it
+     * matches, or null when they accept without comparing (DEC-030). The service marks the contact
+     * verified only if that is still the request's number.
+     */
+    fun acceptRequest(requestId: String, localName: String, comparedSafetyNumber: String? = null) {
         if (localName.isBlank()) return
-        run(syncAfterwards = true) { it.acceptRequest(requestId, localName.trim()) }
+        V2Notifications.cancelRequest(getApplication(), requestId)
+        run(syncAfterwards = true) { it.acceptRequest(requestId, localName.trim(), comparedSafetyNumber) }
     }
 
-    fun declineRequest(requestId: String) = run { it.declineRequest(requestId) }
+    /** The person confirmed that [shownSafetyNumber], the number on screen, matches the contact's. */
+    fun markVerified(contactId: String, shownSafetyNumber: String) = run { it.markVerified(contactId, shownSafetyNumber) }
+
+    fun clearVerified(contactId: String) = run { it.clearVerified(contactId) }
+
+    fun declineRequest(requestId: String) {
+        V2Notifications.cancelRequest(getApplication(), requestId)
+        run { it.declineRequest(requestId) }
+    }
 
     fun selectContact(contactId: String?) {
         mutableState.update { it.copy(selectedContactId = contactId, messages = emptyList(), safetyNumber = null) }
+        viewModelScope.launch(Dispatchers.IO) { refresh() }
+    }
+
+    /** The conversation screen came into view with the app in front, or left it (DEC-029). */
+    fun setConversationVisible(visible: Boolean) {
+        if (conversationVisible == visible) return
+        conversationVisible = visible
+        if (!visible) return
+        // Its notification is answered by what is on screen now (DEC-031).
+        mutableState.value.selectedContactId?.let { V2Notifications.cancelChat(getApplication(), it) }
+        // What is on screen now counts as seen at once, not only at the next poll.
         viewModelScope.launch(Dispatchers.IO) { refresh() }
     }
 
@@ -177,7 +249,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         run(syncAfterwards = true) { it.sendText(contactId, text) }
     }
 
-    fun synchronizeNow() = run { it.synchronize() }
+    fun synchronizeNow() = run(showRefreshing = true) { it.synchronize() }
 
     fun clearNotice() {
         mutableState.update { it.copy(notice = null) }
@@ -192,12 +264,17 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
     private fun run(
         successNotice: V2Notice? = null,
         syncAfterwards: Boolean = false,
+        showRefreshing: Boolean = false,
+        uploadsInvitation: Boolean = false,
         block: suspend (ConversationV2Service) -> Unit,
     ) {
         val current = service ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        if (showRefreshing) mutableState.update { it.copy(refreshing = true) }
+        if (uploadsInvitation) mutableState.update { it.copy(invitationBusy = true) }
+        val job = viewModelScope.launch(Dispatchers.IO) {
             val notice = try {
                 block(current)
+                if (uploadsInvitation) mutableState.update { it.copy(invitationUpload = InvitationUpload.UPLOADED) }
                 successNotice
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -221,6 +298,7 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             } catch (_: MalformedV2Exception) {
                 V2Notice.INVALID_CODE
             } catch (_: java.io.IOException) {
+                if (uploadsInvitation) mutableState.update { it.copy(invitationUpload = InvitationUpload.FAILED) }
                 V2Notice.RELAY_ERROR
             } catch (_: VaultKeyUnavailableException) {
                 localDataLost()
@@ -233,20 +311,31 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
             refresh()
             if (notice != null) mutableState.update { it.copy(notice = notice) }
         }
+        // Whatever the outcome (done, failed, cancelled), the pull-down spinner and the busy flag must stop.
+        if (showRefreshing) job.invokeOnCompletion { mutableState.update { it.copy(refreshing = false) } }
+        if (uploadsInvitation) job.invokeOnCompletion { mutableState.update { it.copy(invitationBusy = false) } }
     }
 
     private suspend fun refresh() = withContext(Dispatchers.IO) {
         val current = service ?: return@withContext
         try {
             val selected = mutableState.value.selectedContactId
+            // Shown means seen: only a conversation on screen marks its texts (DEC-029). This runs
+            // before the chat list is read, so the list never shows a count for what is on screen.
+            val messages = when {
+                selected == null -> emptyList()
+                conversationVisible -> current.textsMarkingRead(selected)
+                else -> current.texts(selected)
+            }
             val snapshot = V2Snapshot(
                 contacts = current.contacts(),
+                chats = current.chatSummaries(),
                 requests = current.requests().map { request ->
                     V2RequestView(request, current.safetyNumber(request.requestId), current.heldTexts(request.requestId).size)
                 },
                 invitationCode = current.currentInvitationCode(),
                 selectedContactId = selected,
-                messages = selected?.let(current::texts).orEmpty(),
+                messages = messages,
                 safetyNumber = selected?.let(current::safetyNumber),
             )
             mutableState.update { it.withSnapshot(snapshot) }

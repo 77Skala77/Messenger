@@ -200,6 +200,33 @@ class ConversationV2StorageInstrumentedTest {
         assertFalse(repository.isEnvelopeAccepted(DIGEST))
     }
 
+    /**
+     * DEC-029 on Room: incoming texts are unseen until marked; the user's own texts never count;
+     * the last text follows the conversation's order and is decrypted; marking is per chat.
+     */
+    @Test
+    fun unseenTextsAreCountedPerChatAndTheLastTextIsTheNewestInEitherDirection() {
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "first", 10))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_2, "second", 20))
+        repository.enqueueOutgoing(outgoing("out-1", "contact-1", V2MessageKind.TEXT, INNER_3), "my answer", 30)
+        repository.enqueueOutgoing(outgoing("rcpt-1", "contact-1", V2MessageKind.RECEIPT, INNER_4), null, 40)
+        assertTrue(repository.storeIncomingText("contact-2", INNER_1, "other chat", 15))
+
+        assertEquals(mapOf("contact-1" to 2, "contact-2" to 1), repository.unreadCounts())
+        // The receipt is newer, but it is not a text.
+        assertEquals("my answer", repository.lastText("contact-1")!!.text)
+        assertEquals("other chat", repository.lastText("contact-2")!!.text)
+        assertNull(repository.lastText("nobody"))
+
+        assertEquals(2, repository.markRead("contact-1"))
+        assertEquals(0, repository.markRead("contact-1"))
+        assertEquals(mapOf("contact-2" to 1), repository.unreadCounts())
+
+        assertTrue(repository.storeIncomingText("contact-1", INNER_4, "newest", 50))
+        assertEquals(mapOf("contact-1" to 1, "contact-2" to 1), repository.unreadCounts())
+        assertEquals("newest", repository.lastText("contact-1")!!.text)
+    }
+
     @Test
     fun contactStateChangesAndIdentityLookupWork() {
         repository.saveContact(contact("contact-1", TAG_A, identity = byteArrayOf(5, 1, 2, 3)))
@@ -210,6 +237,55 @@ class ConversationV2StorageInstrumentedTest {
         assertEquals(V2ContactState.ACTIVE, repository.contact("contact-1")!!.state)
         assertThrows(IllegalStateException::class.java) { repository.setContactState("missing", V2ContactState.ACTIVE) }
     }
+
+    /**
+     * DEC-030 on Room: the verified mark is stored with a new contact, set and cleared on its own,
+     * kept when the state moves on, and removed with a changed key; an unknown contact changes nothing.
+     */
+    @Test
+    fun theVerifiedMarkIsKeptAcrossStateChangesAndDropsWithAChangedKey() {
+        repository.saveContact(contact("contact-1", TAG_A).withVerifiedAt(1_000L))
+        repository.saveContact(contact("contact-2", TAG_B))
+        assertEquals(1_000L, repository.contact("contact-1")!!.verifiedAtEpochMillis)
+        assertNull(repository.contact("contact-2")!!.verifiedAtEpochMillis)
+
+        assertTrue(repository.setContactVerified("contact-2", 2_000L))
+        repository.setContactState("contact-2", V2ContactState.ACTIVE)
+        assertEquals(2_000L, repository.contact("contact-2")!!.verifiedAtEpochMillis)
+        assertTrue(repository.contact("contact-2")!!.safetyNumberChecked)
+
+        assertTrue(repository.setContactVerified("contact-2", null))
+        assertNull(repository.contact("contact-2")!!.verifiedAtEpochMillis)
+
+        repository.setContactState("contact-1", V2ContactState.KEY_CHANGED)
+        assertNull(repository.contact("contact-1")!!.verifiedAtEpochMillis)
+
+        assertFalse(repository.setContactVerified("missing", 3_000L))
+        assertEquals(listOf(null, null), repository.contacts().map { it.verifiedAtEpochMillis })
+    }
+
+    /** Second review I5 and R6 (DEC-032) on Room: old digests go, recent ones stay; whatever knows the inbox is counted. */
+    @Test
+    fun oldDigestsAreForgottenAndEverythingThatKnowsTheInboxIsCounted() {
+        val recent = DIGEST.replace('d', 'e')
+        assertTrue(repository.recordAcceptedEnvelope(DIGEST, 1_000))
+        assertTrue(repository.recordAcceptedEnvelope(recent, 5_000))
+
+        assertEquals(1, repository.forgetAcceptedEnvelopesBefore(2_000))
+        assertFalse(repository.isEnvelopeAccepted(DIGEST))
+        assertTrue(repository.isEnvelopeAccepted(recent))
+
+        assertEquals(0, dao.countV2QueueHolders())
+        repository.saveInvitation(invitation("inv-1", TAG_A))
+        repository.saveRequest(request("req-1", TAG_B))
+        repository.saveContact(contact("contact-1", TAG_C))
+        assertEquals(3, dao.countV2QueueHolders())
+    }
+
+    private fun V2Contact.withVerifiedAt(time: Long) = V2Contact(
+        contactId, localDisplayName, identityKey, peerQueueId, peerRoutingTagHex, localRoutingTagHex, state,
+        createdAtEpochMillis, time,
+    )
 
     private fun invitation(
         id: String,
@@ -240,6 +316,7 @@ class ConversationV2StorageInstrumentedTest {
         const val INNER_1 = "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
         const val INNER_2 = "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
         const val INNER_3 = "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
+        const val INNER_4 = "e0e1e2e3e4e5e6e7e8e9eaebecedeeef"
         const val DIGEST = "d0d1d2d3d4d5d6d7d8d9dadbdcdddedfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
     }
 }

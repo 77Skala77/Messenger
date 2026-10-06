@@ -45,6 +45,24 @@ internal object V2Pipeline {
         }
 
     /**
+     * Whether the inbox secret is missing or damaged while contacts, requests or invitations still
+     * point to the inbox (second review R6, DEC-032). Reads the profile first, so a lost vault key is
+     * reported as such. Blocking.
+     */
+    fun receiveQueueLost(context: Context, database: SecureMessengerDatabase): Boolean =
+        ConversationV2Service.exclusively {
+            val vault = AndroidKeystoreVaultCipher()
+            LocalProfileRepository(database.dao(), vault).readProfileName() ?: return@exclusively false
+            if (database.dao().countV2QueueHolders() == 0) return@exclusively false
+            val stored = try {
+                V2QueueCredentialStore(context.applicationContext, vault).stored()
+            } catch (_: VaultRecordRejectedException) {
+                null
+            }
+            stored == null
+        }
+
+    /**
      * Deletes the vault key, then the profile and every conversation and libsignal record (one
      * transaction), then the v2 queue ID. It holds the protocol lock, so a protocol step of the UI
      * or the worker either commits before the wipe (and is wiped) or runs after it on empty state.
@@ -61,6 +79,8 @@ internal object V2Pipeline {
             }
             V2QueueCredentialStore(context.applicationContext, vault).clear()
         }
+        // They name contacts that no longer exist on this phone.
+        V2Notifications.cancelAll(context.applicationContext)
     }
 
     private fun create(context: Context, database: SecureMessengerDatabase, displayName: String): ConversationV2Service {
@@ -80,7 +100,7 @@ internal object V2Pipeline {
             transport = CurrentRelayTransport(
                 RelayServerSettings(application, application.resources.getBoolean(R.bool.allow_insecure_relay_http)),
             ),
-            localReceiveQueue = V2QueueCredentialStore(application, vault).getOrCreate(),
+            localReceiveQueue = V2QueueCredentialStore(application, vault).getOrCreate(knownToSomeone = dao.countV2QueueHolders() > 0),
             localDisplayName = { displayName },
         )
     }
@@ -137,9 +157,7 @@ class V2SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         val database = SecureMessengerDatabase.create(applicationContext)
         return try {
             val service = V2Pipeline.createIfProfileExists(applicationContext, database) ?: return Result.success()
-            // Expiry first, so a failing sync cannot keep expired invitations alive.
-            service.expireInvitations()
-            service.synchronize()
+            V2BackgroundNotices.syncAndNotify(applicationContext, service)
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -150,12 +168,46 @@ class V2SyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWo
         } catch (_: VaultRecordRejectedException) {
             // Data not authentic under the current key (a replaced key or a damaged row): same.
             Result.failure()
+        } catch (_: ReceiveQueueLostException) {
+            // R6 (DEC-032): the inbox secret is gone; nothing may run, the app explains it.
+            Result.failure()
         } catch (_: Exception) {
             Result.retry()
         } finally {
             database.close()
         }
     }
+}
+
+/**
+ * One background sync and what it brought (DEC-031): unseen counts and requests are read before and
+ * after; whatever grew is announced, unless a screen of the app is visible. A sync that fails after
+ * accepting some texts still announces them, then reports the failure: they would never be announced
+ * later, because the next sync counts them as already there.
+ */
+internal object V2BackgroundNotices {
+    suspend fun syncAndNotify(context: Context, service: ConversationV2Service) {
+        val before = snapshot(service)
+        val failure = try {
+            // Expiry first, so a failing sync cannot keep expired invitations alive.
+            service.expireInvitations()
+            // Old envelope digests go too (second review I5, DEC-032).
+            service.forgetOldEnvelopeDigests()
+            service.synchronize()
+            null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failed: Exception) {
+            failed
+        }
+        if (!V2Foreground.visible) {
+            V2Notifications.post(context, messageNotices(before, snapshot(service), service.contacts()))
+        }
+        if (failure != null) throw failure
+    }
+
+    private fun snapshot(service: ConversationV2Service) =
+        UnseenSnapshot(service.unreadCounts(), service.requests().map { it.requestId }.toSet())
 }
 
 /** Follows relay URL changes made in Settings without rebuilding the pipeline. */

@@ -299,6 +299,79 @@ class ConversationV2ServiceTest {
         assertTrue(bob.sessions.localIdentityKey().serialize().contentEquals(alice.store.requests().single().identityKey))
     }
 
+    /**
+     * Second review I2 and the owner's wish (2026-10-06): once an invitation is used, its sealed bundle
+     * is withdrawn from the mailbox, so whoever scans the code later is told at once that it no
+     * longer works, instead of waiting for an answer that never comes.
+     */
+    @Test
+    fun aUsedInvitationIsWithdrawnSoALaterScanIsToldItNoLongerWorks() = runBlocking {
+        val code = alice.service.createInvitation()
+        val mailbox = alice.store.latestUsableInvitation(clock)!!.mailboxQueueId
+        bob.service.acceptInvitation(code, "Alice")
+
+        assertEquals(listOf(IncomingV2Result.REQUEST_RECEIVED), alice.service.synchronize())
+        assertTrue("the sealed bundle is gone from the mailbox", relay.queued(mailbox).isEmpty())
+
+        val carol = V2TestDevice("Carol", relay) { clock }
+        val refused = assertThrows(InvitationRejectedException::class.java) {
+            runBlocking { carol.service.acceptInvitation(code, "Alice") }
+        }
+        assertEquals(InvitationRejection.NOT_FOUND, refused.reason)
+        assertTrue(carol.store.contactIds().isEmpty())
+    }
+
+    @Test
+    fun aRelayFailureWhileWithdrawingTheBundleChangesNoVerdict() = runBlocking {
+        val code = alice.service.createInvitation()
+        val mailbox = alice.store.latestUsableInvitation(clock)!!.mailboxQueueId
+        bob.service.acceptInvitation(code, "Alice")
+        relay.unreachableQueues += mailbox
+
+        assertEquals(listOf(IncomingV2Result.REQUEST_RECEIVED), alice.service.synchronize())
+        assertEquals(1, alice.store.requests().size)
+
+        // The bundle stays until it expires; a later scan then waits in vain, as before.
+        relay.unreachableQueues -= mailbox
+        assertEquals(1, relay.queued(mailbox).size)
+    }
+
+    /**
+     * Second review I5: digests are forgotten after 30 days, and a relay that then replays every old
+     * envelope (HELLO, a text held for the request, a later text) changes nothing: libsignal refuses
+     * spent keys and message counters.
+     */
+    @Test
+    fun forgottenDigestsLetNoOldEnvelopeBackIn() = runBlocking {
+        val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        bob.service.sendText(aliceOnBob, "held for the request")
+        val captured = relay.queued(alice.queueId).toMutableList()
+        alice.service.synchronize()
+        val bobOnAlice = alice.store.requests().single().requestId
+        alice.service.acceptRequest(bobOnAlice, "Bob")
+        bob.service.synchronize()
+        bob.service.sendText(aliceOnBob, "after acceptance")
+        captured += relay.queued(alice.queueId)
+        alice.service.synchronize()
+        assertEquals(3, captured.size)
+
+        // Within the retention nothing is forgotten.
+        clock += ConversationV2Service.ACCEPTED_DIGEST_RETENTION_MILLIS - 60_000L
+        assertEquals(0, alice.service.forgetOldEnvelopeDigests())
+        clock += 120_000L
+        assertEquals(3, alice.service.forgetOldEnvelopeDigests())
+        assertEquals(0, alice.store.acceptedDigestCount())
+
+        val before = alice.store.dump()
+        captured.forEach(relay::inject)
+        val results = alice.service.synchronize()
+
+        assertEquals(List(3) { IncomingV2Result.UNAUTHENTICATED }, results)
+        assertEquals(before, alice.store.dump())
+        assertEquals(listOf("held for the request", "after acceptance"), alice.store.incomingTexts(bobOnAlice).map { it.text })
+        assertTrue(relay.queued(alice.queueId).isEmpty())
+    }
+
     @Test
     fun aForgedIdentityClaimUnderAKnownRoutingTagChangesNothing() = runBlocking {
         val (aliceOnBob, bobOnAlice) = pair()
@@ -402,6 +475,216 @@ class ConversationV2ServiceTest {
         assertEquals(listOf("retry me"), alice.store.incomingTexts(bobOnAlice).map { it.text })
     }
 
+    /** Audit L2: a failed upload leaves the invitation stored; "try again" makes the same code work. */
+    @Test
+    fun aFailedInvitationUploadCanBeRetriedAndThenTheSameCodeWorks() = runBlocking {
+        relay.failNextSends = 1
+        assertThrows(IllegalStateException::class.java) { runBlocking { alice.service.createInvitation() } }
+        val code = alice.service.currentInvitationCode()!!
+        // Nothing is on the relay yet: a scanner cannot find the bundle.
+        val notFound = assertThrows(InvitationRejectedException::class.java) {
+            runBlocking { bob.service.acceptInvitation(code, "Alice") }
+        }
+        assertEquals(InvitationRejection.NOT_FOUND, notFound.reason)
+
+        alice.service.retryCurrentInvitationUpload()
+
+        val contactId = bob.service.acceptInvitation(code, "Alice")
+        assertEquals(V2ContactState.AWAITING_ACCEPTANCE, bob.store.contact(contactId)!!.state)
+    }
+
+    @Test
+    fun retryingWithoutAUsableInvitationChangesNothing() = runBlocking {
+        assertNull(alice.service.currentInvitationCode())
+        assertThrows(ConversationV2Exception::class.java) { runBlocking { alice.service.retryCurrentInvitationUpload() } }
+        assertNull(alice.service.currentInvitationCode())
+    }
+
+    /** DEC-030 (audit H1): accepting after "the numbers match" marks the contact verified, on this phone only. */
+    @Test
+    fun acceptingAfterComparingTheNumberMarksTheContactVerified() = runBlocking {
+        val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        alice.service.synchronize()
+        val request = alice.store.requests().single()
+        val shown = alice.service.safetyNumber(request.requestId)!!
+
+        alice.service.acceptRequest(request.requestId, "Bob", comparedSafetyNumber = shown)
+
+        val contact = alice.store.contact(request.requestId)!!
+        assertEquals(clock, contact.verifiedAtEpochMillis)
+        assertTrue(contact.safetyNumberChecked)
+        // Nothing about it is sent: Bob's phone stays unverified until Bob confirms himself.
+        bob.service.synchronize()
+        assertNull(bob.store.contact(aliceOnBob)!!.verifiedAtEpochMillis)
+    }
+
+    @Test
+    fun nothingButThePersonsConfirmationSetsTheMark() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "hi")
+        alice.service.synchronize()
+        alice.service.sendText(bobOnAlice, "hello")
+        bob.service.synchronize()
+        alice.service.synchronize()
+
+        assertFalse(alice.store.contact(bobOnAlice)!!.safetyNumberChecked)
+        assertFalse(bob.store.contact(aliceOnBob)!!.safetyNumberChecked)
+    }
+
+    /**
+     * Audit H1: someone photographed Alice's QR code and paired first under Bob's name. The real Bob
+     * scans the same code (his HELLO is rejected, the invitation is used) and reads Alice the number
+     * on his phone. It is not the request's number, so "the numbers match" accepts nothing.
+     */
+    @Test
+    fun aRequestFromWhoeverPhotographedTheCodeIsNotAcceptedWithTheRealContactsNumber() = runBlocking {
+        val code = alice.service.createInvitation()
+        val impostor = V2TestDevice("Bob", relay) { clock }
+        impostor.service.acceptInvitation(code, "Alice")
+        val aliceOnBob = bob.service.acceptInvitation(code, "Alice")
+        alice.service.synchronize()
+        val request = alice.store.requests().single()
+        assertEquals("Bob", request.claimedDisplayName)
+        assertTrue(impostor.sessions.localIdentityKey().serialize().contentEquals(request.identityKey))
+        val before = alice.store.dump()
+
+        val readByBob = bob.service.safetyNumber(aliceOnBob)!!
+        val refused = assertThrows(ConversationV2Exception::class.java) {
+            runBlocking { alice.service.acceptRequest(request.requestId, "Bob", comparedSafetyNumber = readByBob) }
+        }
+
+        assertEquals("Safety number changed", refused.message)
+        assertEquals(before, alice.store.dump())
+        assertTrue(alice.store.contactIds().isEmpty())
+    }
+
+    @Test
+    fun aComparedNumberThatIsNotTheRequestsAcceptsNothing() = runBlocking {
+        bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        alice.service.synchronize()
+        val requestId = alice.store.requests().single().requestId
+        val shown = alice.service.safetyNumber(requestId)!!
+        val before = alice.store.dump()
+
+        for (compared in listOf(oneDigitOff(shown), shown.dropLast(1), "", "no digits here")) {
+            assertThrows(ConversationV2Exception::class.java) {
+                runBlocking { alice.service.acceptRequest(requestId, "Bob", comparedSafetyNumber = compared) }
+            }
+        }
+        assertEquals(before, alice.store.dump())
+    }
+
+    @Test
+    fun markingNeedsTheNumberThePersonSawAndCanBeUndone() = runBlocking {
+        val (aliceOnBob, _) = pair()
+        val shown = bob.service.safetyNumber(aliceOnBob)!!
+
+        assertThrows(ConversationV2Exception::class.java) { bob.service.markVerified(aliceOnBob, oneDigitOff(shown)) }
+        assertNull(bob.store.contact(aliceOnBob)!!.verifiedAtEpochMillis)
+
+        // Grouped as on the screen, the same digits still match.
+        bob.service.markVerified(aliceOnBob, shown.chunked(5).joinToString(" "))
+        assertEquals(clock, bob.store.contact(aliceOnBob)!!.verifiedAtEpochMillis)
+
+        assertThrows(ConversationV2Exception::class.java) { bob.service.markVerified("unknown-contact", shown) }
+        assertThrows(ConversationV2Exception::class.java) { bob.service.clearVerified("unknown-contact") }
+        bob.service.clearVerified(aliceOnBob)
+        assertNull(bob.store.contact(aliceOnBob)!!.verifiedAtEpochMillis)
+    }
+
+    /** The scanner compares right after scanning (owner decision, DEC-030): the number is already final. */
+    @Test
+    fun theScannerCanMarkWhileWaitingAndTheMarkSurvivesAcceptance() = runBlocking {
+        val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        assertEquals(V2ContactState.AWAITING_ACCEPTANCE, bob.store.contact(aliceOnBob)!!.state)
+        bob.service.markVerified(aliceOnBob, bob.service.safetyNumber(aliceOnBob)!!)
+
+        alice.service.synchronize()
+        alice.service.acceptRequest(alice.store.requests().single().requestId, "Bob")
+        assertEquals(listOf(IncomingV2Result.CONTACT_ACCEPTED), bob.service.synchronize())
+
+        val contact = bob.store.contact(aliceOnBob)!!
+        assertEquals(V2ContactState.ACTIVE, contact.state)
+        assertTrue(contact.safetyNumberChecked)
+    }
+
+    @Test
+    fun aBlockedContactLosesItsMarkAndCannotBeMarked() = runBlocking {
+        val (aliceOnBob, _) = pair()
+        val shown = bob.service.safetyNumber(aliceOnBob)!!
+        bob.service.markVerified(aliceOnBob, shown)
+
+        bob.store.setContactState(aliceOnBob, V2ContactState.KEY_CHANGED)
+
+        assertNull(bob.store.contact(aliceOnBob)!!.verifiedAtEpochMillis)
+        assertThrows(ConversationV2Exception::class.java) { bob.service.markVerified(aliceOnBob, shown) }
+        assertNull(bob.store.contact(aliceOnBob)!!.verifiedAtEpochMillis)
+    }
+
+    /** DEC-029: the chat list counts incoming texts the user has not seen; showing them clears the count. */
+    @Test
+    fun unseenIncomingTextsAreCountedUntilTheConversationShowsThem() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        assertEquals(0, alice.service.chatSummaries().single().unreadCount)
+
+        bob.service.sendText(aliceOnBob, "one")
+        bob.service.sendText(aliceOnBob, "two")
+        alice.service.synchronize()
+        val summary = alice.service.chatSummaries().single()
+        assertEquals(bobOnAlice, summary.contact.contactId)
+        assertEquals(2, summary.unreadCount)
+        assertEquals("two", summary.lastText!!.text)
+
+        // Alice's own texts never count; the newest text in either direction is the last one.
+        alice.service.sendText(bobOnAlice, "three")
+        assertEquals(2, alice.service.chatSummaries().single().unreadCount)
+        assertEquals("three", alice.service.chatSummaries().single().lastText!!.text)
+
+        assertEquals(listOf("one", "two", "three"), alice.service.textsMarkingRead(bobOnAlice).map { it.text })
+        assertEquals(0, alice.service.chatSummaries().single().unreadCount)
+        // Reading the list does not mark anything.
+        bob.service.sendText(aliceOnBob, "four")
+        alice.service.synchronize()
+        alice.service.texts(bobOnAlice)
+        assertEquals(1, alice.service.chatSummaries().single().unreadCount)
+    }
+
+    /** DEC-029: the mark is local. Showing a conversation sends nothing: there are no read receipts. */
+    @Test
+    fun seeingTextsSendsNothing() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "seen?")
+        alice.service.synchronize()
+        bob.service.synchronize()
+        val queuedBefore = alice.store.outgoingKinds(bobOnAlice)
+        val relayBefore = relay.queued(bob.queueId).size
+
+        alice.service.textsMarkingRead(bobOnAlice)
+        alice.service.synchronize()
+
+        assertEquals(queuedBefore, alice.store.outgoingKinds(bobOnAlice))
+        assertEquals(relayBefore, relay.queued(bob.queueId).size)
+    }
+
+    /** Texts held for a request count as unseen, and still do once the request becomes a contact. */
+    @Test
+    fun textsHeldForARequestStayUnseenAfterAcceptanceAndEachChatCountsAlone() = runBlocking {
+        val carol = V2TestDevice("Carol", relay) { clock }
+        val (_, bobOnAlice) = pair()
+        val aliceOnCarol = carol.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        carol.service.sendText(aliceOnCarol, "early")
+        alice.service.synchronize()
+        val carolsRequest = alice.store.requests().single().requestId
+        assertEquals(1, alice.store.unreadCounts()[carolsRequest])
+
+        alice.service.acceptRequest(carolsRequest, "Carol")
+        val unread = alice.service.chatSummaries().associate { it.contact.contactId to it.unreadCount }
+        assertEquals(mapOf(bobOnAlice to 0, carolsRequest to 1), unread)
+
+        alice.service.textsMarkingRead(bobOnAlice)
+        assertEquals(1, alice.service.chatSummaries().single { it.contact.contactId == carolsRequest }.unreadCount)
+    }
+
     /** Bob scans Alice's invitation and Alice accepts. Returns (Alice's ID on Bob, Bob's ID on Alice). */
     private suspend fun pair(): Pair<String, String> {
         val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
@@ -413,4 +696,7 @@ class ConversationV2ServiceTest {
     }
 
     private fun V2TestDevice.invitationPreKeys() = InvitationPreKeyFactory(signalStore).create()
+
+    /** The same number with its last digit changed: what a person might misread, or another identity's number. */
+    private fun oneDigitOff(number: String): String = number.dropLast(1) + ((number.last().digitToInt() + 1) % 10)
 }

@@ -26,6 +26,12 @@ enum class LocalDataProblem {
 
     /** Android Keystore or the database did not answer. Nothing is declared lost; try again. */
     TEMPORARY,
+
+    /**
+     * The secret of this phone's relay inbox is missing or damaged while contacts, requests or
+     * invitations point to that inbox (second review R6, DEC-032): they can no longer reach it.
+     */
+    RECEIVE_QUEUE_LOST,
 }
 
 data class SecureMessengerUiState(
@@ -79,26 +85,30 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
     fun checkLocalData() {
         viewModelScope.launch {
             // Opening the database also runs MIGRATION_7_8, the database side of the legacy reset.
-            val checked = withContext(Dispatchers.IO) {
+            val v2Available = mutableState.value.v2Available
+            val (checked, queueLost) = withContext(Dispatchers.IO) {
                 try {
-                    profiles.localDataState()
+                    val state = profiles.localDataState()
+                    // R6 (DEC-032): only where chats exist, and only once the profile itself reads.
+                    state to (v2Available && state == LocalDataState.READABLE && V2Pipeline.receiveQueueLost(getApplication(), database))
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    null
+                    null to false
                 }
             }
-            val problem = when (checked) {
-                null -> LocalDataProblem.TEMPORARY
-                LocalDataState.UNREADABLE -> LocalDataProblem.UNREADABLE
-                LocalDataState.EMPTY, LocalDataState.READABLE -> null
+            val problem = when {
+                checked == null -> LocalDataProblem.TEMPORARY
+                checked == LocalDataState.UNREADABLE -> LocalDataProblem.UNREADABLE
+                queueLost -> LocalDataProblem.RECEIVE_QUEUE_LOST
+                else -> null
             }
             mutableState.value = mutableState.value.copy(
                 profileKnown = true,
                 profileCreated = checked != LocalDataState.EMPTY,
                 localDataProblem = problem,
             )
-            if (checked == LocalDataState.READABLE) scheduler.ensurePeriodic() else scheduler.cancel()
+            if (checked == LocalDataState.READABLE && problem == null) scheduler.ensurePeriodic() else scheduler.cancel()
         }
     }
 
