@@ -26,8 +26,14 @@ mutable against the code before relying on it.
   When you recommend a model, also write it into `HANDOFF.md` so this check survives compaction.
   Current recommendations: Phase 6 (Telegram-style UI), steps 6a and 6b done; TQ-109 (system Back)
   and TQ-110 (fixes from the AI audits, DEC-028) done on 2026-10-03; step 6c (theme and
-  components) done 2026-10-04 (owner approved; the Redmi device run is still owed).
-  Next **6d** (chat list), 6e and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
+  components) done 2026-10-04 (owner approved; the Redmi device run is still owed). 6d data part
+  (Room v10, DEC-029) on Opus 2026-10-04; 6d list part written 2026-10-05 on Sonnet (phone check
+  and commit of the whole 6d still owed); 6e written the same day, also unverified on a phone;
+  6f first part (screens, L2 upload state and retry) written the same day on Sonnet; the H1
+  comparison step and verified mark (DEC-030) and 6f' notifications without text (DEC-031)
+  written on Opus the same day; 6g TQ-108 (DEC-032) written on Opus 2026-10-06; all of 6d–6g
+  still needs its phone check and commit; next the phone check (any model), then 6h on Sonnet
+  and 6f on Sonnet; **Opus 5.5 · High** for the Room v10
   migration (6d), the verified-mark rules (6f), the notification privacy rules (6f') and TQ-108
   (6g). Routine test cases, docs, dependency updates: Sonnet 5.5 · High.
 - **Commits:** one commit round at the end of each phase/step/task, after everything is verified
@@ -173,7 +179,16 @@ DEC-022 AGP 8.13.2 / compileSdk 36; DEC-023 vault key never replaced silently; D
 envelopes deleted and rolled back, relay pages of 100 and canonical base64, bounded transport,
 ordered sending, strict invitations; paid audit before release); DEC-027 Phase 6 (AGPL-3.0
 `LICENSE`, reuse of Telegram for Android code incl. headerless files at the owner's accepted legal
-risk, unread counters on Room v10, notifications without text). Design docs:
+risk, unread counters on Room v10, notifications without text); DEC-028 AI audits triaged (not the
+independent audit; TQ-110 fixes); DEC-029 Room v10 (per-message "seen" mark set only for texts on
+screen, never sent; verified date for 6f); DEC-030 safety-number comparison step and local
+"checked" mark (optional but explicit on accept, offered to the scanner at once, bound to the exact
+number shown, cleared with KEY_CHANGED, never sent); DEC-031 notifications without message text
+(who and how many, never what; requests never by claimed name; locked screen "New message" only;
+posted only by the background sync while the app is not visible; chat screen polls only while
+started); DEC-032 TQ-108 (lost inbox secret blocks with its own screen; "Screen security" switch
+off by default, invitation screens unprotected by the owner's choice; used invitations withdrawn
+from the relay so a later scan is told; digests kept 30 days). Design docs:
 `docs/PROTOCOL_V2.md`, `docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md`
 (deferred), `docs/PHASE5_SECURITY_TEST_PLAN.md`, `docs/PHASE6_UI_PLAN.md`,
 `docs/PHASE6_THEME_NOTES.md`.

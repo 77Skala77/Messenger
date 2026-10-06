@@ -42,8 +42,13 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
   sensitive, but some keyboards keep their own clipboard history anyway (the Samsung keyboard does);
   the screen says so and offers "Share invitation", which bypasses the clipboard (DEC-026).
 - Whoever has the QR code can also delete the sealed bundle from the relay mailbox (the code holds
-  its read secret); the intended scanner then gets "not found" and needs a new invitation. The
-  second scanner of an already used invitation is not told; their contact keeps waiting (TQ-108).
+  its read secret); the intended scanner then gets "no longer works" and needs a new invitation.
+- An invitation works once. Once used, the inviter's app also withdraws its sealed bundle from the
+  relay (DEC-032), so a later scan is told at once that the invitation no longer works. Only a scan
+  made before the inviter's app processed the first answer still waits without an answer; the
+  scanner's contact page then says that someone else may have used the invitation first.
+- The invitation and scanner screens can be screenshotted (owner's choice, DEC-032); "Screen
+  security" in settings (off by default) blocks screenshots and recording of the whole app.
 
 ## Delivery Semantics And Availability
 

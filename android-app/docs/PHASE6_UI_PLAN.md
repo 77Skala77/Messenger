@@ -2,7 +2,7 @@
 
 Status: **ACCEPTED** (2026-10-01, step 6a done: the owner's decisions are in section 7, DEC-027).
 Steps 6a, 6b and 6c done (6b: `PHASE6_PORTING_NOTES.md`; 6c: theme and components, results in
-`ai-workflow/HANDOFF.md`); next: step 6d. Plan section:
+`ai-workflow/HANDOFF.md`); steps 6d (chat list) and 6e (conversation) are written and wait for their phone check; next: 6f. Plan section:
 `ai-workflow/REWRITE_PLAN.md`, Phase 6.
 Visual only: protocol v2, wire, invitation and storage formats stay as they are; release builds keep
 the chat closed until the external audit (TQ-106).
@@ -99,7 +99,9 @@ authenticate.
 - **Unread counts** need a "read up to" marker per chat. Proposal: Room v10 adds a nullable column
   `lastReadAtEpochMillis` to `v2_contacts` (`ALTER TABLE ... ADD COLUMN`, no data rewritten, a
   migration test 9→10). A time, not content: not encrypted, like the other timestamps. Needs the
-  owner's approval (`AGENTS.md` compatibility rules).
+  owner's approval (`AGENTS.md` compatibility rules). **Done differently in step 6d (DEC-029):** a
+  per-message "seen" mark (`v2_messages.isRead`), set only for texts shown on screen, because the
+  wall clock can move backwards; Room v10 also adds `v2_contacts.verifiedAtEpochMillis` for 6f.
 - Avatar colors from a hash of the local contact ID (never sent anywhere).
 
 ## 5a. Requirement from the owner's hand check: the system Back button (2026-10-01)
@@ -160,7 +162,7 @@ steps 6c–6h are in `PHASE6_PORTING_NOTES.md`, which supersedes the table below
 2. **Reference copy of Telegram's sources:** downloaded read-only to `D:\Tools\reference\Telegram`
    (sparse, shallow: `org/telegram/ui` and `org/telegram/messenger`, 61 MB, commit `f2908b1`); never
    built, run, or added to this repository.
-3. **Unread counters:** yes; Room v10 with `lastReadAtEpochMillis` on `v2_contacts` (section 5).
+3. **Unread counters:** yes; Room v10 (section 5; the marker became a per-message flag, DEC-029).
 4. **Notifications for new messages:** yes, **without message text**: "New message from <local
    name>"; the text never reaches the lock screen or Android's notification history. Driven by the
    background sync (about every 15 minutes or later). Needs the Android 13+ notification

@@ -10,7 +10,7 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 4. [`../PROTOCOL_V2.md`](../PROTOCOL_V2.md)
 5. [`REWRITE_PLAN.md`](REWRITE_PLAN.md)
 6. [`TASK_QUEUE.md`](TASK_QUEUE.md)
-7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-027)
+7. [`DECISIONS.md`](DECISIONS.md) (DEC-018 to DEC-032)
 8. The checklist relevant to the task
 
 ## Source-of-truth warning
@@ -32,9 +32,10 @@ This file is a short mutable transfer of unfinished session work. It is not a so
 "not for messaging" screen (`enable_v2_protocol = false`, DEC-021). The legacy prototype and
 the modules `:core:crypto` and `:core:delivery` are deleted.
 
-**Room:** schema v9 (`MIGRATION_7_8` dropped the legacy tables; `MIGRATION_8_9` reset the v2 test
-conversations for relay API v3). Legacy Keystore key and preferences are removed once on upgrade by
-`LegacyReset`, with a one-time notice.
+**Room:** schema v10 (`MIGRATION_7_8` dropped the legacy tables; `MIGRATION_8_9` reset the v2 test
+conversations for relay API v3; `MIGRATION_9_10` added the local "seen" mark and verified date,
+DEC-029). Legacy Keystore key and preferences are removed once on upgrade by `LegacyReset`, with a
+one-time notice.
 
 **Toolchain:** TQ-009 is done (2026-09-30, DEC-022): AGP 8.13.2, Gradle 8.14.3, compileSdk 36,
 AndroidX, Compose BOM 2025.10.01, Room 2.8.5. Lint and R8 now read Kotlin 2.2 metadata cleanly.
@@ -83,13 +84,88 @@ step 6f.
 with the Light/Dark/System switch in settings, `MessengerColors` (classic palette, contrast-adjusted,
 `../PHASE6_THEME_NOTES.md`), `Avatar`, `UnreadBadge`, `MessageTicks`, `BubbleShape`, series grouping,
 chat dates, `DateChip`, `ChatWallpaper`, and a debug "Theme preview" (settings, debug tools). Verified:
-`:app:assembleDebug`, lint 0 errors (same 16 warnings), ui unit tests (49: avatars, dates in ru/en,
-series, badge, ticks, bubble corners, contrast of every pair in both themes), ui device tests on the
+`:app:assembleDebug`, lint 0 errors (same 16 warnings), ui unit tests (51; the 6c commit message
+says 49, a miscount: avatars, dates in ru/en, series, badge, ticks, bubble corners, contrast of
+every pair in both themes), ui device tests on the
 **Samsung only** (33, including six new). **Not yet run: the Redmi** (font scale 1.15; the owner had
 only the Samsung). Screenshots of the preview in both themes were checked on the Samsung; the owner
 approved the look (2026-10-04) and 6c is committed. Run the Redmi device suite when it is connected.
 
-Next: **6d** (chat list; Room v10 with `lastReadAtEpochMillis` and `verifiedAtEpochMillis`).
+**Step 6d, data part (Opus 5.5 · High, 2026-10-04, DEC-029):** Room v10 (`MIGRATION_9_10`:
+`v2_messages.isRead`, a per-message "seen" mark; `v2_contacts.verifiedAtEpochMillis` for 6f), last
+text and unread count per chat (`chatSummaries`), texts marked seen only while the conversation is on
+screen with the app in front (`textsMarkingRead`, `LifecycleResumeEffect`). Nothing about reading is
+sent.
+
+**Step 6d, list part (Sonnet 5.5 · High, 2026-10-05):** written, **not yet run on a phone** (the owner
+had no phones; the device check of the whole 6d is owed). `ChatListModel.kt` (order by newest
+activity, preview, tick; pure), `ChatList.kt` (`ChatListRow` per notes 2.6, animated unread badge,
+`EmptyChatList`, `NewChatFab` with a menu "My invitation" / "Add contact"), `V2Home` rebuilt (banner,
+requests on top, rows, pull to refresh through `PullToRefreshBox` and `refreshing` in the view model;
+the "Sync now" button and the string `v2_no_contacts` are gone). Verified: ui unit tests 61 green
+(10 new), `:app:assembleDebug`, lint 0 errors / 17 warnings, device tests only compiled
+(`ChatListInstrumentedTest` new, `SystemBackInstrumentedTest` now opens the screens through the round
+button, tag `chat_list_fab`). **Owed on the Samsung:** `device-6d.ps1` (migration 9 to 10, storage, ui,
+signal-protocol suites, install over the old data) and a hand look at the list. Nothing of 6d is
+committed yet: the owner chose to commit after the phone check.
+
+**Step 6e, conversation (Sonnet 5.5 · High, 2026-10-05):** written, **not yet run on a phone**.
+`ConversationScreen.kt` (header with avatar, name, subtitle "Safety number not checked"; messages as
+bubbles over the wallpaper, newest at the bottom with `reverseLayout`, date pills, time on the last
+line when it fits; input bar 44 dp, up to 6 lines, round send button only with text; blocked contact:
+field off), `ConversationModel.kt` (`conversationEntries`, `planBubble`, pure). The safety number
+moved from the top of the chat to its own screen, one tap on the header (`V2Screen.CONTACT_SAFETY`;
+Back returns to the conversation). Per-message text status lines are gone: ticks (and their
+descriptions for a screen reader) replace them. Verified: ui unit tests 68 green (7 new),
+`:app:assembleDebug`, lint 0 errors / 17 warnings, device tests only compiled
+(`ConversationScreenInstrumentedTest` new). **Owed on the Samsung:** that suite and a hand look: the
+time rule on short and long texts, landscape, the keyboard over the input bar (no `imePadding` was
+added: the old screen had none; check it), scrolling to a new message. Not committed.
+
+**Step 6f, first part (Sonnet 5.5 · High, 2026-10-05):** written, **not yet run on a phone**. Done:
+the invitation screen (white frame around the QR, upload status, "Try again" / "Send again", sharing
+held back for a code that did not reach the relay; audit L2: `InvitationUpload` and `invitationBusy`
+in the view model, `ConversationV2Service.retryCurrentInvitationUpload`, no wire or storage change),
+the add-contact screen (intro, wide buttons), the safety-number screen as a contact page (avatar,
+name, state, 60 digits in four lines of 15, monospace), settings with accent section titles and the
+onboarding button across the width. Verified: ui unit tests 70, signal-protocol unit tests 80 (2 new:
+failed upload then retry, retry without an invitation), `:app:assembleDebug`, lint 0 errors / 17
+warnings, device tests only compiled (`InvitationUploadInstrumentedTest` new). The conversation's
+Back from the safety number screen is not covered by a device test yet.
+
+**Step 6f, safety-number check (audit H1, Opus 5.5 · High, 2026-10-05, DEC-030):** written, **not
+yet run on a phone**. The owner chose: accepting without comparing stays possible but only as an
+explicit answer; the scanner gets the comparison right after adding. The request card leads to a
+step screen (`V2RequestReview`: match and accept / accept without comparing / numbers differ and
+decline); the contact page shows "checked on <date>" or "not checked" with "The numbers match", and
+"Remove the mark". The mark is bound to the exact number shown (`ConversationV2Service.markVerified`
+and `acceptRequest(..., comparedSafetyNumber)` recompute and compare inside the locked transaction),
+cleared with `KEY_CHANGED`, never sent. No schema or protocol change. Verified on the JVM: see the
+final report of that step (tests listed in DEC-030). **Owed on the Samsung:** the new device suites
+(`SafetyNumberCheckInstrumentedTest`, the Room test of the mark) and a hand check of the whole
+pairing with the comparison on two phones (needs the Redmi too).
+
+**Step 6f', notifications without text (Opus 5.5 · High, 2026-10-05, DEC-031):** written, **not yet
+run on a phone**. `NotificationRules.kt` (pure: what to announce from unseen counts before and after
+a sync; requests without their claimed name), `V2Notifications.kt` (private channel and
+notifications with a "New message" public version, cancel rules, `V2Foreground`, `V2OpenChat` for the
+tapped chat, the "Not now" flag), `NotificationUi.kt` (permission card on the chat list, settings
+section), `V2BackgroundNotices.syncAndNotify` in the worker, `MainActivity` hands the tapped chat over.
+The chat screen now polls only while started (`LifecycleStartEffect`). **Owed on the phones:**
+`NotificationPrivacyInstrumentedTest` and a hand check: lock screen with both "show all content" and
+"hide sensitive content", the permission card, tapping opens the chat, nothing while the app is open,
+and how long a message takes to be announced in the background.
+
+**Step 6g, TQ-108 (Opus 5.5 · High, 2026-10-06, DEC-032):** written, **not yet run on a phone**. R6: a
+lost or damaged inbox secret while anything knows the inbox blocks with its own explanation
+(`ReceiveQueueLostException`, `LocalDataProblem.RECEIVE_QUEUE_LOST`). R7 (owner): invitation screens
+not protected; "Screen security" switch in settings, off by default (`ScreenSecurity`,
+`SecureWindowEffect`). I2 (owner: "a used QR must clearly no longer work"): the used invitation's
+bundle is withdrawn from the relay, "This invitation no longer works" for a later scan, a note on the
+invitation screen, a hint for a scanner still waiting. I5: digests forgotten after 30 days. **Owed on
+the phones:** `ReceiveQueueLossInstrumentedTest`, `ScreenSecurityInstrumentedTest`, the Room tests, and
+a hand check (second scan of a used QR on two phones, the switch with a screenshot and recent apps).
+
 Recommended model: **Opus 5.5 · High** for the Room v10 migration (6d), the verified-mark rules
 (6f), the notification privacy rules (6f') and TQ-108 (6g); **Sonnet 5.5 · High** for 6e, 6f, 6h.
 Commit policy: one commit round at the end of each phase, step or task (owner, 2026-09-30).

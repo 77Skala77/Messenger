@@ -13,6 +13,7 @@ Copyright (C) 2026 the Secure Messenger contributors (github.com/77Skala77/Messe
 | Kotlin standard library and kotlinx.coroutines (JetBrains) | 2.2.20, 1.10.2 | Apache-2.0 |
 | zxing-android-embedded (JourneyApps), with ZXing core | 4.3.0 | Apache-2.0 |
 | desugar_jdk_libs (Google, derived from OpenJDK) | 2.1.5 | GPL-2.0 with the Classpath Exception |
+| Source Sans 3 variable font (Adobe), file `core/ui/src/main/res/font/source_sans_3.ttf` | as downloaded 2026-10-06 | SIL Open Font License 1.1 (text in `licenses/SourceSans3-LICENSE.md`) |
 
 Test-only, not shipped in the app: JUnit 4.13.2 (EPL-1.0), AndroidX Test and Espresso (Apache-2.0).
 The relay (`android-app/server/relay`) uses only Node.js built-in modules.
@@ -54,3 +55,8 @@ those numbers stays visible. Where the origin has no header, the owner's accepte
 | `DateChip.kt` | `ui/Cells/ChatActionCell.java` (14 sp, 7 dp above) | GPL v. 2 or later |
 | `UnreadBadge.kt` | `ui/Cells/DialogCell.java` (height 20.67, radius 11.5, text padding 6.33, 13 sp bold) | GPL v. 2 or later |
 | `MessengerType.kt` | `ui/Cells/*`, `ui/Components/ChatAvatarContainer.java`, `ChatActivityEnterView.java` (text sizes) | GPL v. 2 or later |
+| `ChatList.kt`, `ChatListModel.kt` | `ui/Cells/DialogCell.java` (row 70 dp, avatar 52 dp, text from 72 dp, divider), `ui/DialogsActivity.java` (round 56 dp button) | GPL v. 2 or later |
+| `TelegramTopBar.kt` (bar 56/48 dp, back button 54 dp, title 20 sp at 72 dp, back arrow geometry), `TelegramPopupMenu.kt` (popup timing, item height 48 dp, corner 12 dp, cascade), `TelegramAlertDialog.kt` (look: rounded card, title and text sizes), send-button scale in `ConversationScreen.kt` | `ui/ActionBar/ActionBar.java`, `ui/ActionBar/BackDrawable.java`, `ui/ActionBar/ActionBarPopupWindow.java`, `ui/ActionBar/AlertDialog.java`, `ui/Components/ChatActivityEnterView.java` (numbers and geometry only; code written anew in Compose) | all five: GPL v. 2 or later |
+| `TelegramMotion.kt`, `TelegramScreenStack.kt` | `ui/ActionBar/ActionBarLayout.java` (screen open and close 150 ms, 48 dp slide, decelerate 1.5; swipe back: 0.4 cm, axis ratio 3, fling 3500, one third of the width, 200 and 320 ms, scrim and shadow rules), `ui/Components/CubicBezierInterpolator.java` (the curve constants) | `ActionBarLayout.java`: GPL v. 2 or later; `CubicBezierInterpolator.java`: none (accepted risk) |
+| `TelegramMotion.kt` (lists, counter, button, date), `UnreadBadge.kt`, `ConversationScreen.kt` | `ui/recyclerview/ChatListItemAnimator.java` (250 ms, the move curve, 0.9 scale), `ui/Components/DialogsItemAnimator.java` (180 ms), `ui/Components/CounterView.java` (220, 150 and 430 ms, 13 dp roll), `ui/Components/chat/layouts/ChatActivitySideControlsButtonsLayout.java` (280 ms, 0.7 scale, 80 dp), `ui/ChatActivity.java` (floating date, 150 ms, hide delays) | `ChatActivity.java`: GPL v. 2 or later; the other four: none (accepted risk) |
+| `ConversationScreen.kt`, `ConversationModel.kt` | `ui/Cells/ChatMessageCell.java` (time on the last line when it fits, 11 dp text start, bubble width limit), `ui/Components/ChatActivityEnterView.java` (44 dp bar, 18 sp), `ChatAvatarContainer.java` (42 dp avatar) | GPL v. 2 or later |

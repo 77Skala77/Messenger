@@ -40,7 +40,9 @@ DEC-021 (legacy removal). Implementation history: `ai-workflow/PHASE_1E_PREP.md`
 
 Only a HELLO that uses exactly the invitation's pre-keys (one-time EC, signed, and one-time Kyber)
 opens it; any other message under the invitation's routing tag is rejected without spending
-anything (DEC-026). Once used, all of the invitation's private pre-keys are deleted.
+anything (DEC-026). Once used, all of the invitation's private pre-keys are deleted, and the
+inviter's app withdraws the sealed bundle from the mailbox (best effort, DEC-032), so a later scan
+is told at once that the invitation no longer works.
 
 A photographed QR code can be used by a third party, but only once (one-time pre-keys): the
 inviter then sees a request from an unknown identity and must not accept it without comparing the
@@ -56,7 +58,8 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
   contact the message was sent to. Relay message IDs are never trusted (DEC-020).
 - Each protocol step (decrypt + store, encrypt + enqueue) runs under one process-wide lock and one
   Room transaction together with the libsignal store writes; byte-identical re-deliveries are
-  recognised by digest without decryption. "Delete local data" and the profile check before a
+  recognised by digest without decryption. Digests are forgotten after 30 days (DEC-032); a replay of
+  an older envelope is still rejected by libsignal and the inner message IDs (tested). "Delete local data" and the profile check before a
   pipeline is built take the same lock, so no step commits during a wipe and a wipe never leaves a
   new identity behind (`V2PipelineWipeInstrumentedTest`).
 - Relay deletion (DEC-026): an accepted envelope is deleted after its transaction committed; a
@@ -88,9 +91,12 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
   that includes the vault key reveals stored history, as in Signal).
 - The libsignal identity private key is a software key, encrypted at rest with the Keystore key,
   present in app memory while in use.
-- Room schema v9. The legacy prototype tables were dropped by `MIGRATION_7_8`; its Keystore key and
+- Room schema v10. The legacy prototype tables were dropped by `MIGRATION_7_8`; its Keystore key and
   preferences are removed once by `LegacyReset` (DEC-021). `MIGRATION_8_9` reset the v2 test
-  conversations for relay API v3 (DEC-024).
+  conversations for relay API v3 (DEC-024). `MIGRATION_9_10` only added two local columns (a "seen"
+  mark per message and a verified date per contact, DEC-029); the protocol does not use them.
+- Inbox loss (DEC-032): if the inbox read secret is missing or damaged while contacts, requests or
+  invitations exist, no new inbox is created; the app stops and explains it like a lost key.
 - Key loss (DEC-023): the Keystore vault key is created only together with a new profile, never
   by encrypt or decrypt. The profile row is the canary: if it no longer decrypts (key missing,
   invalidated or replaced, or the row damaged), the app runs nothing, explains that the stored
@@ -124,8 +130,9 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
   builds have no chat.
 - Trust on first use on the accepting side; safety-number comparison is manual. This is the main
   practical risk: whoever sees an invitation QR (a photo, a screenshot) can pair first, or delete
-  the invitation from the relay. Step 6f adds a "compare the number" step and a local "verified"
-  mark (DEC-028).
+  the invitation from the relay. Since step 6f (DEC-030) accepting goes through a comparison step
+  (optional but explicit) and a local mark records a confirmed match for exactly the number shown;
+  the mark is never sent and the protocol does not use it.
 - Single device per contact (Phase 4). Revocation is not a protocol message.
 - `KEY_CHANGED` exists as a contact state but nothing sets it today: strict identity trust rejects a
   changed key before it could be recorded, and an untrusted-identity result never changes state.

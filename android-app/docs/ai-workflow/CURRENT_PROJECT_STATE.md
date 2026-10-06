@@ -66,14 +66,21 @@ delivery status and safety number, settings (language, appearance Light/Dark/Sys
 health check, sync, delete local data, debug test reset and theme preview), a one-time legacy-reset
 notice. Portrait-only QR scanner activity. Release rejects cleartext relay URLs. Phase 6 (DEC-027):
 the messenger theme and its components exist (step 6c, Telegram's classic and Night palettes); the
-chat list and the conversation still use the old screens until steps 6d and 6e.
+chat list has its new look (step 6d: rows, requests on top, round button with a menu, pull to
+refresh) and so does the conversation (step 6e: bubbles, date pills, header, input bar; the safety
+number is one tap away on the header). Both were written 2026-10-05 and have not yet been run on a
+phone. Notifications without message text (step 6f', DEC-031, written 2026-10-05, not yet run on a
+phone): posted only by the background sync while no screen of the app is visible; the chat screen
+fetches every few seconds only while the app is on screen.
 
 ## 6. Storage and trust
 
-- Room schema **v9**: `local_profile`, the libsignal record tables (`signal_*`), and the v2 tables
+- Room schema **v10**: `local_profile`, the libsignal record tables (`signal_*`), and the v2 tables
   (`v2_invitations`, `v2_contact_requests`, `v2_contacts`, `v2_messages`, `v2_accepted_envelopes`).
-  Exported schemas 1–9 are committed. Legacy tables were dropped by `MIGRATION_7_8`;
-  `MIGRATION_8_9` reset the v2 test conversations for relay API v3 (DEC-024).
+  Exported schemas 1–10 are committed. Legacy tables were dropped by `MIGRATION_7_8`;
+  `MIGRATION_8_9` reset the v2 test conversations for relay API v3 (DEC-024); `MIGRATION_9_10`
+  added a local per-message "seen" mark for unread counters and a contact's verified date for step
+  6f (DEC-029). Nothing about reading is sent: there are no read receipts.
 - Message bodies, names, and invitation text are vault-encrypted (Keystore AES-GCM, row-bound AAD);
   libsignal records likewise. Not SQLCipher: structure and metadata are visible.
 - The libsignal identity private key is a software key encrypted at rest (DEC-019 O3).
@@ -83,7 +90,13 @@ chat list and the conversation still use the old screens until steps 6d and 6e.
   protocol verdicts. Key and profile creation run under process-wide locks and the profile row is
   never replaced, so a double tap makes one key and one profile (DEC-028).
 - Contact states: `AWAITING_ACCEPTANCE`, `ACTIVE`, `KEY_CHANGED` (blocked; no code path sets it
-  today, see `../PROTOCOL_V2.md`). Pending requests are not contacts. Strict identity trust in both directions (DEC-018). Single device per contact; no
+  today, see `../PROTOCOL_V2.md`). A local "safety number checked" mark (DEC-030, written
+  2026-10-05, not yet run on a phone) is set only by the person's confirmation for exactly the number
+  shown, never sent, and cleared with `KEY_CHANGED`.
+- Inbox loss (DEC-032, written 2026-10-06, not yet run on a phone): a missing or damaged inbox read
+  secret while contacts, requests or invitations exist blocks the app with its own explanation; no
+  new inbox is created silently. Envelope digests are kept 30 days. A "Screen security" switch
+  (off by default) sets `FLAG_SECURE` for the app; used invitations are withdrawn from the relay. Pending requests are not contacts. Strict identity trust in both directions (DEC-018). Single device per contact; no
   synchronized revocation.
 - Flash storage gives no secure-deletion guarantee.
 

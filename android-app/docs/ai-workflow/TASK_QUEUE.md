@@ -774,7 +774,9 @@ read") the normal system behavior stays. Details, current state of the code and 
 ## TQ-108 — Phase 5 follow-ups accepted for later
 
 **Priority:** P2
-**Status:** READY AFTER Phase 5 (most belong with the Phase 6 UI work)
+**Status:** WRITTEN 2026-10-06 (step 6g, DEC-032): JVM tests green; device suites and the commit wait
+for the phones. R7 was decided by the owner: no protection of the invitation screens, a "Screen
+security" switch for the whole app (off by default).
 **Type:** runtime / UI / storage
 **Security-sensitive:** Yes
 

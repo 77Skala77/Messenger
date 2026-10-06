@@ -292,7 +292,10 @@ the key.
 The v2 invitation QR is a bearer capability (AI audits 2026-10, H1 and INV-01, DEC-028):
 whoever sees it, for example in a photo or a screenshot, can pair first and be shown to the
 inviter as a contact request, or delete the invitation from the relay. Comparing the safety
-number is the only protection against the first; the second only costs a new invitation.
+number is the only protection against the first; the second only costs a new invitation. The
+invitation is single use; once used, the inviter's app withdraws it from the relay so a later scan is
+told it no longer works (DEC-032). The invitation screens can be screenshotted (owner's choice); a
+"Screen security" switch, off by default, blocks screenshots and recording of the whole app.
 
 ### Relay
 
@@ -309,6 +312,19 @@ The UI is responsible for preserving the distinction between encrypted and verif
 
 An `UNVERIFIED` contact may communicate under the accepted warning-only policy, but the
 interface must continue to show that identity authenticity has not been established.
+
+v2 implementation (DEC-030, 2026-10-05): accepting a request goes through a comparison step with
+three explicit answers (the numbers match, accept without comparing, the numbers differ), and the
+scanner is shown the same comparison right after scanning. The chat header says "Safety number not
+checked" until the person confirms a match; the local mark is set only for the exact number shown,
+is never sent, is removed with a changed key, and is worded "checked", never "secure".
+
+Notifications (DEC-031, written 2026-10-05, not yet run on a phone) say who wrote, by the person's own
+name for the contact, and how many unseen texts there are; never the text, and never the name a
+contact request claims. A locked phone shows only "New message" (the notification's public version)
+unless the person chose to show all notification content on the lock screen, which is Android's
+setting and not the app's to override. Android's notification history and apps the user granted
+notification access still learn the contact's local name and the count.
 
 ## Relay Limitations
 

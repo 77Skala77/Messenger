@@ -33,8 +33,8 @@ encryption, replay protection). Every finding below was checked against the code
 | SRV-01 (B) | No relay-wide memory bound; every request sweeps all stored messages | Confirmed | **Fixed (TQ-110):** whole-relay caps (100,000 messages, 256 MiB of ciphertext, then 503 `relay_full`); sweep at most once a second |
 | M2 (A) | The deployment examples route the old `/v1/messages` API | Confirmed (Caddy, nginx, deployment README, VPS guide) | **Fixed (TQ-110)** |
 | L3 (A) | CI actions referenced by moving tags; no checksum for the Gradle download | Confirmed | **Fixed (TQ-110):** actions pinned to commit hashes, wrapper validation, `distributionSha256Sum` (checked against gradle.org; the wrapper JAR is the official Gradle 8.9 one). Verification metadata and SBOM stay with TQ-008 |
-| H1 (A), INV-01 (B), INV-I01 (B) | Trust on first use: whoever sees an invitation QR can pair first, or delete the invitation from the relay | By design (DEC-019); the main practical risk for real users | **Step 6f (owner):** a "compare the safety number" step and a local "verified" mark. Documented in `THREAT_MODEL.md` |
-| L2 (A) | After a failed upload the QR is shown but cannot work; `retryInvitationUpload` has no caller | Confirmed | **Step 6f:** show whether the upload worked, offer "try again" |
+| H1 (A), INV-01 (B), INV-I01 (B) | Trust on first use: whoever sees an invitation QR can pair first, or delete the invitation from the relay | By design (DEC-019); the main practical risk for real users | **Step 6f (done 2026-10-05, DEC-030, not yet run on a phone):** a "compare the safety number" step when accepting (optional but explicit) and for the scanner, and a local "checked" mark bound to the exact number shown. Documented in `THREAT_MODEL.md` |
+| L2 (A) | After a failed upload the QR is shown but cannot work; `retryInvitationUpload` has no caller | Confirmed | **Step 6f (done 2026-10-05, not yet run on a phone):** the invitation screen shows whether the upload worked and offers "try again" (`retryCurrentInvitationUpload`); a code that did not reach the relay is not offered for sharing |
 
 ## 3. Accepted, documented, or already planned
 
@@ -44,7 +44,7 @@ encryption, replay protection). Every finding below was checked against the code
 | STORE-02 (B) | The last-resort Kyber replay ledger is not vault-authenticated | Not reachable: the app never creates last-resort Kyber keys (only tests do). Revisit if it ever does |
 | TRN-01 (B), I-2 (A) | Debug builds allow cleartext HTTP to any host | Debug and QA only; release rejects HTTP (`allow_insecure_relay_http` and cleartext are false in main) |
 | I-3 (A) | `JcaLocalVaultCipher` (fixed-key test vault) is in the main source set | Unused by production code, removed from release by R8; move it once shared test fixtures exist |
-| L4 (A), I-4 (A), I-7 (A) | Lost queue secret, no `FLAG_SECURE`, envelope digests never pruned | Already TQ-108 (step 6g) |
+| L4 (A), I-4 (A), I-7 (A) | Lost queue secret, no `FLAG_SECURE`, envelope digests never pruned | TQ-108, step 6g (written 2026-10-06, DEC-032, not yet run on a phone): a lost secret blocks with its own explanation; a "Screen security" switch (off by default, owner); digests kept 30 days |
 | I-1 (A) | `qaMinified` build has v2 and cleartext | Known QA build; never distributed |
 | I-5, I-6 (A) | No StrongBox or unlocked-only vault key; software identity key in memory | Known (Phase 5 notes, as in Signal for Android) |
 | I-10 (A) | CVE check was manual | TQ-008 |

@@ -66,6 +66,11 @@ When changing an accepted decision:
 | DEC-026 | Phase 5: rejected envelopes deleted and rolled back, relay pages, ordered sending, strict invitations; paid audit before release | ACCEPTED |
 | DEC-027 | Phase 6: AGPL-3.0 `LICENSE`; reuse of Telegram code ("GPL v2 or later" files, headerless ones at the owner's accepted risk); unread counters (Room v10); notifications without text; classic palette | ACCEPTED |
 | DEC-028 | AI security audits of October 2026: triage, fix block TQ-110, safety-number check in 6f; not the independent audit | ACCEPTED |
+| DEC-029 | Room v10: unread counters from a per-message "seen" mark (not a contact timestamp), set only for what is on screen; verified-date column for 6f | ACCEPTED (supersedes the column choice of DEC-027) |
+| DEC-030 | Safety-number comparison step and local verified mark (audit H1): optional but explicit when accepting, offered to the scanner at once, bound to the exact number shown | ACCEPTED |
+| DEC-031 | Notifications without message text: who and how many, never what; requests never by their claimed name; locked screen "New message" only; posted only by the background sync while the app is not on screen | ACCEPTED |
+| DEC-033 | Telegram's look and motion taken over directly (owner, 2026-10-06): only the logo and the name stay out; code translated to Compose, not embedded; Source Sans 3; sync every 30 s and message order by sender time planned | ACCEPTED (widens DEC-027) |
+| DEC-032 | TQ-108: a lost inbox secret blocks with its own explanation; screen security a switch (off), invitation screens not protected; used invitations withdrawn from the relay; envelope digests kept 30 days | ACCEPTED |
 
 ---
 
@@ -1244,7 +1249,8 @@ Results: `REWRITE_PLAN.md`, Phase 5.
 - A read-only reference copy of Telegram's Java sources lives outside the repository
   (`D:\Tools\reference\Telegram`, commit `f2908b1`).
 - **Unread counters:** Room v10 adds a nullable `lastReadAtEpochMillis` to `v2_contacts`; a local
-  time only, never sent (not a read receipt).
+  time only, never sent (not a read receipt). *Superseded by DEC-029 (2026-10-04): a per-message
+  "seen" mark instead, because the wall clock can move backwards.*
 - **Notifications for new messages, without message text** ("New message from <local name>").
 
 ### Accepted legal risk (owner, 2026-10-01, later the same day)
@@ -1344,6 +1350,267 @@ the same moment), `RelayHostileResponseInstrumentedTest` (redirects), relay test
 table, trusted proxy, whole-relay caps, expiry sweep). Results (2026-10-03): all suites green on
 the JVM and on both phones, the V2-01 tests fail without the fix, the owner's hand check passed
 (TQ-110 in `TASK_QUEUE.md`).
+
+---
+
+## DEC-029 — Room v10: unread counters from a per-message "seen" mark; verified-date column
+
+**Status:** ACCEPTED (2026-10-04, step 6d). Supersedes the column named in DEC-027 for unread
+counters; everything else in DEC-027 stands.
+
+### Context
+
+DEC-027 planned a nullable `lastReadAtEpochMillis` on `v2_contacts`, unread meaning "newer than
+that time". Message times are the phone's wall clock at receipt, and that clock can move backwards
+(manual change, network time correction): a text received after such a jump would count as read
+without ever being shown.
+
+### Decision
+
+- **Room v10** (`MIGRATION_9_10`, purely additive): `v2_messages.isRead INTEGER NOT NULL DEFAULT 1`
+  and `v2_contacts.verifiedAtEpochMillis INTEGER` (null). Existing rows count as seen, so an update
+  brings no flood of old badges; no row is deleted or reinterpreted.
+- An incoming text is stored unseen; the user's own messages are stored seen. The chat list counts
+  unseen incoming texts per contact (and per request; they stay unseen when a request becomes a
+  contact, which keeps its ID).
+- **Seen means shown:** a conversation's texts are marked in the same locked step that reads them
+  for the screen (`textsMarkingRead`), and only while the conversation is on screen with the app
+  in front (`LifecycleResumeEffect`). A text that arrives a moment later stays unseen until it is
+  shown.
+- **Local only:** nothing about reading is ever sent; there are no read receipts (`AGENTS.md`).
+- `verifiedAtEpochMillis` is the date the user confirmed matching safety numbers; set and shown
+  from step 6f (audit H1, DEC-028). Unused until then.
+
+### Consequences
+
+- Compatibility: additive schema change only; no protocol, wire, invitation, vault or AAD change.
+  Room has no down-migration: installing an older build over a v10 database fails to open it, as
+  for every earlier schema step (QA builds only).
+- The unread query scans `v2_messages` once per refresh (a few thousand rows at most in QA); an
+  index can follow if it ever matters.
+
+### Evidence
+
+`SecureDatabaseMigrationInstrumentedTest` (9 to 10), `ConversationV2StorageInstrumentedTest`
+(counts, last text, marking), `ConversationV2ServiceTest` (counts across sync, marking, held texts
+after acceptance, nothing sent when seeing). Results: HANDOFF and TASK_QUEUE (step 6d).
+
+---
+
+## DEC-030 — Safety-number comparison step and local verified mark (audit H1)
+
+**Status:** ACCEPTED (2026-10-05, step 6f; owner's answers the same day).
+
+### Context
+
+Pairing is trust on first use (DEC-019): whoever sees an invitation QR code, even in a photo, can
+pair first and appear to the inviter as a contact request under any name (audit H1, DEC-028).
+Comparing the 60-digit safety number over a trusted channel is the only protection. Until now the
+number was shown, but nothing asked for the comparison and nothing recorded it.
+
+### Decision (owner, 2026-10-05)
+
+- **Accepting stays possible without comparing, but only as an explicit choice.** "Compare and
+  accept" on a request opens a step with the request's number, how to compare it, and three answers:
+  "The numbers match — accept" (accepted and marked verified), "Accept without comparing" (accepted,
+  the chat header keeps saying "Safety number not checked"), "The numbers differ — decline". A
+  mandatory comparison was rejected: it blocks pairing at a distance and trains people to tap
+  "match" without looking.
+- **The scanner gets the step at once:** after "Add contact" succeeds, the new contact's page opens
+  with its number and "The numbers match", while both people are still together. Back leads to the
+  new chat; comparing later stays possible (tap the name in the chat header).
+- **The mark is bound to the exact number the person saw.** The screen passes the number it showed;
+  the service recomputes the number of the stored identity inside the same locked transaction and
+  marks only if the digits are identical, otherwise it throws and changes nothing (accepting
+  included). A stale screen or any mix-up can therefore never mark a contact whose number was not
+  shown.
+- **Local only:** `v2_contacts.verifiedAtEpochMillis` (Room v10, DEC-029), never sent; each side
+  marks its own contact. The mark can be removed on the contact page.
+- **Never "checked" with a changed key:** a contact's identity key never changes; setting
+  `KEY_CHANGED` also clears the mark (Room and the test double), a blocked contact cannot be marked,
+  and `V2Contact.safetyNumberChecked` is false for a blocked contact whatever is stored.
+- Wording: "Safety number checked / not checked", never "verified" or "secure": the threat model
+  forbids presenting any state as fit for real sensitive communication before the independent audit.
+  No mark in the chat list (Telegram's blue tick means something else).
+
+### Consequences
+
+- Compatibility: no protocol, wire, invitation, vault or AAD change; no schema change (the column
+  exists since Room v10). `acceptRequest` gains an optional compared number; `markVerified` and
+  `clearVerified` are new service methods.
+- The card of a request in the chat list no longer accepts by itself; it leads to the step.
+
+### Evidence
+
+`ConversationV2ServiceTest` (the mark after "match"; nothing else sets it; a request from whoever
+photographed the code is not accepted with the real contact's number; a wrong, partial or empty
+number accepts nothing; marking needs the shown number and can be undone; the scanner marks while
+waiting and keeps the mark; a blocked contact loses it and cannot get it),
+`ConversationV2StorageInstrumentedTest` (Room), `SafetyNumberCheckInstrumentedTest` and
+`ConversationScreenInstrumentedTest` (screens). Device suites not yet run (no phone, 2026-10-05).
+
+---
+
+## DEC-031 — Notifications without message text (step 6f')
+
+**Status:** ACCEPTED (2026-10-05). The owner's decisions are those of DEC-027 (notifications for new
+messages, "New message from <local name>", never the text, driven by the background sync, the
+Android 13+ permission asked in context); this entry records the privacy rules that implement them.
+
+### Decision
+
+- **Who and how many, never what.** A notification for a contact says the name the person gave
+  that contact and "New message" (or "N new messages", all unseen texts of that chat). The code that
+  builds notifications never reads a message text: its input are unseen counts and contacts only
+  (`messageNotices`), and a source check pins that it uses no text, no messaging or big-text style,
+  no ticker and no inline reply.
+- **A request is never announced by its claimed name:** that name is chosen by whoever sent the
+  request (anyone who saw the QR code, audit H1), so the notification says only "Contact request" and
+  asks to compare the safety number.
+- **Locked screen: "New message" only, unless the person chose otherwise.** Every notification is
+  private with a public version that has neither name nor count. *Corrected 2026-10-06 after the first
+  device run:* an app cannot set its channel's lock-screen visibility (both phones answered "no
+  override"), so the first plan, "the channel is private and Android shows the public version even
+  where the phone shows all content", was wrong. What a locked phone shows depends on the person's own
+  lock-screen setting: with "hide sensitive content" (the default on a phone with a lock) only "New
+  message"; with "show all content" the name and the count. The text of a message exists in no
+  version of any notification, so it is never shown in either case. Android's notification history
+  and apps with notification access see the name and the count, never the text (accepted with
+  DEC-027).
+- **Posted only by the background sync, only while no screen of the app is visible**, for the
+  chats whose unseen count grew during that sync (counts read before and after; also after a sync
+  that failed midway, since those texts would never be announced later). The chat screen fetches
+  every few seconds only while the app is on screen (started); before, it kept fetching in the
+  background until Android froze the app, and texts fetched that way would have arrived unannounced.
+- **Removed** when the chat is shown, when the request is accepted or declined, when tapped, and all
+  of them after "Delete local data" (they name contacts). Tapping opens the chat: the intent carries
+  only the local contact ID, accepted only in the form of a random local ID.
+- **Permission in context:** a card on the chat list once a chat or a request exists, "Turn on" or
+  "Not now" (not asked again); settings show whether notifications are on and open Android's
+  notification settings. Release builds have no chats and post nothing.
+
+### Consequences
+
+- In the background, new messages arrive with the periodic sync (about every 15 minutes or later,
+  best effort), not every few seconds; the chat screen's notice already said so.
+- No protocol, wire, invitation, storage or schema change.
+
+### Evidence
+
+`NotificationRulesTest` (what is announced, the words, intent IDs, the source check),
+`NotificationPrivacyInstrumentedTest` (two devices over Room and libsignal: the posted notification
+and its public version carry neither text nor claimed name; the public version says "New message"; the
+channel is never public; nothing while the app is on screen). Run on both phones 2026-10-06: it caught
+the wrong channel claim above (fixed); the rest passed.
+
+---
+
+## DEC-033 — Telegram's look and motion taken over directly (widens DEC-027)
+
+**Status:** ACCEPTED (2026-10-06, the owner's decision in chat).
+
+### Context
+
+DEC-027 allowed reusing Telegram for Android's code under the licensing rules and, as a precaution,
+excluded their "name, logo, icons, sounds, fonts or images". Step 6b then judged that almost nothing
+needed copying: their screens are custom Java views tied to a huge data model, so our Compose code
+was written from measured numbers. The owner now wants the interface to be practically a fork of
+Telegram's: the same look, and above all the same effects, swipes and animations, "taken from there,
+adapted for our system". They read Telegram's terms as forbidding only the paper-plane logo and the
+name; the same was found on Telegram's API terms page on 2026-10-06 (no "Telegram" in an app's name
+unless "Unofficial", no logo; nothing about copying the interface, assets or code) and the Android
+repository states GPL-2.0 and asks to publish the code. Stickers and features we do not have are not
+wanted; "if needed, we will add them ourselves".
+
+### Decision
+
+- **Only Telegram's logo and name stay out.** Icons, sounds, layouts, animations and code may be
+  taken. Every file taken from is kept in `THIRD_PARTY_NOTICES.md` with its header status; original
+  headers stay; the source stays published (AGPL-3.0). The old rule against copying icons, sounds
+  and images is lifted. The mismatch of GPL-2.0 (some files "or later", most without a header) with
+  our AGPL-3.0 remains the owner's accepted risk, not a lawyer's opinion.
+- **Translate, do not embed.** Their views cannot run in Compose without pulling in their framework
+  (`AndroidUtilities`, `Theme`, `LocaleController`, hundreds of classes, native libraries): the app
+  would grow by hundreds of thousands of lines of code that nobody here audits, and the paid audit
+  (TQ-106) would cost more. So each piece is translated line by line into Compose: the same numbers,
+  curves, thresholds and decisions, in a small file of our own (`TelegramMotion.kt` holds them, with
+  unit tests that pin them).
+- **Work in large blocks, checked by tests and by the owner at the end.** The first blocks: the
+  screen stack (open and close 150 ms, 48 dp slide, the swipe back that follows the finger with scrim
+  and shadow, `TelegramScreenStack.kt`), the lists (chat rows and messages move in 250 ms, new
+  messages grow from 90 percent), the unread counter (220, 150 and 430 ms), the scroll-down button
+  with its count, the floating date. Written in the second batch (same day): the font (Source Sans 3
+  variable, SIL OFL 1.1, one `.ttf` in `res/font`), the top bar (`TelegramTopBar`), the popup menu
+  (`TelegramPopupMenu`: the chat list's round button and the home menu with Settings), Telegram-style
+  alert dialogs (`TelegramAlertDialog`), settings as gray ground with white sections, the animated
+  light/dark palette (300 ms), Telegram's press effect (black or white ripple), the empty-chat note and the send
+  button's 10 to 100 percent scale. Not done: Telegram's icons and sounds (no download was approved;
+  our drawn icons stay), a long-press "Copy" on a message (it would put message text on the
+  clipboard, which AGENTS.md allows only for the invitation code: needs the owner's decision).
+- Planned with this decision (owner agreed): the background sync every 30 seconds through a
+  foreground service, and the message order by the sender's authenticated time within one minute.
+
+### Consequences
+
+- The conversation and the chat list now animate; touches are ignored while a screen moves; the
+  screen beneath the top one stays composed (hidden, invisible to accessibility) so a swipe shows it
+  at once; screens keep their saved state while buried.
+- No protocol, wire, storage or security change. Screen security (`FLAG_SECURE`) and the rules of
+  DEC-029 to DEC-032 are untouched; `LocalScreenVisible` makes the "seen" mark follow the screen that
+  is really on show.
+
+### Evidence
+
+`TelegramMotionTest` (numbers, curves and decisions), `TelegramScreenStackInstrumentedTest` (push,
+pop, swipe far, short, vertical, root, switched off), `ConversationMotionInstrumentedTest` (button,
+count, floating date), `SystemBackInstrumentedTest` through the new stack. Results: HANDOFF.
+
+---
+
+## DEC-032 — TQ-108: lost inbox secret, screen security, single-use invitations told, digest pruning
+
+**Status:** ACCEPTED (2026-10-06, step 6g; the owner's answers the same day). Closes the second-review
+items R6, R7, I2, I5 (`../PHASE5_SECURITY_TEST_PLAN.md`) and the AI-audit items L4, I-4, I-7.
+
+### Decision
+
+- **R6, lost inbox secret.** The read secret of this phone's relay inbox lives in preferences,
+  vault-encrypted; the database lives elsewhere. If the secret is missing or damaged while a
+  contact, request or invitation exists (they know the inbox), nothing creates a new one: the pipeline
+  throws `ReceiveQueueLostException`, the worker stops for good, and the app shows "Your contacts can
+  no longer reach this phone" with "Check again" and a confirmed "Delete local data and start over",
+  like a lost vault key (DEC-023). With nothing that knows the inbox, a first one is simply created.
+  This replaces the plan to create the secret together with the profile: the rule protects exactly
+  when a replacement would cost something, and needs no change for existing profiles.
+- **R7, screenshots (owner).** The invitation and scanner screens are **not** protected: people may
+  screenshot a QR code. In return the owner asked that a used code clearly no longer works (below).
+  For the whole app there is a **"Screen security" switch in settings, off by default** (like Signal):
+  on, the app's windows carry `FLAG_SECURE` (no screenshots or recording, hidden in recent apps).
+- **I2, single use made visible (owner).** An invitation was always single use (DEC-026: one-time
+  pre-keys, any other HELLO rejected). Now, once a HELLO used it, the inviter's app also deletes its
+  sealed bundle from the relay mailbox (best effort; the bundle holds public keys only), so whoever
+  scans the code later is told at once "This invitation no longer works". The inviter's invitation
+  screen says when the code shown was used or expired; a scanner still waiting is told on the contact
+  page that someone else may have used the invitation first (the only case left: a scan made before
+  the inviter's app processed the first answer).
+- **I5, digest pruning.** Envelope digests are forgotten after 30 days (the relay keeps envelopes one
+  day). A replay of a forgotten envelope is still rejected: libsignal refuses spent message keys and
+  pre-keys, and inner message IDs are unique per contact.
+
+### Consequences
+
+- No protocol, wire, invitation or schema change; two new DAO queries; the relay's existing delete
+  call is used on the invitation's own mailbox. In the background, digests are pruned with each sync.
+
+### Evidence
+
+`ConversationV2ServiceTest` (a used invitation is withdrawn and a later scan gets "not found"; a relay
+failure while withdrawing changes no verdict; forgotten digests let no replayed HELLO, held text or
+text back in, nothing changes), `ConversationV2StorageInstrumentedTest` (Room queries),
+`ReceiveQueueLossInstrumentedTest` (pipeline, worker, explanation screen, fresh start),
+`LegacyResetInstrumentedTest` (a damaged secret is a rejected record, and a lost queue while known),
+`ScreenSecurityInstrumentedTest`, `SafetyNumberCheckInstrumentedTest` (waiting hint). Device suites
+not yet run (no phone, 2026-10-06).
 
 ---
 
