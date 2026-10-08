@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,12 +49,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -64,6 +69,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LifecycleStartEffect
@@ -83,6 +89,8 @@ private enum class V2Screen { HOME, INVITE, ADD, CONVERSATION, REQUEST_REVIEW, C
 internal fun ConversationV2Root(
     onOpenSettings: () -> Unit,
     onLocalDataUnreadable: () -> Unit,
+    profileName: String? = null,
+    settingsTab: @Composable () -> Unit = {},
     viewModel: ConversationV2ViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -99,6 +107,9 @@ internal fun ConversationV2Root(
     // The screens of the chat flow as a stack (DEC-033): the chat list at the bottom; the new chat,
     // add contact, a conversation, a request's comparison and a safety number open over it.
     val nav = rememberNavStack(V2Screen.HOME)
+    // The tab of the main screen (Telegram 12, owner 2026-10-07); kept when a chat opens over it.
+    var homeTab by rememberSaveable { mutableStateOf(HomeTab.CHATS) }
+    var homeChromeHidden by remember { mutableStateOf(false) }
     var reviewedRequestId by remember { mutableStateOf<String?>(null) }
     // One step back, for the app's own Back button, for Android's system Back (button or gesture)
     // and for the swipe back alike, so they can never disagree (TQ-109): it closes the top screen.
@@ -165,26 +176,53 @@ internal fun ConversationV2Root(
             delete = viewModel::deleteChats,
         )
     }
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    // Edge to edge: each screen of the stack keeps its own content clear of the system bars.
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding().imePadding()) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { padding ->
         TelegramScreenStack(stack = nav.items, onSwipeBack = goBack, modifier = Modifier.padding(padding)) { screen ->
             when (screen) {
-                V2Screen.HOME -> V2Home(
-                    state = state,
-                    onInvite = { nav.push(V2Screen.INVITE) },
-                    onAdd = { nav.push(V2Screen.ADD) },
-                    onOpen = {
+                V2Screen.HOME -> {
+                    val openChat: (String) -> Unit = {
                         viewModel.selectContact(it)
                         nav.push(V2Screen.CONVERSATION)
-                    },
-                    onReview = {
-                        reviewedRequestId = it
-                        nav.push(V2Screen.REQUEST_REVIEW)
-                    },
-                    onDecline = viewModel::declineRequest,
-                    onRefresh = viewModel::synchronizeNow,
-                    onSettings = onOpenSettings,
-                    actions = chatActions,
-                )
+                    }
+                    HomeTabsScaffold(
+                        tab = homeTab,
+                        onTab = { homeTab = it },
+                        unreadChats = homeUnreadCount(state, System.currentTimeMillis()),
+                        profileName = profileName,
+                        chromeHidden = homeChromeHidden && homeTab == HomeTab.CHATS,
+                    ) { tab ->
+                        when (tab) {
+                            HomeTab.CHATS -> V2Home(
+                                state = state,
+                                onInvite = { nav.push(V2Screen.INVITE) },
+                                onAdd = { nav.push(V2Screen.ADD) },
+                                onOpen = openChat,
+                                onReview = {
+                                    reviewedRequestId = it
+                                    nav.push(V2Screen.REQUEST_REVIEW)
+                                },
+                                onDecline = viewModel::declineRequest,
+                                onRefresh = viewModel::synchronizeNow,
+                                onSettings = onOpenSettings,
+                                actions = chatActions,
+                                bottomSpace = HomeTabsLook.PageBottomSpace,
+                                onChromeHidden = { homeChromeHidden = it },
+                            )
+                            HomeTab.CONTACTS -> ContactsTab(
+                                contacts = state.contacts,
+                                onOpen = openChat,
+                                onInvite = { nav.push(V2Screen.INVITE) },
+                                onAdd = { nav.push(V2Screen.ADD) },
+                            )
+                            HomeTab.SETTINGS -> settingsTab()
+                            HomeTab.PROFILE -> ProfileTab(profileName, onInvite = { nav.push(V2Screen.INVITE) })
+                        }
+                    }
+                }
                 V2Screen.INVITE -> V2Invite(
                     code = state.invitationCode,
                     onCreate = viewModel::createInvitation,
@@ -231,6 +269,13 @@ internal fun ConversationV2Root(
                                     delete = { viewModel.deleteChats(listOf(contactId)) },
                                 )
                             },
+                            onSendVoice = { recording, replyTo ->
+                                viewModel.sendVoice(recording.bytes, recording.durationMillis, recording.waveform, replyTo, recording.once)
+                            },
+                            loadVoice = viewModel::voiceRecording,
+                            playOnce = viewModel::playOnce,
+                            onVoicePlayed = viewModel::voiceListened,
+                            onDeleteMessages = viewModel::deleteMessages,
                         )
                     }
                 }
@@ -302,6 +347,10 @@ internal fun V2Home(
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
     actions: ChatListActions = ChatListActions(),
+    /** Room kept free at the end for the main screen's tab bar. */
+    bottomSpace: Dp = 0.dp,
+    /** Searching or selecting: the main screen lets its tab bar go meanwhile. */
+    onChromeHidden: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val chats = remember(state.chats) { chatListOrder(state.chats) }
@@ -327,6 +376,10 @@ internal fun V2Home(
     val present = remember(chats) { chats.map { it.contact.contactId }.toSet() }
     LaunchedEffect(present) { selected = selected.filter { it in present } }
     val selecting = selected.isNotEmpty()
+    val chromeHidden = searching || selecting
+    val reportChrome by rememberUpdatedState(onChromeHidden)
+    LaunchedEffect(chromeHidden) { reportChrome(chromeHidden) }
+    DisposableEffect(Unit) { onDispose { reportChrome(false) } }
     var confirm by remember { mutableStateOf<Pair<ChatConfirm, List<String>>?>(null) }
     fun toggle(contactId: String) {
         selected = if (contactId in selected) selected - contactId else selected + contactId
@@ -389,7 +442,7 @@ internal fun V2Home(
                         },
                     )
                     HomeBar.TITLE -> TelegramTopBar(
-                        title = stringResource(R.string.v2_title),
+                        title = stringResource(R.string.home_tab_chats),
                         actions = {
                             TopBarAction(
                                 onClick = { searching = true },
@@ -403,7 +456,7 @@ internal fun V2Home(
             }
         },
         floatingActionButton = {
-            NewChatFab(onInvite = onInvite, onAdd = onAdd, visible = fabVisible && !searching && !selecting)
+            NewChatFab(onInvite = onInvite, onAdd = onAdd, visible = fabVisible && !searching && !selecting, modifier = Modifier.padding(bottom = bottomSpace))
         },
     ) { padding ->
         PullToRefreshBox(
@@ -415,10 +468,9 @@ internal fun V2Home(
             LazyColumn(
                 Modifier.fillMaxSize().testTag(CHAT_LIST_TAG),
                 state = listState,
-                contentPadding = PaddingValues(bottom = 88.dp),
+                contentPadding = PaddingValues(bottom = 88.dp + bottomSpace),
             ) {
-                if (!searching) item { SecurityWarning(stringResource(R.string.v2_qa_banner)) }
-                if (!searching) item { NotificationPromptCard(hasConversations = chats.isNotEmpty() || state.requests.isNotEmpty()) }
+                if (!searching && state.ready) item { NotificationPromptCard(hasConversations = chats.isNotEmpty() || state.requests.isNotEmpty()) }
                 if (searching) {
                     if (shown.isEmpty()) {
                         item {
@@ -444,7 +496,8 @@ internal fun V2Home(
                             V2RequestCard(view, onReview, onDecline)
                         }
                     }
-                } else if (chats.isEmpty()) {
+                } else if (chats.isEmpty() && state.ready) {
+                    // Only once the chats are read: before that "No chats yet" flashed at every start (2026-10-07).
                     item { EmptyChatList() }
                 }
                 items(shown, key = { it.contact.contactId }) { chat ->
@@ -478,14 +531,6 @@ internal fun V2Home(
                             selected = contactId in selected,
                         )
                     }
-                }
-                if (!searching) item {
-                    Text(
-                        stringResource(R.string.v2_background_sync_notice),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.messenger.hint,
-                        modifier = Modifier.padding(16.dp),
-                    )
                 }
             }
         }
@@ -588,7 +633,10 @@ internal fun V2RequestReview(
     val requestId = view.request.requestId
     val claimed = view.request.claimedDisplayName.ifBlank { "-" }
     var name by remember(requestId) { mutableStateOf("") }
-    Scaffold(topBar = { NavigationTopBar(stringResource(R.string.request_review_title), onBack) }) { padding ->
+    Scaffold(
+        topBar = { NavigationTopBar(stringResource(R.string.request_review_title), onBack) },
+        contentWindowInsets = keyboardAwareInsets(),
+    ) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -770,7 +818,10 @@ private fun V2Add(onAdd: (String, String) -> Unit, onBack: () -> Unit) {
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) code = result.contents
     }
-    Scaffold(topBar = { NavigationTopBar(stringResource(R.string.v2_add_contact), onBack) }) { padding ->
+    Scaffold(
+        topBar = { NavigationTopBar(stringResource(R.string.v2_add_contact), onBack) },
+        contentWindowInsets = keyboardAwareInsets(),
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -828,6 +879,8 @@ internal fun V2SafetyNumber(
     Scaffold(
         topBar = { NavigationTopBar(stringResource(R.string.v2_safety_number), onBack) },
         containerColor = colors.sectionBackground,
+        // The ground is not one of Material's roles: the text color is named, or it would turn gray.
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) { padding ->
         // Telegram's profile page: a big avatar with the name on a white header, then white sections on gray.
         Column(
@@ -920,3 +973,10 @@ internal fun stateLabel(state: V2ContactState): String = stringResource(
 
 /** 60 digits in groups of five, three groups to a line: readable aloud and identical on both devices. */
 private fun groupedDigits(number: String): String = safetyNumberLines(number).joinToString("\n")
+
+/**
+ * The counter on the Chats tab (Telegram's): how many chats have unread messages, muted ones left
+ * out, plus the contact requests waiting for an answer.
+ */
+internal fun homeUnreadCount(state: ConversationV2UiState, nowMillis: Long): Int =
+    state.chats.count { it.unreadCount > 0 && !it.contact.isMuted(nowMillis) } + state.requests.size

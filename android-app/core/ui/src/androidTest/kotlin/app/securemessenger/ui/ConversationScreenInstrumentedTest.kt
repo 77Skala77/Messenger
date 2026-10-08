@@ -7,6 +7,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -101,12 +102,12 @@ class ConversationScreenInstrumentedTest {
         composeRule.onNodeWithTag(QUOTE_TAG_PREFIX + "q").assertDoesNotExist()
     }
 
-    /** DEC-035: a long press offers "Reply"; the answer is sent with the ID of the text it answers. */
+    /** DEC-035: a tap offers "Reply" (Telegram; a long press selects); the answer is sent with the ID of the text it answers. */
     @Test
-    fun aLongPressRepliesAndTheAnswerCarriesTheQuotedId() {
+    fun aTapRepliesAndTheAnswerCarriesTheQuotedId() {
         show(messages = replyConversation())
 
-        composeRule.onNodeWithTag(MESSAGE_TAG_PREFIX + "q").performTouchInput { longClick() }
+        composeRule.onNodeWithTag(MESSAGE_TAG_PREFIX + "q").performTouchInput { click() }
         composeRule.waitUntil(5_000L) { exists(MESSAGE_MENU_REPLY_TAG) }
         composeRule.onNodeWithTag(MESSAGE_MENU_REPLY_TAG).performClick()
         composeRule.waitUntil(5_000L) { exists(REPLY_PANEL_TAG) }
@@ -118,6 +119,48 @@ class ConversationScreenInstrumentedTest {
         assertEquals(listOf("Sure"), sent)
         assertEquals(listOf<String?>(INNER_Q), replies)
         composeRule.waitUntil(5_000L) { !exists(REPLY_PANEL_TAG) }
+    }
+
+    /**
+     * Telegram's selection (owner, 2026-10-07): a long press selects a message and shows "1 selected";
+     * a tap anywhere on another message's line adds it; deleting asks once for both and goes through
+     * the screen's delete; the cross ends selecting.
+     */
+    @Test
+    fun aLongPressSelectsAndATapOnTheLineAddsMessages() {
+        val deleted = mutableListOf<Pair<List<String>, Boolean>>()
+        composeRule.runOnUiThread {
+            composeRule.activity.setContent {
+                MessengerTheme(AppThemeMode.LIGHT) {
+                    V2Conversation(
+                        contact = contact(V2ContactState.ACTIVE, null, null),
+                        messages = replyConversation(),
+                        onSend = { _, _ -> },
+                        onBack = {},
+                        onOpenSafety = {},
+                        onDeleteMessages = { ids, forBoth -> deleted += ids to forBoth },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag(MESSAGE_TAG_PREFIX + "q").performTouchInput { longClick() }
+        composeRule.waitUntil(5_000L) { exists(MESSAGES_SELECTION_COUNT_TAG) }
+        composeRule.onNode(hasText(activity.getString(R.string.messages_selected, 1)), useUnmergedTree = true).assertExists()
+        assertTrue("one message can be answered", exists(MESSAGES_SELECTION_REPLY_TAG))
+
+        composeRule.onNodeWithTag(MESSAGE_SELECT_TAG_PREFIX + "a").performClick()
+        composeRule.waitUntil(5_000L) { composeRule.onAllNodes(hasText(activity.getString(R.string.messages_selected, 2)), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("two cannot", !exists(MESSAGES_SELECTION_REPLY_TAG))
+
+        composeRule.onNodeWithTag(MESSAGES_SELECTION_DELETE_TAG).performClick()
+        composeRule.waitUntil(5_000L) { exists(DELETE_MESSAGE_CONFIRM_TAG) }
+        composeRule.onNodeWithTag(DELETE_MESSAGE_CONFIRM_TAG).performClick()
+        composeRule.waitUntil(5_000L) { deleted.isNotEmpty() }
+        assertEquals(setOf("q", "a"), deleted.single().first.toSet())
+        assertEquals(false, deleted.single().second)
+        composeRule.waitUntil(5_000L) { !exists(MESSAGES_SELECTION_COUNT_TAG) }
     }
 
     /** DEC-035: Telegram's swipe to the left answers too; the cross cancels, and the next text answers nothing. */

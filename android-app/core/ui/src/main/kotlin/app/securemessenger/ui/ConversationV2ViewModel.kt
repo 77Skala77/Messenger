@@ -250,6 +250,102 @@ class ConversationV2ViewModel(application: Application) : AndroidViewModel(appli
         run(syncAfterwards = true) { it.sendText(contactId, text, replyToInnerIdHex) }
     }
 
+    /**
+     * Sends a voice message (DEC-036). The recording is taken over: it is zeroed once it is sealed
+     * and stored (encrypted), or at once if nothing can be sent.
+     */
+    fun sendVoice(
+        recording: ByteArray,
+        durationMillis: Int,
+        waveform: ByteArray,
+        replyToInnerIdHex: String? = null,
+        once: Boolean = false,
+    ) {
+        val contactId = mutableState.value.selectedContactId
+        if (contactId == null || service == null) {
+            recording.fill(0)
+            return
+        }
+        run(syncAfterwards = true) { service ->
+            try {
+                service.sendVoice(contactId, recording, durationMillis, waveform, replyToInnerIdHex, once)
+            } finally {
+                recording.fill(0)
+            }
+        }
+    }
+
+    /**
+     * The contact's one-time recording (DEC-036), decrypted into memory; it is deleted from this phone
+     * in the same step, so this works once. Null if it cannot be played (any more).
+     */
+    suspend fun playOnce(messageId: String): ByteArray? = withContext(Dispatchers.IO) {
+        val current = service ?: return@withContext null
+        val recording = try {
+            current.playOnce(messageId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: VaultKeyUnavailableException) {
+            localDataLost()
+            return@withContext null
+        } catch (_: Exception) {
+            null
+        }
+        // The bubble shows "played" at once, not only at the next poll.
+        refresh()
+        recording
+    }
+
+    /**
+     * The person started playing the contact's voice message (DEC-039): it is marked listened and the
+     * contact's app is told "played" once, like Telegram. Failures stay quiet: "played" waits in the
+     * queue, and a mark that could not be stored is set at the next play.
+     */
+    fun voiceListened(messageId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = service ?: return@launch
+            val marked = try {
+                current.markVoiceListened(messageId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: VaultKeyUnavailableException) {
+                localDataLost()
+                false
+            } catch (_: Exception) {
+                false
+            }
+            // The dot goes at once, not only at the next poll.
+            if (marked) refresh()
+        }
+    }
+
+    /**
+     * A voice message's recording for playing, decrypted into memory; null until it is all on this
+     * phone, or if it cannot be read. The caller keeps it in memory only and zeroes it.
+     */
+    suspend fun voiceRecording(messageId: String): ByteArray? = withContext(Dispatchers.IO) {
+        val current = service ?: return@withContext null
+        try {
+            current.voiceRecording(messageId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: VaultKeyUnavailableException) {
+            localDataLost()
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Deletes messages of the open chat (DEC-037): from this phone, and with [forBoth] also asks the
+     * contact's app to delete its copies.
+     */
+    fun deleteMessages(messageIds: List<String>, forBoth: Boolean) {
+        val contactId = mutableState.value.selectedContactId ?: return
+        run(syncAfterwards = forBoth) { it.deleteMessages(contactId, messageIds, forBoth) }
+    }
+
     // --- Chat management from the list and the chat's menu (DEC-035). All local; nothing is sent. ---
 
     fun setPinned(contactIds: Collection<String>, pinned: Boolean) =

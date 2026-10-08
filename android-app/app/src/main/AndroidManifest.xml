@@ -15,11 +15,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SecureMessenger">
         <!--
-          adjustResize: with the keyboard up the window gets shorter, so the top bar stays and the
-          list above the input bar shrinks, as in Telegram (instead of the whole screen moving up).
+          adjustResize: the app draws edge to edge and moves its input bar with the keyboard itself
+          (the keyboard's insets), so the top bar stays and the list above the input bar shrinks, as in
+          Telegram (instead of the whole screen moving up).
+          configChanges: like Telegram's own activity, turning the phone or switching the system's dark
+          mode does not rebuild the activity; the screens redraw for the new size and colors and keep
+          everything open as it was (the open chat, a draft, the screen stack). A language change
+          still rebuilds it; the app's screen stack is saved for that.
         -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

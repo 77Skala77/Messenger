@@ -54,6 +54,10 @@ class V2DecoderFuzzTest {
             InnerPayloadV2.Text(RandomId.random(secure), NOW, "привет"),
             InnerPayloadV2.Text(RandomId.random(secure), NOW, "x".repeat(400)),
             InnerPayloadV2.Text(RandomId.random(secure), NOW, "ответ", replyTo = RandomId.random(secure)),
+            InnerPayloadV2.Voice(RandomId.random(secure), NOW, voiceNote()),
+            InnerPayloadV2.Voice(RandomId.random(secure), NOW, voiceNote(once = true), replyTo = RandomId.random(secure)),
+            InnerPayloadV2.Played(RandomId.random(secure), NOW, RandomId.random(secure)),
+            InnerPayloadV2.Delete(RandomId.random(secure), NOW, List(3) { RandomId.random(secure) }),
             InnerPayloadV2.Receipt(RandomId.random(secure), NOW, RandomId.random(secure)),
         )
         var inputs = Fuzz.randomInputs(random, count = 1_000, maxLength = 2_048) + paddedRandomBodies(random)
@@ -270,6 +274,23 @@ class V2DecoderFuzzTest {
     }
 
     // --- helpers ---
+
+    /** A valid voice note (DEC-036) for the payload corpus. */
+    private fun voiceNote(once: Boolean = false): app.securemessenger.signalstore.V2VoiceNote {
+        val key = ByteArray(VoiceMedia.KEY_BYTES).also(secure::nextBytes)
+        val sealed = VoiceMedia.seal(ByteArray(60_000).also(secure::nextBytes), key)
+        return app.securemessenger.signalstore.V2VoiceNote(
+            queueReadSecret = RelayQueueCredentials.generate(secure).readSecret(),
+            key = key,
+            digest = sealed.digest,
+            plaintextSize = sealed.plaintextSize,
+            chunkCount = sealed.pieces.size,
+            durationMillis = 15_000,
+            waveform = ByteArray(VoiceMedia.WAVEFORM_MAX_SAMPLES) { (it % 32).toByte() },
+            codec = VoiceMedia.CODEC_AAC_ADTS,
+            once = once,
+        )
+    }
 
     private fun SignalCiphertext.mutated(mutants: Sequence<Mutant>): Sequence<Pair<String, SignalCiphertext>> =
         mutants.map { it.description to SignalCiphertext(type, it.bytes) }

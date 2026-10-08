@@ -3,6 +3,7 @@ package app.securemessenger
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import app.securemessenger.ui.SecureMessengerApp
 import app.securemessenger.ui.V2OpenChat
@@ -13,6 +14,9 @@ class MainActivity : AppCompatActivity() {
         // A tapped notification names the chat to open; a recreated activity has handled it already.
         if (savedInstanceState == null) V2OpenChat.take(intent)
         preferSmoothestDisplayMode()
+        // Telegram 12's look: the app draws under clear system bars, the chat's wallpaper from edge to
+        // edge; every screen keeps its content clear of the bars and the keyboard itself.
+        enableEdgeToEdge()
         setContent {
             SecureMessengerApp(backgroundConnection = true)
         }

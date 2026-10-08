@@ -6,13 +6,21 @@ import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2ContactState
 import app.securemessenger.signalstore.V2Invitation
+import app.securemessenger.signalstore.V2MediaState
 import app.securemessenger.signalstore.V2MessageKind
 import app.securemessenger.signalstore.V2MessageStatus
 import app.securemessenger.signalstore.V2OutgoingEnvelope
+import app.securemessenger.signalstore.V2PendingDownload
+import app.securemessenger.signalstore.V2PendingUpload
 import app.securemessenger.signalstore.V2Route
 import app.securemessenger.signalstore.V2StoredMessage
+import app.securemessenger.signalstore.V2VoiceInfo
+import app.securemessenger.signalstore.V2VoiceNote
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.Callable
 
@@ -148,7 +156,11 @@ class EncryptedConversationV2Repository(
 
     override fun latestIncomingTextTime(contactId: String): Long? = dao.getLatestV2IncomingTextTime(contactId)
 
-    override fun clearTexts(contactId: String): Int = dao.deleteV2SettledTexts(contactId)
+    override fun clearTexts(contactId: String): Int {
+        // The pieces first: the query finds them through the messages it is about to delete.
+        dao.deleteV2SettledMediaChunks(contactId)
+        return dao.deleteV2SettledTexts(contactId)
+    }
 
     override fun storeIncomingText(
         contactId: String,
@@ -179,7 +191,7 @@ class EncryptedConversationV2Repository(
     }
 
     override fun incomingTexts(contactId: String): List<V2StoredMessage> =
-        dao.getV2IncomingMessages(contactId).filter { it.kind == V2MessageKind.TEXT.name }.map(::readMessage)
+        dao.getV2IncomingMessages(contactId).filter { it.kind in VISIBLE_KINDS }.map(::readMessage)
 
     override fun texts(contactId: String): List<V2StoredMessage> = dao.getV2Texts(contactId).map(::readMessage)
 
@@ -237,7 +249,127 @@ class EncryptedConversationV2Repository(
     override fun markDelivered(contactId: String, innerMessageIdHex: String): Boolean =
         dao.markV2MessageDelivered(contactId, innerMessageIdHex) > 0
 
-    override fun deleteMessagesFor(contactId: String) = dao.deleteV2MessagesFor(contactId)
+    override fun deleteMessagesFor(contactId: String) {
+        dao.deleteV2MediaChunksOfContact(contactId)
+        dao.deleteV2MessagesFor(contactId)
+    }
+
+    // --- Voice messages (Room v12, DEC-036). The note (with the key and the queue's read secret) is
+    // vault-encrypted with an AAD of its own; the pieces are stored as they travel. ---
+
+    override fun enqueueOutgoingVoice(
+        envelope: V2OutgoingEnvelope,
+        note: V2VoiceNote,
+        chunks: List<ByteArray>,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String?,
+    ) {
+        require(envelope.kind == V2MessageKind.VOICE) { "Only VOICE carries a voice note" }
+        require(chunks.size == note.chunkCount) { "The pieces do not match the note" }
+        val inserted = dao.insertV2Message(
+            V2MessageEntity(
+                messageId = envelope.messageId,
+                contactId = envelope.contactId,
+                outgoing = true,
+                kind = V2MessageKind.VOICE.name,
+                innerMessageIdHex = envelope.innerMessageIdHex,
+                encryptedBody = encryptNote(note, envelope.messageId, envelope.contactId, outgoing = true),
+                status = V2MessageStatus.PENDING.name,
+                createdAtEpochMillis = createdAtEpochMillis,
+                peerQueueId = envelope.peerQueueId,
+                envelope = envelope.envelope,
+                deliveryAttemptCount = envelope.attemptCount,
+                nextRetryAtEpochMillis = null,
+                isRead = true,
+                replyToInnerIdHex = replyToInnerIdHex,
+                mediaState = V2MediaState.UPLOADING.name,
+                mediaProgress = 0,
+            ),
+        )
+        check(inserted != -1L) { "Outgoing v2 message already exists" }
+        chunks.forEachIndexed { index, piece -> check(dao.insertV2MediaChunk(V2MediaChunkEntity(envelope.messageId, index, piece)) != -1L) }
+    }
+
+    override fun pendingVoiceUploads(): List<V2PendingUpload> =
+        dao.getV2PendingVoiceUploads().map { entity -> V2PendingUpload(entity.messageId, readNote(entity), entity.mediaProgress) }
+
+    override fun recordVoiceUploaded(messageId: String, uploaded: Int) {
+        val entity = dao.getV2Message(messageId) ?: return
+        // Two syncs may upload at once (the screen's and the background's): progress only moves forward.
+        if (entity.mediaState != V2MediaState.UPLOADING.name || uploaded <= entity.mediaProgress) return
+        val state = if (uploaded >= readNote(entity).chunkCount) V2MediaState.READY else V2MediaState.UPLOADING
+        dao.updateV2MediaProgress(messageId, uploaded, state.name)
+    }
+
+    override fun storeIncomingVoice(
+        contactId: String,
+        innerMessageIdHex: String,
+        note: V2VoiceNote,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String?,
+    ): Boolean {
+        val messageId = newMessageId()
+        return dao.insertV2Message(
+            V2MessageEntity(
+                messageId = messageId,
+                contactId = contactId,
+                outgoing = false,
+                kind = V2MessageKind.VOICE.name,
+                innerMessageIdHex = innerMessageIdHex,
+                encryptedBody = encryptNote(note, messageId, contactId, outgoing = false),
+                status = V2MessageStatus.RECEIVED.name,
+                createdAtEpochMillis = createdAtEpochMillis,
+                peerQueueId = null,
+                envelope = null,
+                deliveryAttemptCount = 0,
+                nextRetryAtEpochMillis = null,
+                isRead = false,
+                replyToInnerIdHex = replyToInnerIdHex,
+                mediaState = V2MediaState.DOWNLOADING.name,
+            ),
+        ) != -1L
+    }
+
+    override fun pendingVoiceDownloads(): List<V2PendingDownload> =
+        dao.getV2PendingVoiceDownloads().map { entity ->
+            V2PendingDownload(entity.messageId, entity.contactId, entity.innerMessageIdHex, readNote(entity), entity.createdAtEpochMillis)
+        }
+
+    override fun storeVoiceChunk(messageId: String, index: Int, chunk: ByteArray): Boolean =
+        dao.insertV2MediaChunk(V2MediaChunkEntity(messageId, index, chunk)) != -1L
+
+    override fun voiceChunk(messageId: String, index: Int): ByteArray? = dao.getV2MediaChunk(messageId, index)?.piece
+
+    override fun storedVoiceChunkIndices(messageId: String): Set<Int> = dao.getV2MediaChunkIndices(messageId).toSet()
+
+    override fun setVoiceState(messageId: String, state: V2MediaState) {
+        dao.updateV2MediaState(messageId, state.name)
+    }
+
+    override fun setVoiceListened(messageId: String): Boolean = dao.markV2MediaListened(messageId) > 0
+
+    override fun deleteVoiceChunks(messageId: String) = dao.deleteV2MediaChunks(messageId)
+
+    override fun voiceNote(messageId: String): V2VoiceNote? =
+        dao.getV2Message(messageId)?.takeIf { it.kind == V2MessageKind.VOICE.name }?.let(::readNote)
+
+    override fun voiceState(messageId: String): V2MediaState? =
+        dao.getV2Message(messageId)?.takeIf { it.kind == V2MessageKind.VOICE.name }?.mediaState?.let(V2MediaState::valueOf)
+
+    override fun voiceIsOutgoing(messageId: String): Boolean? =
+        dao.getV2Message(messageId)?.takeIf { it.kind == V2MessageKind.VOICE.name }?.outgoing
+
+    override fun message(messageId: String): V2StoredMessage? =
+        dao.getV2Message(messageId)?.takeIf { it.kind in VISIBLE_KINDS }?.let(::readMessage)
+
+    override fun messageByInnerId(contactId: String, innerMessageIdHex: String, outgoing: Boolean): V2StoredMessage? =
+        dao.getV2MessageByInnerId(contactId, innerMessageIdHex, outgoing)?.let(::readMessage)
+
+    override fun deleteMessage(messageId: String): Boolean {
+        val entity = dao.getV2Message(messageId)?.takeIf { it.kind in VISIBLE_KINDS } ?: return false
+        dao.deleteV2MediaChunks(entity.messageId)
+        return dao.deleteV2Message(entity.messageId) == 1
+    }
 
     /** Decrypts a stored body for display; used by the UI layer, never by the relay path. */
     fun readBody(entity: V2MessageEntity): String? =
@@ -282,16 +414,25 @@ class EncryptedConversationV2Repository(
         mutedUntilEpochMillis = entity.mutedUntilEpochMillis,
     )
 
-    private fun readMessage(entity: V2MessageEntity) = V2StoredMessage(
-        messageId = entity.messageId,
-        contactId = entity.contactId,
-        outgoing = entity.outgoing,
-        innerMessageIdHex = entity.innerMessageIdHex,
-        text = readBody(entity).orEmpty(),
-        status = V2MessageStatus.valueOf(entity.status),
-        createdAtEpochMillis = entity.createdAtEpochMillis,
-        replyToInnerIdHex = entity.replyToInnerIdHex,
-    )
+    private fun readMessage(entity: V2MessageEntity): V2StoredMessage {
+        val voice = entity.kind == V2MessageKind.VOICE.name
+        return V2StoredMessage(
+            messageId = entity.messageId,
+            contactId = entity.contactId,
+            outgoing = entity.outgoing,
+            innerMessageIdHex = entity.innerMessageIdHex,
+            text = if (voice) "" else readBody(entity).orEmpty(),
+            status = V2MessageStatus.valueOf(entity.status),
+            createdAtEpochMillis = entity.createdAtEpochMillis,
+            replyToInnerIdHex = entity.replyToInnerIdHex,
+            voice = if (voice) {
+                val note = readNote(entity)
+                V2VoiceInfo(note.durationMillis, note.waveform, V2MediaState.valueOf(checkNotNull(entity.mediaState)), note.once, entity.mediaListened)
+            } else {
+                null
+            },
+        )
+    }
 
     private fun readOutgoing(entity: V2MessageEntity): V2OutgoingEnvelope? {
         val envelope = entity.envelope ?: return null
@@ -305,8 +446,31 @@ class EncryptedConversationV2Repository(
             envelope = envelope,
             attemptCount = entity.deliveryAttemptCount,
             nextAttemptAtEpochMillis = entity.nextRetryAtEpochMillis,
+            waitsForMedia = entity.mediaState == V2MediaState.UPLOADING.name,
         )
     }
+
+    private fun encryptNote(note: V2VoiceNote, messageId: String, contactId: String, outgoing: Boolean): ByteArray {
+        val plaintext = encodeNote(note)
+        return try {
+            vault.encrypt(plaintext, noteAad(messageId, contactId, outgoing))
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
+    private fun readNote(entity: V2MessageEntity): V2VoiceNote {
+        val blob = entity.encryptedBody ?: throw VaultRecordRejectedException()
+        val plaintext = vault.decrypt(blob, noteAad(entity.messageId, entity.contactId, entity.outgoing))
+        return try {
+            decodeNote(plaintext)
+        } finally {
+            plaintext.fill(0)
+        }
+    }
+
+    private fun noteAad(messageId: String, contactId: String, outgoing: Boolean): ByteArray =
+        aad(VOICE_NOTE, messageId, contactId, if (outgoing) "out" else "in")
 
     private fun encryptBody(text: String, messageId: String, contactId: String, outgoing: Boolean): ByteArray {
         val plaintext = text.toByteArray(Charsets.UTF_8)
@@ -336,5 +500,63 @@ class EncryptedConversationV2Repository(
         const val REQUEST_NAME = "request-claimed-name"
         const val CONTACT_NAME = "contact-name"
         const val MESSAGE_BODY = "message-body"
+        const val VOICE_NOTE = "voice-note"
+        const val NOTE_FORMAT = 1
+        const val NOTE_SECRET_BYTES = 32
+        const val NOTE_MAX_WAVEFORM = 1_024
+
+        /** What a chat shows: texts and voice messages (DEC-036); control messages are not shown. */
+        val VISIBLE_KINDS = setOf(V2MessageKind.TEXT.name, V2MessageKind.VOICE.name)
+
+        /**
+         * The stored form of a note: format 1, the three 32-byte values, sizes and length, the bars, the
+         * codec, and 1 for a one-time recording (else 0).
+         */
+        fun encodeNote(note: V2VoiceNote): ByteArray =
+            ByteArrayOutputStream().use { buffer ->
+                DataOutputStream(buffer).use { output ->
+                    output.writeByte(NOTE_FORMAT)
+                    output.write(note.queueReadSecret)
+                    output.write(note.key)
+                    output.write(note.digest)
+                    output.writeInt(note.plaintextSize)
+                    output.writeInt(note.chunkCount)
+                    output.writeInt(note.durationMillis)
+                    output.writeShort(note.waveform.size)
+                    output.write(note.waveform)
+                    output.writeByte(note.codec)
+                    output.writeByte(if (note.once) 1 else 0)
+                }
+                buffer.toByteArray()
+            }
+
+        /** A stored note that does not read back is a damaged row (DEC-023), never "no note". */
+        fun decodeNote(bytes: ByteArray): V2VoiceNote =
+            try {
+                DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+                    require(input.readUnsignedByte() == NOTE_FORMAT) { "Unknown note format" }
+                    val queueReadSecret = ByteArray(NOTE_SECRET_BYTES).also(input::readFully)
+                    val key = ByteArray(NOTE_SECRET_BYTES).also(input::readFully)
+                    val digest = ByteArray(NOTE_SECRET_BYTES).also(input::readFully)
+                    val plaintextSize = input.readInt()
+                    val chunkCount = input.readInt()
+                    val durationMillis = input.readInt()
+                    val waveformSize = input.readUnsignedShort()
+                    require(waveformSize <= NOTE_MAX_WAVEFORM) { "Invalid note" }
+                    val waveform = ByteArray(waveformSize).also(input::readFully)
+                    val codec = input.readUnsignedByte()
+                    val once = when (input.readUnsignedByte()) {
+                        0 -> false
+                        1 -> true
+                        else -> throw IllegalArgumentException("Invalid note")
+                    }
+                    require(input.available() == 0) { "Trailing note bytes" }
+                    V2VoiceNote(queueReadSecret, key, digest, plaintextSize, chunkCount, durationMillis, waveform, codec, once)
+                }
+            } catch (failure: IOException) {
+                throw VaultRecordRejectedException(failure)
+            } catch (failure: IllegalArgumentException) {
+                throw VaultRecordRejectedException(failure)
+            }
     }
 }

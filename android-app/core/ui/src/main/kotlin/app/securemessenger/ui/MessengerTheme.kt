@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RippleConfiguration
@@ -16,7 +17,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -24,8 +24,8 @@ import androidx.core.view.WindowCompat
 internal const val THEME_FADE_MILLIS = 300
 
 /**
- * The app's theme (DEC-027, step 6c): Telegram's classic light look, or its Night look, chosen by
- * [mode]. Dynamic color stays off, so the bubbles look the same on every phone. Text is set in
+ * The app's theme (DEC-027, step 6c; DEC-038): Telegram's classic light look, or its default dark look
+ * "Dark Blue", chosen by [mode]. Dynamic color stays off, so the bubbles look the same on every phone. Text is set in
  * Source Sans 3 (DEC-033), presses show a light gray ripple like Telegram's list selector, and a
  * change between light and dark fades.
  */
@@ -46,28 +46,39 @@ fun MessengerTheme(mode: AppThemeMode = AppThemeMode.SYSTEM, content: @Composabl
     val ripple = remember(dark) {
         RippleConfiguration(color = if (dark) Color.White else Color.Black)
     }
-    ApplySystemBars(dark = dark, color = scheme.background.toArgb())
+    ApplySystemBars(dark = dark)
     CompositionLocalProvider(
         LocalMessengerColors provides messengerColors,
         LocalRippleConfiguration provides ripple,
     ) {
-        MaterialTheme(colorScheme = scheme, typography = typography, content = content)
+        MaterialTheme(colorScheme = scheme, typography = typography) {
+            // Text without a color of its own takes the theme's text color everywhere, also where no
+            // Material surface sets one (on a dark ground it was black before: the owner's report of
+            // 2026-10-07, settings in the dark theme).
+            CompositionLocalProvider(LocalContentColor provides scheme.onBackground, content = content)
+        }
     }
 }
 
 /**
- * Makes the status bar match the screen, with icons that stay readable on it. The window belongs
+ * The app draws edge to edge, like Telegram 12 (`MainActivity` makes the system bars clear): the
+ * screen shows under the status bar and the navigation bar (each screen keeps its content clear of
+ * them), and their icons follow the app's own theme, not the phone's. Android's scrim under the
+ * navigation buttons is turned off, so the chat's wallpaper goes down to the edge. The window belongs
  * to the activity, so it is looked up through the view; with no activity (previews) nothing happens.
  */
 @Composable
-private fun ApplySystemBars(dark: Boolean, color: Int) {
+private fun ApplySystemBars(dark: Boolean) {
     val view = LocalView.current
     if (view.isInEditMode) return
     SideEffect {
         val window = view.context.findActivity()?.window ?: return@SideEffect
-        @Suppress("DEPRECATION")
-        window.statusBarColor = color
-        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !dark
+        window.isNavigationBarContrastEnforced = false
+        window.isStatusBarContrastEnforced = false
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
     }
 }
 

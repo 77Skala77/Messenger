@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -73,7 +74,8 @@ internal fun OnboardingScreen(creatingProfile: Boolean, onCreateProfile: (String
     var displayName by remember { mutableStateOf("") }
     val canCreate = displayName.isNotBlank() && !creatingProfile
     val create = { if (canCreate) onCreateProfile(displayName) }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+    // Edge to edge: the color fills the screen, the content stays clear of the system bars and the keyboard.
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding()) {
         // Centred while it fits, scrolling once it does not (landscape, a large font): nothing out of reach.
         BoxWithConstraints(Modifier.fillMaxSize()) {
             Column(

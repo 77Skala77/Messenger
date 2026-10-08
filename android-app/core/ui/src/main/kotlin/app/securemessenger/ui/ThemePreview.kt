@@ -126,13 +126,15 @@ private fun PreviewConversation() {
     val positions = seriesPositions(messages.map { SeriesInput(it.outgoing, it.time.toInstant().toEpochMilli()) }, zone)
     val now = ZonedDateTime.of(2026, 10, 4, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
     ChatWallpaper(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
-            messages.forEachIndexed { index, message ->
-                val position = positions[index]
-                val millis = message.time.toInstant().toEpochMilli()
-                if (position.dateChipBefore) DateChip(formatDateChip(millis, now, zone, locale, patterns))
-                PreviewBubble(message, position, formatMessageTime(millis, zone, locale), Modifier.testTag("${PREVIEW_BUBBLE_TAG}_$index"))
-                Spacer(Modifier.height(if (position.tail) 6.dp else 2.dp))
+        BubbleGradientBox {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                messages.forEachIndexed { index, message ->
+                    val position = positions[index]
+                    val millis = message.time.toInstant().toEpochMilli()
+                    if (position.dateChipBefore) DateChip(formatDateChip(millis, now, zone, locale, patterns))
+                    PreviewBubble(message, position, formatMessageTime(millis, zone, locale), Modifier.testTag("${PREVIEW_BUBBLE_TAG}_$index"))
+                    Spacer(Modifier.height(if (position.tail) 6.dp else 2.dp))
+                }
             }
         }
     }
@@ -148,7 +150,7 @@ private fun PreviewBubble(message: PreviewMessage, position: SeriesPosition, tim
         Column(
             Modifier
                 .widthIn(max = 300.dp)
-                .background(if (message.outgoing) colors.bubbleOutgoing else colors.bubbleIncoming, shape)
+                .bubbleBackground(message.outgoing, shape)
                 .padding(
                     start = 11.dp + if (message.outgoing) 0.dp else strip,
                     end = 11.dp + if (message.outgoing) strip else 0.dp,

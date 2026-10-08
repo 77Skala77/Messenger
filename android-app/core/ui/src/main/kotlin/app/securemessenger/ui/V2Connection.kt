@@ -14,28 +14,15 @@ import android.net.Uri
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -226,7 +213,11 @@ class V2ConnectionStarter : BroadcastReceiver() {
     }
 }
 
-/** The switch for the background connection and the way to Android's battery question. */
+/**
+ * The switch for the background connection and the way to Android's battery question, as settings
+ * sections (DEC-038): the switch with its explanation, then whether Android lets the app run in the
+ * background, with the button to ask, and the note about phone makers.
+ */
 @Composable
 internal fun BackgroundConnectionSettings() {
     val context = LocalContext.current
@@ -237,38 +228,31 @@ internal fun BackgroundConnectionSettings() {
         exempt = BackgroundConnection.ignoringBatteryOptimizations(context)
         onPauseOrDispose {}
     }
-    val hint = MaterialTheme.messenger.hint
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .toggleable(
-                    value = enabled,
-                    role = Role.Switch,
-                    onValueChange = {
-                        enabled = it
-                        BackgroundConnection.set(context, it)
-                    },
-                )
-                .testTag(CONNECTION_SWITCH_TAG)
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.connection_setting_title))
-                Text(stringResource(R.string.connection_setting_hint), style = MaterialTheme.typography.bodySmall, color = hint)
-            }
-            Switch(checked = enabled, onCheckedChange = null)
-        }
-        if (enabled) {
-            Text(stringResource(if (exempt) R.string.battery_allowed else R.string.battery_not_allowed))
+    SettingsSection {
+        SettingsSwitchRow(
+            title = stringResource(R.string.connection_setting_title),
+            hint = stringResource(R.string.connection_setting_hint),
+            checked = enabled,
+            onCheckedChange = {
+                enabled = it
+                BackgroundConnection.set(context, it)
+            },
+            modifier = Modifier.testTag(CONNECTION_SWITCH_TAG),
+        )
+    }
+    if (enabled) {
+        SettingsGap()
+        SettingsSection {
+            SettingsText(stringResource(if (exempt) R.string.battery_allowed else R.string.battery_not_allowed))
             if (!exempt) {
-                OutlinedButton(
+                SettingsDivider()
+                SettingsActionRow(
+                    stringResource(R.string.battery_allow),
                     onClick = { BackgroundConnection.askForBatteryExemption(context) },
                     modifier = Modifier.testTag(BATTERY_EXEMPTION_TAG),
-                ) { Text(stringResource(R.string.battery_allow)) }
+                )
             }
-            Text(stringResource(R.string.battery_maker_hint), style = MaterialTheme.typography.bodySmall, color = hint)
         }
+        SettingsInfo(stringResource(R.string.battery_maker_hint))
     }
 }

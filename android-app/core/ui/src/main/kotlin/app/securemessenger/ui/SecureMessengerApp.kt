@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -61,8 +62,29 @@ private enum class Screen {
     MAIN,
     SETTINGS,
 
+    /** The pages behind the main settings entries (DEC-038). */
+    SETTINGS_CHATS,
+    SETTINGS_PRIVACY,
+    SETTINGS_NOTIFICATIONS,
+    SETTINGS_CONNECTION,
+    SETTINGS_RELAY,
+    SETTINGS_LANGUAGE,
+
     /** Debug tools only: the pieces of the messenger look in the current theme (step 6c). */
     THEME_PREVIEW,
+}
+
+/** Onboarding is the only screen without a profile, and never on the stack with one. */
+private fun stackMatchesProfile(stack: List<Screen>, profileCreated: Boolean): Boolean =
+    if (profileCreated) Screen.ONBOARDING !in stack else stack == listOf(Screen.ONBOARDING)
+
+private fun SettingsPageId.screen(): Screen = when (this) {
+    SettingsPageId.CHATS -> Screen.SETTINGS_CHATS
+    SettingsPageId.PRIVACY -> Screen.SETTINGS_PRIVACY
+    SettingsPageId.NOTIFICATIONS -> Screen.SETTINGS_NOTIFICATIONS
+    SettingsPageId.CONNECTION -> Screen.SETTINGS_CONNECTION
+    SettingsPageId.RELAY -> Screen.SETTINGS_RELAY
+    SettingsPageId.LANGUAGE -> Screen.SETTINGS_LANGUAGE
 }
 
 /**
@@ -77,9 +99,12 @@ private enum class Screen {
 fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel(), backgroundConnection: Boolean = false) {
     val state by viewModel.state.collectAsState()
     // Onboarding or the main screen at the bottom; settings and the theme preview open over the main
-    // screen with Telegram's transitions and swipe back (DEC-033).
-    val nav = rememberNavStack(Screen.ONBOARDING)
+    // screen with Telegram's transitions and swipe back (DEC-033). The stack is saved, so a rebuilt
+    // activity (a language change) comes back to the same page instead of passing through onboarding.
+    val nav = rememberSaveableNavStack(Screen.ONBOARDING)
     val context = LocalContext.current
+    // Telegram's wallpaper pattern takes a moment to draw the first time; it is made ready early.
+    LaunchedEffect(Unit) { WallpaperPattern.load(context) }
     var themeMode by remember { mutableStateOf(ThemeController.selected(context)) }
     var screenSecurity by remember { mutableStateOf(ScreenSecurity.enabled(context)) }
     SecureWindowEffect(enabled = screenSecurity)
@@ -115,7 +140,10 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel(), backgr
                     onCheckAgain = viewModel::checkLocalData,
                     onDeleteLocalData = viewModel::deleteLocalData,
                 )
-            } else if (state.profileKnown) {
+            } else if (state.profileKnown && stackMatchesProfile(nav.items, state.profileCreated)) {
+                // Shown only once the stack fits the profile: the step that moves it from onboarding
+                // to the main screen runs just after the profile is known, and for that one frame the
+                // onboarding showed at every start (2026-10-07).
                 TelegramScreenStack(stack = nav.items, onSwipeBack = { nav.pop() }) { screen ->
                     when (screen) {
                         Screen.ONBOARDING -> OnboardingScreen(
@@ -134,35 +162,67 @@ fun SecureMessengerApp(viewModel: SecureMessengerViewModel = viewModel(), backgr
                                 ConversationV2Root(
                                     onOpenSettings = { nav.push(Screen.SETTINGS) },
                                     onLocalDataUnreadable = viewModel::checkLocalData,
+                                    profileName = state.profileName,
+                                    // The Settings tab of the main screen: the same page, without a way back;
+                                    // its entries open their pages over the main screen.
+                                    settingsTab = {
+                                        SettingsScreen(
+                                            profileName = state.profileName,
+                                            chatsAvailable = state.v2Available,
+                                            debugQaToolsEnabled = state.debugQaToolsEnabled,
+                                            onOpen = { page -> nav.push(page.screen()) },
+                                            onOpenThemePreview = { nav.push(Screen.THEME_PREVIEW) },
+                                            onResetTestData = viewModel::resetTestDataForQa,
+                                            onBack = null,
+                                            bottomSpace = HomeTabsLook.PageBottomSpace,
+                                        )
+                                    },
                                 )
                             } else {
                                 NotForMessagingScreen(onOpenSettings = { nav.push(Screen.SETTINGS) })
                             }
                         Screen.SETTINGS -> SettingsScreen(
-                            relayServerUrl = state.relayServerUrl,
-                            relayHealthStatus = state.relayHealthStatus,
-                            allowInsecureRelayHttp = state.allowInsecureRelayHttp,
+                            profileName = state.profileName,
+                            chatsAvailable = state.v2Available,
                             debugQaToolsEnabled = state.debugQaToolsEnabled,
-                            isPhysicalDevice = state.isPhysicalDevice,
-                            notificationsAvailable = state.v2Available,
-                            screenSecurity = screenSecurity,
-                            onScreenSecurityChanged = { enabled ->
-                                screenSecurity = enabled
-                                ScreenSecurity.set(context, enabled)
-                            },
+                            onOpen = { page -> nav.push(page.screen()) },
+                            onOpenThemePreview = { nav.push(Screen.THEME_PREVIEW) },
+                            onResetTestData = viewModel::resetTestDataForQa,
+                            onBack = { nav.pop() },
+                        )
+                        Screen.SETTINGS_CHATS -> ChatSettingsPage(
+                            profileName = state.profileName,
+                            chatsAvailable = state.v2Available,
                             themeMode = themeMode,
                             onThemeSelected = { mode ->
                                 themeMode = mode
                                 ThemeController.select(context, mode)
                             },
-                            onOpenThemePreview = { nav.push(Screen.THEME_PREVIEW) },
                             onBack = { nav.pop() },
+                        )
+                        Screen.SETTINGS_PRIVACY -> PrivacySettingsPage(
+                            screenSecurity = screenSecurity,
+                            onScreenSecurityChanged = { enabled ->
+                                screenSecurity = enabled
+                                ScreenSecurity.set(context, enabled)
+                            },
+                            onDeleteLocalData = viewModel::deleteLocalData,
+                            onBack = { nav.pop() },
+                        )
+                        // Only where chats exist (debug builds, v2): a release build has no such entries.
+                        Screen.SETTINGS_NOTIFICATIONS -> if (state.v2Available) NotificationSettingsPage(onBack = { nav.pop() })
+                        Screen.SETTINGS_CONNECTION -> if (state.v2Available) ConnectionSettingsPage(onBack = { nav.pop() })
+                        Screen.SETTINGS_RELAY -> RelaySettingsPage(
+                            relayServerUrl = state.relayServerUrl,
+                            relayHealthStatus = state.relayHealthStatus,
+                            allowInsecureRelayHttp = state.allowInsecureRelayHttp,
+                            isPhysicalDevice = state.isPhysicalDevice,
                             onSaveRelayUrl = viewModel::saveRelayServerUrl,
                             onCheckRelay = viewModel::checkRelayServer,
                             onSynchronizeNow = viewModel::synchronizeInBackground,
-                            onDeleteLocalData = viewModel::deleteLocalData,
-                            onResetTestData = viewModel::resetTestDataForQa,
+                            onBack = { nav.pop() },
                         )
+                        Screen.SETTINGS_LANGUAGE -> LanguageSettingsPage(onBack = { nav.pop() })
                         // Only the debug tools lead here; a release build never shows the button.
                         Screen.THEME_PREVIEW -> if (state.debugQaToolsEnabled) ThemePreviewScreen(onBack = { nav.pop() })
                     }
@@ -205,7 +265,7 @@ private fun CenteredScrollableColumn(
     verticalArrangement: Arrangement.Vertical,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
         Column(
             modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(24.dp),
             verticalArrangement = verticalArrangement,

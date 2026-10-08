@@ -170,6 +170,28 @@ data class V2MessageEntity(
      * A random ID that says nothing about the content; the quote is looked up when shown.
      */
     val replyToInnerIdHex: String? = null,
+    /** Where a voice message's recording is (Room v12, DEC-036: `V2MediaState`); null for anything else. */
+    val mediaState: String? = null,
+    /** How many pieces of our voice message are on the relay (Room v12, DEC-036). */
+    @ColumnInfo(defaultValue = "0")
+    val mediaProgress: Int = 0,
+    /**
+     * A voice message was listened to (Room v13, DEC-039): the contact's was played here, or ours by
+     * the contact (its "played", type 7). False only for a voice message not played yet.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val mediaListened: Boolean = false,
+)
+
+/**
+ * One piece of a voice message's recording (Room v12, DEC-036), kept exactly as it travels:
+ * encrypted under the note's key, which is stored only vault-encrypted with the message.
+ */
+@Entity(tableName = "v2_media_chunks", primaryKeys = ["messageId", "chunkIndex"])
+data class V2MediaChunkEntity(
+    val messageId: String,
+    val chunkIndex: Int,
+    val piece: ByteArray,
 )
 
 /** One chat's count of incoming texts not seen yet (DEC-029). */
@@ -392,29 +414,32 @@ interface SecureMessengerDao {
     @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 ORDER BY createdAtEpochMillis")
     fun getV2IncomingMessages(contactId: String): List<V2MessageEntity>
 
-    /** Equal times keep the order the texts were stored in (rowid), never that of their random IDs (DEC-034). */
-    @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' ORDER BY createdAtEpochMillis, rowid")
+    /**
+     * A chat's visible messages, texts and voice messages (DEC-036). Equal times keep the order they
+     * were stored in (rowid), never that of their random IDs (DEC-034).
+     */
+    @Query("SELECT * FROM v2_messages WHERE contactId = :contactId AND kind IN ('TEXT', 'VOICE') ORDER BY createdAtEpochMillis, rowid")
     fun getV2Texts(contactId: String): List<V2MessageEntity>
 
-    /** The last text of a chat in the order [getV2Texts] shows them, either direction. */
+    /** The last visible message of a chat in the order [getV2Texts] shows them, either direction. */
     @Query(
         """
         SELECT * FROM v2_messages
-        WHERE contactId = :contactId AND kind = 'TEXT'
+        WHERE contactId = :contactId AND kind IN ('TEXT', 'VOICE')
         ORDER BY createdAtEpochMillis DESC, rowid DESC
         LIMIT 1
         """,
     )
     fun getLastV2Text(contactId: String): V2MessageEntity?
 
-    @Query("SELECT MAX(createdAtEpochMillis) FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 AND kind = 'TEXT'")
+    @Query("SELECT MAX(createdAtEpochMillis) FROM v2_messages WHERE contactId = :contactId AND outgoing = 0 AND kind IN ('TEXT', 'VOICE')")
     fun getLatestV2IncomingTextTime(contactId: String): Long?
 
-    /** Incoming texts not seen yet, per contact or request (DEC-029); chats with none are absent. */
+    /** Incoming messages not seen yet, per contact or request (DEC-029); chats with none are absent. */
     @Query(
         """
         SELECT contactId, COUNT(*) AS unreadCount FROM v2_messages
-        WHERE outgoing = 0 AND kind = 'TEXT' AND isRead = 0
+        WHERE outgoing = 0 AND kind IN ('TEXT', 'VOICE') AND isRead = 0
         GROUP BY contactId
         """,
     )
@@ -463,12 +488,12 @@ interface SecureMessengerDao {
     )
     fun markV2MessageFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long)
 
-    /** A receipt only reaches TEXT messages sent to the contact whose session authenticated it. */
+    /** A receipt only reaches texts and voice messages sent to the contact whose session authenticated it. */
     @Query(
         """
         UPDATE v2_messages
         SET status = 'DELIVERED', nextRetryAtEpochMillis = NULL, envelope = NULL
-        WHERE contactId = :contactId AND outgoing = 1 AND kind = 'TEXT' AND innerMessageIdHex = :innerMessageIdHex
+        WHERE contactId = :contactId AND outgoing = 1 AND kind IN ('TEXT', 'VOICE') AND innerMessageIdHex = :innerMessageIdHex
         """,
     )
     fun markV2MessageDelivered(contactId: String, innerMessageIdHex: String): Int
@@ -476,15 +501,77 @@ interface SecureMessengerDao {
     @Query("DELETE FROM v2_messages WHERE contactId = :contactId")
     fun deleteV2MessagesFor(contactId: String)
 
-    @Query("SELECT COUNT(*) FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' AND innerMessageIdHex = :innerMessageIdHex")
+    @Query("SELECT COUNT(*) FROM v2_messages WHERE contactId = :contactId AND kind IN ('TEXT', 'VOICE') AND innerMessageIdHex = :innerMessageIdHex")
     fun countV2Texts(contactId: String, innerMessageIdHex: String): Int
 
     /**
-     * Clears a chat's history (DEC-035): incoming texts, and outgoing ones whose envelope is gone
-     * (handed to the relay, or delivered). An outgoing text still holding its envelope stays.
+     * Clears a chat's history (DEC-035): incoming texts and voice messages, and outgoing ones whose
+     * envelope is gone (handed to the relay, or delivered). One still holding its envelope stays.
+     * The pieces of the voice messages among them go first ([deleteV2SettledMediaChunks]).
      */
-    @Query("DELETE FROM v2_messages WHERE contactId = :contactId AND kind = 'TEXT' AND (outgoing = 0 OR envelope IS NULL)")
+    @Query("DELETE FROM v2_messages WHERE contactId = :contactId AND kind IN ('TEXT', 'VOICE') AND (outgoing = 0 OR envelope IS NULL)")
     fun deleteV2SettledTexts(contactId: String): Int
+
+    @Query(
+        """
+        DELETE FROM v2_media_chunks WHERE messageId IN (
+            SELECT messageId FROM v2_messages
+            WHERE contactId = :contactId AND kind = 'VOICE' AND (outgoing = 0 OR envelope IS NULL)
+        )
+        """,
+    )
+    fun deleteV2SettledMediaChunks(contactId: String)
+
+    // --- Voice messages (Room v12, DEC-036). ---
+
+    @Query("SELECT * FROM v2_messages WHERE messageId = :messageId LIMIT 1")
+    fun getV2Message(messageId: String): V2MessageEntity?
+
+    /** One text or voice message (DEC-037); control messages are never deleted this way. */
+    @Query("DELETE FROM v2_messages WHERE messageId = :messageId AND kind IN ('TEXT', 'VOICE')")
+    fun deleteV2Message(messageId: String): Int
+
+    /** A text or voice message of this chat in one direction, by its inner message ID (DEC-036, played receipts). */
+    @Query(
+        "SELECT * FROM v2_messages WHERE contactId = :contactId AND innerMessageIdHex = :innerMessageIdHex " +
+            "AND outgoing = :outgoing AND kind IN ('TEXT', 'VOICE') LIMIT 1",
+    )
+    fun getV2MessageByInnerId(contactId: String, innerMessageIdHex: String, outgoing: Boolean): V2MessageEntity?
+
+    @Query("SELECT * FROM v2_messages WHERE outgoing = 1 AND kind = 'VOICE' AND mediaState = 'UPLOADING' ORDER BY rowid")
+    fun getV2PendingVoiceUploads(): List<V2MessageEntity>
+
+    @Query("SELECT * FROM v2_messages WHERE outgoing = 0 AND kind = 'VOICE' AND mediaState = 'DOWNLOADING' ORDER BY rowid")
+    fun getV2PendingVoiceDownloads(): List<V2MessageEntity>
+
+    @Query("UPDATE v2_messages SET mediaProgress = :progress, mediaState = :state WHERE messageId = :messageId AND kind = 'VOICE'")
+    fun updateV2MediaProgress(messageId: String, progress: Int, state: String): Int
+
+    @Query("UPDATE v2_messages SET mediaState = :state WHERE messageId = :messageId AND kind = 'VOICE'")
+    fun updateV2MediaState(messageId: String, state: String): Int
+
+    /** Returns 1 when the voice message was not listened before, else 0 (DEC-039). */
+    @Query("UPDATE v2_messages SET mediaListened = 1 WHERE messageId = :messageId AND kind = 'VOICE' AND mediaListened = 0")
+    fun markV2MediaListened(messageId: String): Int
+
+    /** Returns -1 when that piece is already stored. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertV2MediaChunk(chunk: V2MediaChunkEntity): Long
+
+    @Query("SELECT * FROM v2_media_chunks WHERE messageId = :messageId AND chunkIndex = :chunkIndex LIMIT 1")
+    fun getV2MediaChunk(messageId: String, chunkIndex: Int): V2MediaChunkEntity?
+
+    @Query("SELECT chunkIndex FROM v2_media_chunks WHERE messageId = :messageId")
+    fun getV2MediaChunkIndices(messageId: String): List<Int>
+
+    @Query("DELETE FROM v2_media_chunks WHERE messageId = :messageId")
+    fun deleteV2MediaChunks(messageId: String)
+
+    @Query("DELETE FROM v2_media_chunks WHERE messageId IN (SELECT messageId FROM v2_messages WHERE contactId = :contactId)")
+    fun deleteV2MediaChunksOfContact(contactId: String)
+
+    @Query("DELETE FROM v2_media_chunks")
+    fun deleteAllV2MediaChunks()
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insertV2AcceptedEnvelope(envelope: V2AcceptedEnvelopeEntity): Long
@@ -534,8 +621,9 @@ interface SecureMessengerDao {
         V2ContactEntity::class,
         V2MessageEntity::class,
         V2AcceptedEnvelopeEntity::class,
+        V2MediaChunkEntity::class,
     ],
-    version = 11,
+    version = 13,
     exportSchema = true,
 )
 abstract class SecureMessengerDatabase : RoomDatabase() {
@@ -546,7 +634,8 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
             Room.databaseBuilder(context, SecureMessengerDatabase::class.java, "secure_messenger.db")
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
-                    MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                    MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+                    MIGRATION_12_13,
                 )
                 // Worker and foreground UI may hold separate Room instances in one process.
                 .enableMultiInstanceInvalidation()
@@ -881,6 +970,34 @@ abstract class SecureMessengerDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `v2_contacts` ADD COLUMN `pinnedAtEpochMillis` INTEGER")
                 db.execSQL("ALTER TABLE `v2_contacts` ADD COLUMN `mutedUntilEpochMillis` INTEGER")
                 db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `replyToInnerIdHex` TEXT")
+            }
+        }
+
+        /**
+         * Voice messages (DEC-036): where a message's recording is, how far our upload got, and a table
+         * for the pieces of the recordings, kept as they travel (encrypted under each note's key).
+         * Purely additive: no row is deleted or reinterpreted; every stored message has no recording.
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `mediaState` TEXT")
+                db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `mediaProgress` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `v2_media_chunks` (`messageId` TEXT NOT NULL, `chunkIndex` INTEGER NOT NULL, " +
+                        "`piece` BLOB NOT NULL, PRIMARY KEY(`messageId`, `chunkIndex`))",
+                )
+            }
+        }
+
+        /**
+         * "Listened" for every voice message (DEC-039): one additive column. Voice messages stored
+         * before it count as listened, so no old message gets the dot and none sends "played" late;
+         * every other row keeps the default and nothing is deleted or reinterpreted.
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `v2_messages` ADD COLUMN `mediaListened` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `v2_messages` SET `mediaListened` = 1 WHERE `kind` = 'VOICE'")
             }
         }
     }

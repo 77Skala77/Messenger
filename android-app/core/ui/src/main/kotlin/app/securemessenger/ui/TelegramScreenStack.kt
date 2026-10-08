@@ -13,18 +13,22 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -76,10 +80,69 @@ class NavStack<T : Any>(root: T) {
 fun <T : Any> rememberNavStack(root: T): NavStack<T> = remember { NavStack(root) }
 
 /**
+ * A stack of enum screens that outlives a rebuilt activity (a language change, or Android restoring
+ * the app): it is saved by the entries' names. An unknown name (a screen that no longer exists) is left
+ * out; with nothing left, the stack starts again at [root].
+ */
+@Composable
+inline fun <reified T : Enum<T>> rememberSaveableNavStack(root: T): NavStack<T> =
+    rememberSaveable(saver = navStackSaver(enumValues<T>())) { NavStack(root) }
+
+fun <T : Enum<T>> navStackSaver(entries: Array<T>): Saver<NavStack<T>, ArrayList<String>> = Saver(
+    save = { stack -> ArrayList(stack.items.map { it.name }) },
+    restore = { names ->
+        val items = names.mapNotNull { name -> entries.firstOrNull { it.name == name } }
+        if (items.isEmpty()) null else NavStack(items.first()).also { it.set(items) }
+    },
+)
+
+/**
  * True for the screen that is on show, false for one hidden beneath another or on its way out. Screens
  * with effects that must run only while seen (marking texts as seen, DEC-029) read it.
  */
 val LocalScreenVisible = compositionLocalOf { true }
+
+/**
+ * Keeps the swipe back off touches that belong to something on the screen (Telegram's
+ * `requestDisallowInterceptTouchEvent`): a drag along a voice message's bars or a trim handle
+ * [claim]s the touch it is in, and while a recording runs (or a one-time voice message plays)
+ * the screen [block]s the swipe altogether. The owner's phone left the chat on such a drag
+ * (2026-10-07). Used on the main thread only.
+ */
+object SwipeBackGuard {
+    /** True once something claimed the touch going on now; forgotten when the next finger goes down. */
+    var claimed: Boolean = false
+        private set
+    private var blocks = 0
+
+    val blocked: Boolean get() = blocks > 0
+
+    fun claim() {
+        claimed = true
+    }
+
+    internal fun newTouch() {
+        claimed = false
+    }
+
+    internal fun block() {
+        blocks++
+    }
+
+    internal fun unblock() {
+        blocks = (blocks - 1).coerceAtLeast(0)
+    }
+}
+
+/** No swipe back while [active] (a recording, a one-time voice message playing). */
+@Composable
+internal fun BlockSwipeBack(active: Boolean) {
+    if (!active) return
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        SwipeBackGuard.block()
+        onDispose { SwipeBackGuard.unblock() }
+    }
+}
 
 /** What changed between two stacks, decided once per new stack. */
 private class StackMove<T>(val kind: Kind, val leaving: T?) {
@@ -186,6 +249,7 @@ fun <T : Any> TelegramScreenStack(
                 if (stack.size <= 1 || !swipeBackEnabled) return@pointerInput
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    SwipeBackGuard.newTouch()
                     val pointerId = down.id
                     var startX = down.position.x
                     val startY = down.position.y
@@ -199,7 +263,8 @@ fun <T : Any> TelegramScreenStack(
                         if (!change.pressed) {
                             val v = velocity.calculateVelocity()
                             val width = widthPx.toFloat()
-                            if (!tracking && isClosingFling(v.x, v.y) && width > 0f) {
+                            val free = !SwipeBackGuard.claimed && !SwipeBackGuard.blocked
+                            if (!tracking && free && isClosingFling(v.x, v.y) && width > 0f) {
                                 tracking = true
                                 dragForSize = stack.size
                                 swiping = true
@@ -237,7 +302,8 @@ fun <T : Any> TelegramScreenStack(
                         }
                         val dx = max(0f, change.position.x - startX)
                         val dy = abs(change.position.y - startY)
-                        if (!tracking && shouldStartBackSwipe(dx, dy, minSwipePx)) {
+                        val free = !SwipeBackGuard.claimed && !SwipeBackGuard.blocked
+                        if (!tracking && free && shouldStartBackSwipe(dx, dy, minSwipePx)) {
                             tracking = true
                             startX = change.position.x
                             dragForSize = stack.size
@@ -252,66 +318,70 @@ fun <T : Any> TelegramScreenStack(
                 }
             },
     ) {
-        // The screen below: shown only while the top one opens over it or is dragged off it.
-        if (below != null) {
-            ScreenLayer(
-                key = below.toString(),
-                visible = false,
-                hidden = !belowVisible,
-                saveable = saveable,
-            ) { content(below) }
-        }
-        // Dimming and the edge shadow while the top screen is dragged away.
-        if (swiping && widthPx > 0) {
-            Canvas(Modifier.fillMaxSize()) {
-                val tx = if (dragForSize == stack.size) dragPx else 0f
-                drawRect(Color.Black.copy(alpha = backScrimAlpha(tx, size.width)))
-                val share = backShadowShare(tx, size.width, shadowFadePx)
-                if (share > 0f && tx > 0f) {
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            0f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = TelegramMotion.SHADOW_ALPHA * share),
-                            startX = tx - shadowWidthPx,
-                            endX = tx,
-                        ),
-                        topLeft = Offset(tx - shadowWidthPx, 0f),
-                        size = androidx.compose.ui.geometry.Size(shadowWidthPx, size.height),
-                    )
-                }
-            }
-        }
-        // The top screen: opening (fading and sliding in) or following the finger.
-        ScreenLayer(
-            key = top.toString(),
-            visible = true,
-            hidden = false,
-            saveable = saveable,
-            modifier = Modifier.graphicsLayer {
-                if (pushing) {
-                    alpha = screenProgress
-                    translationX = slideOffsetPx * (1f - screenProgress)
-                } else if (dragForSize == stack.size) {
-                    translationX = dragPx
-                }
-            },
-        ) { content(top) }
-        // The screen that was just closed, fading and sliding out over the one below it.
-        if (popping && move.leaving != null) {
+        // The screens on show, bottom to top: the one below (shown only while the top one opens over it
+        // or is dragged off it), the top one, and the one just closed. They are emitted in one keyed
+        // loop, so a screen that changes its part (top to below on opening, below to top on closing)
+        // keeps its composition and state: emitted from different places, it was built anew each time,
+        // which lost the main screen's tab and the chat's scroll and flashed a fresh copy (2026-10-07).
+        val layers = buildList {
+            if (below != null) add(below to LayerPart.BELOW)
+            add(top to LayerPart.TOP)
             val leaving = move.leaving
-            ScreenLayer(
-                key = leaving.toString(),
-                visible = false,
-                hidden = false,
-                saveable = saveable,
-                modifier = Modifier.graphicsLayer {
-                    alpha = 1f - screenProgress
-                    translationX = slideOffsetPx * screenProgress
-                },
-            ) { content(leaving) }
+            if (popping && leaving != null) add(leaving to LayerPart.LEAVING)
+        }
+        for ((screen, part) in layers) {
+            key(screen.toString()) {
+                // Dimming and the edge shadow while the top screen is dragged away.
+                if (part == LayerPart.TOP && swiping && widthPx > 0) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val tx = if (dragForSize == stack.size) dragPx else 0f
+                        drawRect(Color.Black.copy(alpha = backScrimAlpha(tx, size.width)))
+                        val share = backShadowShare(tx, size.width, shadowFadePx)
+                        if (share > 0f && tx > 0f) {
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    0f to Color.Transparent,
+                                    1f to Color.Black.copy(alpha = TelegramMotion.SHADOW_ALPHA * share),
+                                    startX = tx - shadowWidthPx,
+                                    endX = tx,
+                                ),
+                                topLeft = Offset(tx - shadowWidthPx, 0f),
+                                size = androidx.compose.ui.geometry.Size(shadowWidthPx, size.height),
+                            )
+                        }
+                    }
+                }
+                // One call for every part, so the screen's composition stays when its part changes.
+                ScreenLayer(
+                    key = screen.toString(),
+                    visible = part == LayerPart.TOP,
+                    hidden = part == LayerPart.BELOW && !belowVisible,
+                    saveable = saveable,
+                    modifier = when (part) {
+                        LayerPart.BELOW -> Modifier
+                        // Opening (fading and sliding in) or following the finger.
+                        LayerPart.TOP -> Modifier.graphicsLayer {
+                            if (pushing) {
+                                alpha = screenProgress
+                                translationX = slideOffsetPx * (1f - screenProgress)
+                            } else if (dragForSize == stack.size) {
+                                translationX = dragPx
+                            }
+                        }
+                        // Just closed: fading and sliding out over the one below it.
+                        LayerPart.LEAVING -> Modifier.graphicsLayer {
+                            alpha = 1f - screenProgress
+                            translationX = slideOffsetPx * screenProgress
+                        }
+                    },
+                ) { content(screen) }
+            }
         }
     }
 }
+
+/** The part a screen plays in the stack at the moment. */
+private enum class LayerPart { BELOW, TOP, LEAVING }
 
 /** Reads the next pointer event in the initial pass, before the screens below see it. */
 private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.awaitPointerEventInitial() =
@@ -327,10 +397,14 @@ private fun ScreenLayer(
     content: @Composable () -> Unit,
 ) {
     val layer = if (hidden) {
-        // Composed so a swipe can show it at once, but never drawn, read or touched.
+        // Composed so a swipe can show it at once, but never drawn, read or touched. Not drawing at
+        // all (rather than a clear layer) makes the screen draw afresh the moment it shows: pictures
+        // it records of itself (the glass, DEC-037) are then current. A clear layer kept them stale,
+        // and the owner saw the screen below black or flickering during a swipe back, and an old copy
+        // of the chat when a page over it closed (2026-10-07).
         modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = 0f }
+            .drawWithContent { }
             .clearAndSetSemantics { }
             .pointerInput(Unit) {
                 awaitEachGesture {

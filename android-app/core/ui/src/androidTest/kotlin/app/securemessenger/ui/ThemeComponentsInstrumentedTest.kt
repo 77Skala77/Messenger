@@ -18,8 +18,10 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -128,6 +130,20 @@ class ThemeComponentsInstrumentedTest {
             composeRule.onNodeWithTag("${PREVIEW_BADGE_TAG}_muted").assertExists()
             for (index in 0..5) composeRule.onNodeWithTag("${PREVIEW_BUBBLE_TAG}_$index").assertExists()
         }
+    }
+
+    /** DEC-038: Telegram's pattern is read from the app, drawn once as wide as the phone's shorter side, and kept. */
+    @Test
+    fun telegramsPatternIsDrawnOnceAtTheScreensWidth() {
+        val activity = composeRule.activity
+        val mask = runBlocking { WallpaperPattern.load(activity) }
+        assertNotNull("the pattern could not be read", mask)
+        checkNotNull(mask)
+        val metrics = activity.resources.displayMetrics
+        val width = minOf(metrics.widthPixels, metrics.heightPixels)
+        assertEquals(width, mask.width)
+        assertEquals(kotlin.math.ceil(2960f * width / 1440f).toInt(), mask.height)
+        assertTrue("kept for the life of the app", runBlocking { WallpaperPattern.load(activity) } === mask)
     }
 
     @Test

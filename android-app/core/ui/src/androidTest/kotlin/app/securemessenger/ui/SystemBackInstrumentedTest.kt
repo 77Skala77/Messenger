@@ -80,11 +80,18 @@ class SystemBackInstrumentedTest {
         composeRule.onNodeWithTag(HOME_MENU_TAG).performClick()
         composeRule.waitUntil(TIMEOUT_MILLIS) { exists(MENU_SETTINGS_TAG) }
         composeRule.onNodeWithTag(MENU_SETTINGS_TAG).performClick()
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(SETTINGS_TAG) }
+        assertTrue(hasBackHandler())
+
+        // A page of the settings (DEC-038) goes back to the settings, the settings to the main screen.
+        composeRule.onNodeWithTag(entryTag(SettingsPageId.LANGUAGE)).performClick()
         composeRule.waitUntil(TIMEOUT_MILLIS) { exists(LANGUAGE_OPTION) }
+        pressSystemBack()
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(SETTINGS_TAG) && !exists(LANGUAGE_OPTION) }
         assertTrue(hasBackHandler())
 
         pressSystemBack()
-        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) && !exists(LANGUAGE_OPTION) }
+        composeRule.waitUntil(TIMEOUT_MILLIS) { exists(NEW_CHAT_BUTTON) && !exists(SETTINGS_TAG) }
         assertFalse(hasBackHandler())
     }
 

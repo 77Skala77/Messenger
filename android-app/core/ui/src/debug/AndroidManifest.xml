@@ -13,6 +13,11 @@
     <uses-permission
         android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
         tools:ignore="BatteryLife" />
+    <!--
+      Voice messages (DEC-036), likewise only where chats exist. The microphone is asked for when the
+      person first holds the record button, and used only while they record in an open chat.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application>
         <activity

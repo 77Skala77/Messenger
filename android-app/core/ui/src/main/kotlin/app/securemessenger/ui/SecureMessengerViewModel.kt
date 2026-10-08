@@ -37,6 +37,8 @@ enum class LocalDataProblem {
 data class SecureMessengerUiState(
     val profileKnown: Boolean = false,
     val profileCreated: Boolean = false,
+    /** The person's own name, for the top of the settings (DEC-038); read from the vault, never stored elsewhere. */
+    val profileName: String? = null,
     /** A profile is being created; a second request is ignored until it finishes (STORE-04). */
     val creatingProfile: Boolean = false,
     val localDataProblem: LocalDataProblem? = null,
@@ -86,9 +88,12 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
         viewModelScope.launch {
             // Opening the database also runs MIGRATION_7_8, the database side of the legacy reset.
             val v2Available = mutableState.value.v2Available
+            var name: String? = null
             val (checked, queueLost) = withContext(Dispatchers.IO) {
                 try {
                     val state = profiles.localDataState()
+                    // Only for showing it; a failure here changes nothing about the state of the data.
+                    if (state == LocalDataState.READABLE) name = runCatching { profiles.readProfileName() }.getOrNull()
                     // R6 (DEC-032): only where chats exist, and only once the profile itself reads.
                     state to (v2Available && state == LocalDataState.READABLE && V2Pipeline.receiveQueueLost(getApplication(), database))
                 } catch (cancelled: CancellationException) {
@@ -106,6 +111,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             mutableState.value = mutableState.value.copy(
                 profileKnown = true,
                 profileCreated = checked != LocalDataState.EMPTY,
+                profileName = if (problem == null) name else null,
                 localDataProblem = problem,
             )
             if (checked == LocalDataState.READABLE && problem == null) scheduler.ensurePeriodic() else scheduler.cancel()
@@ -131,7 +137,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
                 }
             }
             if (created) {
-                mutableState.value = mutableState.value.copy(creatingProfile = false, profileCreated = true)
+                mutableState.value = mutableState.value.copy(creatingProfile = false, profileCreated = true, profileName = displayName.trim())
                 scheduler.ensurePeriodic()
             } else {
                 mutableState.value = mutableState.value.copy(creatingProfile = false)
@@ -197,6 +203,7 @@ class SecureMessengerViewModel(application: Application) : AndroidViewModel(appl
             if (wiped) {
                 mutableState.value = mutableState.value.copy(
                     profileCreated = false,
+                    profileName = null,
                     localDataProblem = null,
                     relayHealthStatus = null,
                 )

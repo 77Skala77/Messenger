@@ -61,5 +61,12 @@ class ChatActionsTest {
         assertEquals("a text this phone lacks", QuoteInfo(authorIsMe = false, text = null), quoteOf("cc", byId))
         assertNull("a plain text quotes nothing", quoteOf(null, byId))
         assertEquals(200, quoteLine("x".repeat(5_000)).length)
+
+        // DEC-036: a quoted voice message has no text and is named as one.
+        val voice = V2StoredMessage(
+            "v", "c", false, "dd", "", V2MessageStatus.RECEIVED, 3L,
+            voice = app.securemessenger.signalstore.V2VoiceInfo(5_000, ByteArray(0), app.securemessenger.signalstore.V2MediaState.DOWNLOADING),
+        )
+        assertEquals(QuoteInfo(authorIsMe = false, text = "", voice = true), quoteOf("dd", byId + ("dd" to voice)))
     }
 }

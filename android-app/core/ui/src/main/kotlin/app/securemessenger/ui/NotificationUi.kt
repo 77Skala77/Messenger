@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,7 +76,10 @@ internal fun NotificationPromptCard(hasConversations: Boolean) {
     }
 }
 
-/** Whether notifications are on, what they show, and the way to Android's settings for them. */
+/**
+ * Whether notifications are on, what they show, and the way to Android's settings for them: the rows
+ * of a settings section (DEC-038).
+ */
 @Composable
 internal fun NotificationSettingsSection() {
     val context = LocalContext.current
@@ -86,15 +88,16 @@ internal fun NotificationSettingsSection() {
         enabled = V2Notifications.canPost(context)
         onPauseOrDispose {}
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(if (enabled) R.string.settings_notifications_on else R.string.settings_notifications_off))
-        OutlinedButton(
-            onClick = {
-                val settings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                context.startActivity(settings)
-            },
-            modifier = Modifier.testTag(NOTIFICATION_SETTINGS_TAG),
-        ) { Text(stringResource(R.string.settings_notifications_open)) }
-    }
+    SettingsHeader(stringResource(R.string.settings_notifications_title))
+    SettingsText(stringResource(if (enabled) R.string.settings_notifications_on else R.string.settings_notifications_off))
+    SettingsDivider()
+    SettingsActionRow(
+        stringResource(R.string.settings_notifications_open),
+        onClick = {
+            val settings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            context.startActivity(settings)
+        },
+        modifier = Modifier.testTag(NOTIFICATION_SETTINGS_TAG),
+    )
 }

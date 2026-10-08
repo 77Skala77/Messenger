@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -63,14 +64,16 @@ private const val QUOTE_MAX_CHARS = 200
 
 /**
  * What a quote shows (DEC-035): whether the quoted text is the person's own, and its first line; or,
- * when this phone does not have it (cleared, or never arrived), [text] null and no author.
+ * when this phone does not have it (cleared, or never arrived), [text] null and no author. A quoted
+ * voice message (DEC-036) has no text: [voice] says to show "Voice message" instead.
  */
-internal data class QuoteInfo(val authorIsMe: Boolean, val text: String?)
+internal data class QuoteInfo(val authorIsMe: Boolean, val text: String?, val voice: Boolean = false)
 
-/** The quote for a text that answers [replyToInnerIdHex], looked up in this phone's own copy of the chat. */
+/** The quote for a message that answers [replyToInnerIdHex], looked up in this phone's own copy of the chat. */
 internal fun quoteOf(replyToInnerIdHex: String?, byInnerId: Map<String, V2StoredMessage>): QuoteInfo? {
     val id = replyToInnerIdHex ?: return null
     val quoted = byInnerId[id] ?: return QuoteInfo(authorIsMe = false, text = null)
+    if (quoted.voice != null) return QuoteInfo(authorIsMe = quoted.outgoing, text = "", voice = true)
     return QuoteInfo(authorIsMe = quoted.outgoing, text = quoteLine(quoted.text))
 }
 
@@ -218,7 +221,13 @@ internal fun BubbleQuote(quote: QuoteInfo, contactName: String, outgoing: Boolea
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(quote.text, style = MessengerType.QuoteText, color = colors.messageText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (quote.voice) stringResource(R.string.voice_message) else quote.text,
+                    style = MessengerType.QuoteText,
+                    color = colors.messageText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             } else {
                 Text(stringResource(R.string.reply_unavailable), style = MessengerType.QuoteText, color = colors.hint, maxLines = 1)
             }
@@ -235,7 +244,7 @@ internal data class ReplyTarget(val author: String, val text: String)
  * open and closed; while it closes it keeps showing what it showed.
  */
 @Composable
-internal fun ReplyPanel(target: ReplyTarget?, onCancel: () -> Unit) {
+internal fun ReplyPanel(target: ReplyTarget?, onCancel: () -> Unit, background: Color = MaterialTheme.colorScheme.surface) {
     val colors = MaterialTheme.messenger
     val accent = colors.link
     val last = remember { arrayOfNulls<ReplyTarget>(1) }
@@ -250,7 +259,7 @@ internal fun ReplyPanel(target: ReplyTarget?, onCancel: () -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
-                .background(MaterialTheme.colorScheme.surface)
+                .background(background)
                 .testTag(REPLY_PANEL_TAG),
             verticalAlignment = Alignment.CenterVertically,
         ) {

@@ -10,12 +10,16 @@ import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2ContactState
 import app.securemessenger.signalstore.V2Invitation
+import app.securemessenger.signalstore.V2MediaState
 import app.securemessenger.signalstore.V2MessageKind
 import app.securemessenger.signalstore.V2OutgoingEnvelope
+import app.securemessenger.signalstore.V2PendingDownload
 import app.securemessenger.signalstore.V2Route
 import app.securemessenger.signalstore.V2StoredMessage
+import app.securemessenger.signalstore.V2VoiceNote
 import java.security.SecureRandom
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlinx.coroutines.CancellationException
@@ -25,12 +29,27 @@ enum class IncomingV2Result {
     /** A text message was stored; a receipt was queued if the sender is an active contact. */
     TEXT_ACCEPTED,
 
+    /**
+     * A voice message's note was stored (DEC-036); its recording is fetched next, and the receipt
+     * waits until the recording is here and checks out.
+     */
+    VOICE_ACCEPTED,
+
     /** A HELLO answered one of our invitations; a person must accept or decline the request. */
     REQUEST_RECEIVED,
 
     /** The contact accepted our HELLO. */
     CONTACT_ACCEPTED,
     RECEIPT_APPLIED,
+
+    /**
+     * The contact played our voice message: a one-time recording is deleted here too (DEC-036), any
+     * other is marked listened (DEC-039).
+     */
+    PLAYED_APPLIED,
+
+    /** The contact deleted messages of our chat for both of us (DEC-037); our copies are deleted. */
+    DELETE_APPLIED,
 
     /** Byte-identical to an envelope that was already accepted. */
     DUPLICATE,
@@ -229,8 +248,11 @@ class ConversationV2Service(
             store.saveContact(contact)
             store.deleteRequest(requestId)
             enqueue(contact, InnerPayloadV2.Accept(RandomId.random(random), now()))
-            // Receipts were withheld while the request was pending.
-            store.incomingTexts(requestId).forEach { held -> enqueue(contact, receiptFor(held.innerMessageIdHex)) }
+            // Receipts were withheld while the request was pending. A voice message is receipted
+            // only once its recording is here (DEC-036); one still being fetched gets it then.
+            store.incomingTexts(requestId)
+                .filter { held -> held.voice?.state.let { state -> state == null || state == V2MediaState.READY } }
+                .forEach { held -> enqueue(contact, receiptFor(held.innerMessageIdHex)) }
         }
         sendDue()
     }
@@ -299,6 +321,299 @@ class ConversationV2Service(
         }
         sendDue()
         return messageId
+    }
+
+    // --- Voice messages (DEC-036). ---
+
+    /**
+     * Queues a voice message. The recording is cut into equal pieces encrypted under a fresh key
+     * ([VoiceMedia]); the pieces go to a one-time relay queue whose read secret, like the key, travels
+     * only inside the encrypted note. The note's envelope (and the contact's later ones behind it)
+     * waits until every piece is up, so the contact never gets a note without its recording.
+     * [replyToInnerIdHex] names the message it answers, like a text's. A [once] recording is played
+     * once by the contact's phone and then deleted there; ours stays. Returns the local message ID.
+     */
+    suspend fun sendVoice(
+        contactId: String,
+        recording: ByteArray,
+        durationMillis: Int,
+        waveform: ByteArray,
+        replyToInnerIdHex: String? = null,
+        once: Boolean = false,
+    ): String {
+        val messageId = atomically {
+            val contact = store.contact(contactId) ?: throw ConversationV2Exception("Unknown contact")
+            if (contact.state == V2ContactState.KEY_CHANGED) throw ConversationV2Exception("Contact is blocked")
+            if (recording.size !in 1..VoiceMedia.MAX_RECORDING_BYTES) throw ConversationV2Exception("Invalid recording")
+            val replyTo = replyToInnerIdHex?.let { innerId ->
+                if (!store.hasText(contactId, innerId)) throw ConversationV2Exception("Unknown message")
+                RandomId.fromHex(innerId)
+            }
+            val key = ByteArray(VoiceMedia.KEY_BYTES).also(random::nextBytes)
+            val queue = RelayQueueCredentials.generate(random)
+            val sealed = VoiceMedia.seal(recording, key)
+            val note = V2VoiceNote(
+                queueReadSecret = queue.readSecret(),
+                key = key,
+                digest = sealed.digest,
+                plaintextSize = sealed.plaintextSize,
+                chunkCount = sealed.pieces.size,
+                durationMillis = durationMillis,
+                waveform = waveform,
+                codec = VoiceMedia.CODEC_AAC_ADTS,
+                once = once,
+            )
+            if (!VoiceMedia.isAcceptable(note)) throw ConversationV2Exception("Invalid recording")
+            val payload = InnerPayloadV2.Voice(RandomId.random(random), now(), note, replyTo)
+            val envelope = outgoingEnvelope(contact, payload)
+            store.enqueueOutgoingVoice(envelope, note, sealed.pieces, payload.sentAtEpochMillis, replyToInnerIdHex)
+            envelope.messageId
+        }
+        uploadVoice()
+        sendDue()
+        return messageId
+    }
+
+    /**
+     * Uploads the pieces of our voice messages that are not up yet, in order, recording each one.
+     * The first failure (relay out of reach, or its rate limit) leaves the rest for the next sync; a
+     * piece sent twice is harmless, the receiver keeps one. Returns how many pieces went up.
+     */
+    suspend fun uploadVoice(): Int {
+        // One upload at a time in the process: the screen's sync and the background's would otherwise
+        // send the same pieces twice, spending the relay's rate limit for nothing.
+        if (!UPLOADING.compareAndSet(false, true)) return 0
+        return try {
+            uploadPendingVoice()
+        } finally {
+            UPLOADING.set(false)
+        }
+    }
+
+    private suspend fun uploadPendingVoice(): Int {
+        var uploaded = 0
+        pending@ for (pending in atomically { store.pendingVoiceUploads() }) {
+            val queueId = RelayQueueCredentials.fromReadSecret(pending.note.queueReadSecret).queueId
+            var next = pending.uploaded
+            while (next < pending.note.chunkCount) {
+                val piece = atomically { store.voiceChunk(pending.messageId, next) }
+                if (piece == null) {
+                    // A damaged store: the recording can never go up whole. It is given up, so its note
+                    // (which the contact then reports as unavailable) and the later texts are not held for good.
+                    atomically { store.setVoiceState(pending.messageId, V2MediaState.UNAVAILABLE) }
+                    continue@pending
+                }
+                try {
+                    transport.sendMessage(queueId, piece, now() + RELAY_TTL_MILLIS)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    return uploaded
+                }
+                next++
+                atomically { store.recordVoiceUploaded(pending.messageId, next) }
+                uploaded++
+            }
+        }
+        return uploaded
+    }
+
+    /**
+     * Fetches the recordings of the contacts' voice messages (DEC-036). Each piece is kept only if it
+     * decrypts under the note's key at its own place; it is stored as it came and then deleted from
+     * the relay, and so is anything else in that queue. Once all pieces are here and the whole matches
+     * the note's digest, the message is ready and, for a contact, its receipt is queued: "Delivered"
+     * means the recording itself is on that phone (owner, DEC-036). A recording still incomplete
+     * [MEDIA_WAIT_MILLIS] after its note is marked unavailable, without a receipt.
+     * Returns how many recordings were completed.
+     */
+    suspend fun downloadVoice(): Int {
+        // One download at a time in the process, for the same reason as the upload.
+        if (!DOWNLOADING.compareAndSet(false, true)) return 0
+        return try {
+            downloadPendingVoice()
+        } finally {
+            DOWNLOADING.set(false)
+        }
+    }
+
+    private suspend fun downloadPendingVoice(): Int {
+        var completed = 0
+        for (pending in atomically { store.pendingVoiceDownloads() }) {
+            val queue = RelayQueueCredentials.fromReadSecret(pending.note.queueReadSecret)
+            var pages = 0
+            while (pages < MAX_MEDIA_PAGES) {
+                if (atomically { store.storedVoiceChunkIndices(pending.messageId) }.size >= pending.note.chunkCount) break
+                val blobs = try {
+                    transport.fetchMessages(queue)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    break
+                }
+                if (blobs.isEmpty()) break
+                for (blob in blobs) {
+                    val index = VoiceMedia.checkPiece(blob.opaqueCiphertext, pending.note)
+                    if (index != null) atomically { store.storeVoiceChunk(pending.messageId, index, blob.opaqueCiphertext) }
+                    // Stored (and committed), or worthless: either way the relay copy goes (DEC-026).
+                    try {
+                        transport.deleteMessage(queue, blob.messageId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // It expires on the relay; a repeat is recognised as already stored.
+                    }
+                }
+                pages++
+            }
+            if (finishDownload(pending)) completed++
+        }
+        return completed
+    }
+
+    /** Ready and receipted once every piece is here and the whole checks out; unavailable once too late. */
+    private fun finishDownload(pending: V2PendingDownload): Boolean = atomically {
+        val note = pending.note
+        val stored = store.storedVoiceChunkIndices(pending.messageId)
+        when {
+            stored.size >= note.chunkCount -> {
+                val pieces = (0 until note.chunkCount).mapNotNull { index -> store.voiceChunk(pending.messageId, index) }
+                val recording = if (pieces.size == note.chunkCount) VoiceMedia.open(pieces, note) else null
+                if (recording == null) {
+                    // Every piece authenticated, yet the whole does not match (or a stored piece is
+                    // gone): never shown, never receipted.
+                    store.deleteVoiceChunks(pending.messageId)
+                    store.setVoiceState(pending.messageId, V2MediaState.UNAVAILABLE)
+                    false
+                } else {
+                    recording.fill(0)
+                    store.setVoiceState(pending.messageId, V2MediaState.READY)
+                    store.contact(pending.contactId)
+                        ?.takeIf { it.state != V2ContactState.KEY_CHANGED }
+                        ?.let { contact -> enqueue(contact, receiptFor(pending.innerMessageIdHex)) }
+                    true
+                }
+            }
+            now() > pending.createdAtEpochMillis + MEDIA_WAIT_MILLIS -> {
+                store.deleteVoiceChunks(pending.messageId)
+                store.setVoiceState(pending.messageId, V2MediaState.UNAVAILABLE)
+                false
+            }
+            else -> false
+        }
+    }
+
+    /**
+     * The recording of a voice message in either direction, decrypted for playing; null until it is
+     * all on this phone. The contact's one-time recordings are never given here: only [playOnce]
+     * gives them, once. Decrypted outside the lock; the caller keeps it in memory only.
+     */
+    fun voiceRecording(messageId: String): ByteArray? {
+        val parts = atomically {
+            val state = store.voiceState(messageId)
+            if (state != V2MediaState.READY && state != V2MediaState.UPLOADING) return@atomically null
+            val note = store.voiceNote(messageId) ?: return@atomically null
+            if (note.once && store.voiceIsOutgoing(messageId) != true) return@atomically null
+            note to (0 until note.chunkCount).map { index -> store.voiceChunk(messageId, index) ?: return@atomically null }
+        } ?: return null
+        return VoiceMedia.open(parts.second, parts.first)
+    }
+
+    /**
+     * Plays the contact's one-time recording (DEC-036): returns it, decrypted into memory, and in the
+     * same transaction deletes its pieces from this phone, marks it played, and queues "played" for
+     * the contact (owner: like Telegram, the sender sees it was listened to). So it is never given
+     * again, even if the app stops while it plays. Null if it is not a one-time recording of the
+     * contact's that is all here (already played, still on its way, unavailable).
+     */
+    suspend fun playOnce(messageId: String): ByteArray? {
+        val recording = atomically {
+            val message = store.message(messageId)?.takeIf { !it.outgoing } ?: return@atomically null
+            if (message.voice?.state != V2MediaState.READY) return@atomically null
+            val note = store.voiceNote(messageId)?.takeIf { it.once } ?: return@atomically null
+            val pieces = (0 until note.chunkCount).mapNotNull { index -> store.voiceChunk(messageId, index) }
+            val opened = if (pieces.size == note.chunkCount) VoiceMedia.open(pieces, note) else null
+            store.deleteVoiceChunks(messageId)
+            store.setVoiceState(messageId, if (opened != null) V2MediaState.PLAYED else V2MediaState.UNAVAILABLE)
+            if (opened != null) {
+                store.setVoiceListened(messageId)
+                store.contact(message.contactId)
+                    ?.takeIf { it.state != V2ContactState.KEY_CHANGED }
+                    ?.let { contact -> enqueue(contact, InnerPayloadV2.Played(RandomId.random(random), now(), RandomId.fromHex(message.innerMessageIdHex))) }
+            }
+            opened
+        } ?: return null
+        try {
+            sendDue()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // "Played" stays queued and goes with the next sync; the recording is already the caller's.
+        }
+        return recording
+    }
+
+    /**
+     * The person pressed play on the contact's voice message (DEC-039, owner: like Telegram): in one
+     * transaction it is marked listened and, the first time only, "played" (type 7) is queued for the
+     * contact, then sent if the relay can be reached. Our own messages are never marked this way, and
+     * one-time recordings go through [playOnce]. Only a contact gets "played": a pending request gets no
+     * receipts and a blocked contact nothing, though the mark is set here either way. Returns whether
+     * the message was marked now (false if it already was, or is not the contact's playable recording).
+     */
+    suspend fun markVoiceListened(messageId: String): Boolean {
+        val marked = atomically {
+            val message = store.message(messageId)?.takeIf { !it.outgoing } ?: return@atomically false
+            val voice = message.voice ?: return@atomically false
+            if (voice.once || voice.state != V2MediaState.READY || voice.listened) return@atomically false
+            if (!store.setVoiceListened(messageId)) return@atomically false
+            store.contact(message.contactId)
+                ?.takeIf { it.state != V2ContactState.KEY_CHANGED }
+                ?.let { contact -> enqueue(contact, InnerPayloadV2.Played(RandomId.random(random), now(), RandomId.fromHex(message.innerMessageIdHex))) }
+            true
+        }
+        if (marked) {
+            try {
+                sendDue()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // "Played" stays queued and goes with the next sync.
+            }
+        }
+        return marked
+    }
+
+    // --- Deleting single messages (DEC-037). ---
+
+    /**
+     * Deletes these messages of one chat from this phone (texts and voice messages, either direction,
+     * with their stored pieces; one still waiting to be sent is never sent). With [forBoth] the
+     * contact's app is asked, inside the session, to delete its copies too, as in Telegram; that
+     * happens when the request reaches it, and never for a blocked contact. Returns how many were deleted.
+     */
+    suspend fun deleteMessages(contactId: String, messageIds: Collection<String>, forBoth: Boolean): Int {
+        val deleted = atomically {
+            val targets = messageIds.distinct().mapNotNull { id -> store.message(id)?.takeIf { it.contactId == contactId } }
+            if (forBoth && targets.isNotEmpty()) {
+                val contact = store.contact(contactId) ?: throw ConversationV2Exception("Unknown contact")
+                if (contact.state == V2ContactState.KEY_CHANGED) throw ConversationV2Exception("Contact is blocked")
+                targets.chunked(InnerPayloadV2Codec.MAX_DELETE_TARGETS).forEach { part ->
+                    enqueue(contact, InnerPayloadV2.Delete(RandomId.random(random), now(), part.map { RandomId.fromHex(it.innerMessageIdHex) }))
+                }
+            }
+            targets.count { store.deleteMessage(it.messageId) }
+        }
+        if (forBoth && deleted > 0) {
+            try {
+                sendDue()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The request stays queued and goes with the next sync.
+            }
+        }
+        return deleted
     }
 
     // --- Local chat management (DEC-035). Nothing here is sent: the contact is never told. ---
@@ -399,6 +714,9 @@ class ConversationV2Service(
             }
             pages++
         } while (page.size >= RELAY_PAGE_SIZE && decided > 0 && pages < MAX_PAGES_PER_SYNC)
+        // Recordings of voice messages travel beside the queue (DEC-036): ours go up, theirs come down.
+        uploadVoice()
+        downloadVoice()
         sendDue()
         firstFailure?.let { failure ->
             throw failure as? Exception ?: ConversationV2Exception("An envelope could not be processed", failure)
@@ -489,6 +807,11 @@ class ConversationV2Service(
         val waiting = HashSet<String>()
         for (outgoing in atomically { store.unsentOutgoing() }) {
             if (outgoing.contactId in waiting) continue
+            // A voice message's note waits for its recording to be up, and the contact's later ones wait behind it.
+            if (outgoing.waitsForMedia) {
+                waiting += outgoing.contactId
+                continue
+            }
             val notBefore = outgoing.nextAttemptAtEpochMillis
             if (notBefore != null && notBefore > now()) {
                 waiting += outgoing.contactId
@@ -553,6 +876,18 @@ class ConversationV2Service(
                     IncomingV2Result.AUTHENTICATED_IGNORED
                 }
             }
+            is InnerPayloadV2.Voice -> {
+                // Like a text, a voice message also completes a pairing we are waiting on.
+                if (contact.state == V2ContactState.AWAITING_ACCEPTANCE) {
+                    store.setContactState(contact.contactId, V2ContactState.ACTIVE)
+                }
+                val shownAt = shownTimeOf(payload.sentAtEpochMillis, now(), store.latestIncomingTextTime(contact.contactId))
+                if (store.storeIncomingVoice(contact.contactId, payload.messageId.toHex(), payload.note, shownAt, payload.replyTo?.toHex())) {
+                    IncomingV2Result.VOICE_ACCEPTED
+                } else {
+                    IncomingV2Result.AUTHENTICATED_IGNORED
+                }
+            }
             is InnerPayloadV2.Accept ->
                 if (contact.state == V2ContactState.AWAITING_ACCEPTANCE) {
                     store.setContactState(contact.contactId, V2ContactState.ACTIVE)
@@ -566,6 +901,35 @@ class ConversationV2Service(
                 } else {
                     IncomingV2Result.AUTHENTICATED_IGNORED
                 }
+            is InnerPayloadV2.Played -> {
+                // Only our own voice message to this contact, once it is all up, can be played. A
+                // one-time recording is then deleted here too (DEC-036); any other is marked listened
+                // (DEC-039), once.
+                val ours = store.messageByInnerId(contact.contactId, payload.originalMessageId.toHex(), outgoing = true)
+                val voice = ours?.voice
+                when {
+                    ours == null || voice == null || voice.state != V2MediaState.READY -> IncomingV2Result.AUTHENTICATED_IGNORED
+                    voice.once -> {
+                        store.deleteVoiceChunks(ours.messageId)
+                        store.setVoiceState(ours.messageId, V2MediaState.PLAYED)
+                        store.setVoiceListened(ours.messageId)
+                        IncomingV2Result.PLAYED_APPLIED
+                    }
+                    store.setVoiceListened(ours.messageId) -> IncomingV2Result.PLAYED_APPLIED
+                    else -> IncomingV2Result.AUTHENTICATED_IGNORED
+                }
+            }
+            is InnerPayloadV2.Delete -> {
+                // Only this chat's texts and voice messages, in either direction (owner: like Telegram).
+                var deleted = 0
+                for (target in payload.targets) {
+                    val hex = target.toHex()
+                    listOf(false, true).forEach { outgoing ->
+                        store.messageByInnerId(contact.contactId, hex, outgoing)?.let { if (store.deleteMessage(it.messageId)) deleted++ }
+                    }
+                }
+                if (deleted > 0) IncomingV2Result.DELETE_APPLIED else IncomingV2Result.AUTHENTICATED_IGNORED
+            }
             is InnerPayloadV2.Hello -> IncomingV2Result.AUTHENTICATED_IGNORED
         }
     }
@@ -596,18 +960,16 @@ class ConversationV2Service(
             Decrypted.Unparseable -> IncomingV2Result.AUTHENTICATED_IGNORED
             is Decrypted.Payload -> {
                 val payload = decrypted.payload
-                if (payload is InnerPayloadV2.Text &&
-                    store.storeIncomingText(
-                        request.requestId,
-                        payload.messageId.toHex(),
-                        payload.text,
-                        shownTimeOf(payload.sentAtEpochMillis, now(), store.latestIncomingTextTime(request.requestId)),
-                        payload.replyTo?.toHex(),
-                    )
-                ) {
-                    IncomingV2Result.TEXT_ACCEPTED
-                } else {
-                    IncomingV2Result.AUTHENTICATED_IGNORED
+                val shownAt = shownTimeOf(payload.sentAtEpochMillis, now(), store.latestIncomingTextTime(request.requestId))
+                when {
+                    payload is InnerPayloadV2.Text &&
+                        store.storeIncomingText(request.requestId, payload.messageId.toHex(), payload.text, shownAt, payload.replyTo?.toHex()) ->
+                        IncomingV2Result.TEXT_ACCEPTED
+                    // Held like a text; its recording is fetched, its receipt waits for the acceptance (DEC-036).
+                    payload is InnerPayloadV2.Voice &&
+                        store.storeIncomingVoice(request.requestId, payload.messageId.toHex(), payload.note, shownAt, payload.replyTo?.toHex()) ->
+                        IncomingV2Result.VOICE_ACCEPTED
+                    else -> IncomingV2Result.AUTHENTICATED_IGNORED
                 }
             }
         }
@@ -682,29 +1044,34 @@ class ConversationV2Service(
     }
 
     private fun enqueue(contact: V2Contact, payload: InnerPayloadV2, visibleText: String? = null): String {
+        val envelope = outgoingEnvelope(contact, payload)
+        store.enqueueOutgoing(
+            envelope,
+            visibleText,
+            // The very time the payload carries: the contact's phone sorts this text by it (DEC-034).
+            payload.sentAtEpochMillis,
+            (payload as? InnerPayloadV2.Text)?.replyTo?.toHex(),
+        )
+        return envelope.messageId
+    }
+
+    /** Encrypts [payload] for [contact] (one ratchet step) into an envelope ready to queue. */
+    private fun outgoingEnvelope(contact: V2Contact, payload: InnerPayloadV2): V2OutgoingEnvelope {
         val plaintext = InnerPayloadV2Codec.encode(payload)
         val ciphertext = try {
             sessions.encrypt(contact.contactId, plaintext)
         } finally {
             plaintext.fill(0)
         }
-        val messageId = newLocalId()
-        store.enqueueOutgoing(
-            V2OutgoingEnvelope(
-                messageId = messageId,
-                contactId = contact.contactId,
-                kind = kindOf(payload),
-                innerMessageIdHex = payload.messageId.toHex(),
-                peerQueueId = contact.peerQueueId,
-                envelope = EnvelopeV2Codec.encode(EnvelopeV2(RandomId.fromHex(contact.peerRoutingTagHex), ciphertext)),
-                attemptCount = 0,
-            ),
-            visibleText,
-            // The very time the payload carries: the contact's phone sorts this text by it (DEC-034).
-            payload.sentAtEpochMillis,
-            (payload as? InnerPayloadV2.Text)?.replyTo?.toHex(),
+        return V2OutgoingEnvelope(
+            messageId = newLocalId(),
+            contactId = contact.contactId,
+            kind = kindOf(payload),
+            innerMessageIdHex = payload.messageId.toHex(),
+            peerQueueId = contact.peerQueueId,
+            envelope = EnvelopeV2Codec.encode(EnvelopeV2(RandomId.fromHex(contact.peerRoutingTagHex), ciphertext)),
+            attemptCount = 0,
         )
-        return messageId
     }
 
     private fun receiptFor(innerMessageIdHex: String) =
@@ -714,7 +1081,10 @@ class ConversationV2Service(
         is InnerPayloadV2.Hello -> V2MessageKind.HELLO
         is InnerPayloadV2.Accept -> V2MessageKind.ACCEPT
         is InnerPayloadV2.Text -> V2MessageKind.TEXT
+        is InnerPayloadV2.Voice -> V2MessageKind.VOICE
         is InnerPayloadV2.Receipt -> V2MessageKind.RECEIPT
+        is InnerPayloadV2.Played -> V2MessageKind.PLAYED
+        is InnerPayloadV2.Delete -> V2MessageKind.DELETE
     }
 
     private fun retryDelay(attempt: Int): Long =
@@ -737,6 +1107,10 @@ class ConversationV2Service(
     companion object {
         /** One lock for the whole process: the UI and the WorkManager worker share it. */
         private val PROTOCOL_LOCK = ReentrantLock()
+
+        /** Whether recordings are being uploaded or fetched right now, anywhere in the process (DEC-036). */
+        private val UPLOADING = AtomicBoolean(false)
+        private val DOWNLOADING = AtomicBoolean(false)
         private const val RELAY_TTL_MILLIS = 24 * 60 * 60 * 1000L
         private const val INITIAL_RETRY_DELAY_MILLIS = 5_000L
         private const val MAX_RETRY_DELAY_MILLIS = 15 * 60_000L
@@ -758,6 +1132,15 @@ class ConversationV2Service(
 
         /** [setMuted] with this silences a chat until it is unmuted. */
         const val MUTED_FOREVER = Long.MAX_VALUE
+
+        /**
+         * A recording still incomplete this long after its note is given up (DEC-036): the relay keeps
+         * a piece a day at most, and an hour more covers a slow upload.
+         */
+        const val MEDIA_WAIT_MILLIS = RELAY_TTL_MILLIS + 60 * 60_000L
+
+        /** At most this many fetches of one recording's queue per sync (each returns up to a page). */
+        private const val MAX_MEDIA_PAGES = 3
 
         /**
          * When an incoming text is shown, and so where it sorts (owner decision, DEC-034): at the time

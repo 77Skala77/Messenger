@@ -191,7 +191,10 @@ class ChatListInstrumentedTest {
 
     @Test
     fun anEmptyListSaysWhatToDoAndRequestsStayOnTop() {
+        // Before the chats are read nothing is said: "No chats yet" flashed at every start (2026-10-07).
         show(ConversationV2UiState())
+        composeRule.onNodeWithTag(CHAT_LIST_EMPTY_TAG).assertDoesNotExist()
+        show(ConversationV2UiState(ready = true))
         composeRule.onNodeWithTag(CHAT_LIST_EMPTY_TAG).assertExists()
         composeRule.onNodeWithText(activity.getString(R.string.chat_list_empty_title)).assertExists()
 

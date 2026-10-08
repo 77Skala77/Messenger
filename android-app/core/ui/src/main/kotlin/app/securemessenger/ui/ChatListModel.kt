@@ -43,6 +43,9 @@ internal sealed interface ChatPreview {
     /** The newest text; [outgoing] when it is ours. */
     data class LastText(val text: String, val outgoing: Boolean) : ChatPreview
 
+    /** The newest message is a voice message (DEC-036): the row says so, like Telegram's. */
+    data class Voice(val outgoing: Boolean, val once: Boolean = false) : ChatPreview
+
     /** No text to show, and the contact's state matters: waiting for acceptance, or blocked. */
     data class ContactState(val state: V2ContactState) : ChatPreview
 
@@ -56,8 +59,10 @@ internal sealed interface ChatPreview {
  */
 internal fun chatPreview(chat: V2ChatSummary): ChatPreview {
     val last = chat.lastText
+    val voice = last?.voice
     return when {
         chat.contact.state == V2ContactState.KEY_CHANGED -> ChatPreview.ContactState(V2ContactState.KEY_CHANGED)
+        last != null && voice != null -> ChatPreview.Voice(last.outgoing, voice.once)
         last != null -> ChatPreview.LastText(oneLine(last.text), last.outgoing)
         chat.contact.state == V2ContactState.AWAITING_ACCEPTANCE -> ChatPreview.ContactState(V2ContactState.AWAITING_ACCEPTANCE)
         else -> ChatPreview.NoMessages

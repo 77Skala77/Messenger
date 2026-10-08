@@ -75,6 +75,7 @@ class LocalProfileRepository(
      */
     fun wipeLocalData() {
         dao.deleteV2AcceptedEnvelopes()
+        dao.deleteAllV2MediaChunks()
         dao.deleteV2Messages()
         dao.deleteV2ContactRequests()
         dao.deleteV2Contacts()

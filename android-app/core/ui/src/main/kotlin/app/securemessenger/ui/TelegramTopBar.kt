@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +61,8 @@ fun TelegramTopBar(
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val height = if (landscape) 48.dp else 56.dp
     val scheme = MaterialTheme.colorScheme
-    Column(modifier.fillMaxWidth().background(scheme.surface)) {
+    // The app draws under the status bar (edge to edge): the bar's color goes under it, its content below it.
+    Column(modifier.fillMaxWidth().background(MaterialTheme.messenger.topBar).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(height), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
                 val description = stringResource(R.string.back)

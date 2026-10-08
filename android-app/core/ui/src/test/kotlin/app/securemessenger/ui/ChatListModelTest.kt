@@ -129,6 +129,24 @@ class ChatListModelTest {
         assertEquals(listOf("a", "b"), ids(chatListSearch(chats, "   ")))
     }
 
+    /** DEC-036: a voice message has no text; the row names it, ours with "You:". A blocked contact still says so. */
+    @Test
+    fun `a voice message is named in the preview`() {
+        val voice = app.securemessenger.signalstore.V2VoiceInfo(7_000, byteArrayOf(1, 2), app.securemessenger.signalstore.V2MediaState.READY)
+        fun voiceChat(outgoing: Boolean, state: V2ContactState = V2ContactState.ACTIVE): V2ChatSummary {
+            val base = chat("v", lastAt = 1L, text = "", outgoing = outgoing, state = state)
+            val last = checkNotNull(base.lastText)
+            return V2ChatSummary(
+                base.contact,
+                V2StoredMessage(last.messageId, last.contactId, outgoing, last.innerMessageIdHex, "", last.status, last.createdAtEpochMillis, voice = voice),
+                0,
+            )
+        }
+        assertEquals(ChatPreview.Voice(outgoing = false), chatPreview(voiceChat(outgoing = false)))
+        assertEquals(ChatPreview.Voice(outgoing = true), chatPreview(voiceChat(outgoing = true)))
+        assertEquals(ChatPreview.ContactState(V2ContactState.KEY_CHANGED), chatPreview(voiceChat(false, V2ContactState.KEY_CHANGED)))
+    }
+
     private fun chat(
         id: String,
         lastAt: Long?,

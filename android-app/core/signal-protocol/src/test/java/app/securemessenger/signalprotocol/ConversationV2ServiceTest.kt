@@ -2,10 +2,12 @@ package app.securemessenger.signalprotocol
 
 import app.securemessenger.domain.RelayEncryptedBlob
 import app.securemessenger.signalstore.V2ContactState
+import app.securemessenger.signalstore.V2MediaState
 import app.securemessenger.signalstore.V2MessageKind
 import app.securemessenger.signalstore.V2MessageStatus
 import java.security.GeneralSecurityException
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -892,6 +894,373 @@ class ConversationV2ServiceTest {
         bob.service.sendText(newAliceOnBob, "hi again")
         alice.service.synchronize()
         assertEquals(listOf("hi again"), alice.service.texts(newBobOnAlice).map { it.text })
+    }
+
+    // --- Voice messages (DEC-036) ---
+
+    private val recording = ByteArray(150_000).also(java.util.Random(36)::nextBytes)
+    private val waveform = ByteArray(50) { (it % 32).toByte() }
+
+    /** The one-time queue that holds the pieces of [messageId]'s recording, as the sender knows it. */
+    private fun V2TestDevice.voiceQueue(messageId: String) =
+        app.securemessenger.domain.RelayQueueCredentials.fromReadSecret(store.voiceNote(messageId)!!.queueReadSecret)
+
+    /**
+     * DEC-036: the note travels in the session, the recording in encrypted pieces beside it; the
+     * receiver fetches and checks the pieces, deletes them from the relay, and only then receipts:
+     * "Delivered" means the recording itself is on the other phone (owner's choice).
+     */
+    @Test
+    fun aVoiceMessageArrivesWithItsRecordingAndIsDeliveredOnlyThen() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        val queue = bob.voiceQueue(sent)
+        assertEquals(VoiceMedia.chunkCountFor(recording.size), relay.queued(queue.queueId).size)
+        assertEquals(V2MediaState.READY, bob.store.voiceState(sent))
+        assertEquals(V2MessageStatus.SENT, bob.store.statusOf(sent))
+        // Only encrypted pieces of one size are on the relay.
+        assertTrue(relay.queued(queue.queueId).all { it.opaqueCiphertext.size == VoiceMedia.PIECE_BYTES })
+
+        assertEquals(listOf(IncomingV2Result.VOICE_ACCEPTED), alice.service.synchronize())
+        val received = alice.service.texts(bobOnAlice).single()
+        assertEquals(V2MediaState.READY, received.voice!!.state)
+        assertEquals(7_000, received.voice!!.durationMillis)
+        assertArrayEquals(recording, alice.service.voiceRecording(received.messageId))
+        assertTrue("the pieces were deleted from the relay", relay.queued(queue.queueId).isEmpty())
+        // Our own copy plays too.
+        assertArrayEquals(recording, bob.service.voiceRecording(sent))
+
+        assertEquals(listOf(IncomingV2Result.RECEIPT_APPLIED), bob.service.synchronize())
+        assertEquals(V2MessageStatus.DELIVERED, bob.store.statusOf(sent))
+    }
+
+    @Test
+    fun aMissingPieceHoldsTheReceiptUntilItArrivesAndJunkIsDeletedUnread() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        val queue = bob.voiceQueue(sent)
+        val held = relay.queued(queue.queueId).first()
+        relay.deleteMessage(queue, held.messageId)
+        relay.inject(RelayEncryptedBlob("junk", queue.queueId, ByteArray(VoiceMedia.PIECE_BYTES) { 7 }, Long.MAX_VALUE))
+
+        alice.service.synchronize()
+        val waiting = alice.service.texts(bobOnAlice).single()
+        assertEquals(V2MediaState.DOWNLOADING, waiting.voice!!.state)
+        assertNull(alice.service.voiceRecording(waiting.messageId))
+        assertTrue("the pieces it has and the junk are gone from the relay", relay.queued(queue.queueId).isEmpty())
+        bob.service.synchronize()
+        assertEquals("no receipt before the recording is here", V2MessageStatus.SENT, bob.store.statusOf(sent))
+
+        relay.inject(RelayEncryptedBlob("late", queue.queueId, held.opaqueCiphertext, Long.MAX_VALUE))
+        alice.service.synchronize()
+        assertEquals(V2MediaState.READY, alice.service.texts(bobOnAlice).single().voice!!.state)
+        assertArrayEquals(recording, alice.service.voiceRecording(waiting.messageId))
+        bob.service.synchronize()
+        assertEquals(V2MessageStatus.DELIVERED, bob.store.statusOf(sent))
+    }
+
+    /** DEC-036: the note waits until its recording is up, and the contact's later texts wait behind it. */
+    @Test
+    fun theNoteWaitsForItsRecordingAndLaterTextsWaitBehindIt() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        relay.failNextSends = 1
+        val voice = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        bob.service.sendText(aliceOnBob, "after the voice")
+        assertEquals(V2MediaState.UPLOADING, bob.store.voiceState(voice))
+        assertTrue("nothing reached Alice's inbox", relay.queued(alice.queueId).isEmpty())
+
+        bob.service.synchronize()
+        assertEquals(V2MediaState.READY, bob.store.voiceState(voice))
+        assertEquals(listOf(IncomingV2Result.VOICE_ACCEPTED, IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
+        val shown = alice.service.texts(bobOnAlice)
+        assertEquals(listOf(true, false), shown.map { it.voice != null })
+        assertEquals("after the voice", shown.last().text)
+        assertEquals(V2MediaState.READY, shown.first().voice!!.state)
+    }
+
+    /** DEC-036: a recording the relay no longer has is given up after a day and an hour, without a receipt. */
+    @Test
+    fun aRecordingThatNeverComesIsGivenUpWithoutAReceipt() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        relay.take(bob.voiceQueue(sent).queueId)
+
+        alice.service.synchronize()
+        assertEquals(V2MediaState.DOWNLOADING, alice.service.texts(bobOnAlice).single().voice!!.state)
+        clock += ConversationV2Service.MEDIA_WAIT_MILLIS + 1
+        alice.service.synchronize()
+        assertEquals(V2MediaState.UNAVAILABLE, alice.service.texts(bobOnAlice).single().voice!!.state)
+        bob.service.synchronize()
+        assertEquals(V2MessageStatus.SENT, bob.store.statusOf(sent))
+    }
+
+    /**
+     * DEC-036: a recording whose stored piece is gone (a damaged store) can never go up whole; it is
+     * given up, so it does not hold the contact's later texts back for good. Its note still goes, and
+     * the contact never gets the recording, so it is never "Delivered".
+     */
+    @Test
+    fun aDamagedRecordingIsGivenUpAndDoesNotHoldTheChat() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        relay.failNextSends = 1
+        val voice = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        bob.store.loseVoiceChunk(voice, 1)
+        bob.service.sendText(aliceOnBob, "after the voice")
+
+        bob.service.synchronize()
+        assertEquals(V2MediaState.UNAVAILABLE, bob.store.voiceState(voice))
+        assertNull(bob.service.voiceRecording(voice))
+        assertEquals(listOf(IncomingV2Result.VOICE_ACCEPTED, IncomingV2Result.TEXT_ACCEPTED), alice.service.synchronize())
+        assertEquals(V2MediaState.DOWNLOADING, alice.service.texts(bobOnAlice).first().voice!!.state)
+        bob.service.synchronize()
+        assertEquals(V2MessageStatus.SENT, bob.store.statusOf(voice))
+    }
+
+    /**
+     * DEC-036: a one-time recording plays once on the contact's phone and is deleted there in the same
+     * step; it is "Delivered" like any other once it arrived. Ours stays and plays as usual.
+     */
+    @Test
+    fun aOneTimeRecordingPlaysOnceOnTheContactsPhone() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform, once = true)
+        alice.service.synchronize()
+        val received = alice.service.texts(bobOnAlice).single()
+        assertTrue(received.voice!!.once)
+        assertEquals(V2MediaState.READY, received.voice!!.state)
+        assertNull("not through the ordinary way", alice.service.voiceRecording(received.messageId))
+
+        // Our own copy plays as usual until the contact has played it, and is never consumed by us.
+        assertArrayEquals(recording, bob.service.voiceRecording(sent))
+        assertNull("ours is never consumed", bob.service.playOnce(sent))
+
+        assertArrayEquals(recording, alice.service.playOnce(received.messageId))
+        assertNull("only once", alice.service.playOnce(received.messageId))
+        assertEquals(V2MediaState.PLAYED, alice.service.texts(bobOnAlice).single().voice!!.state)
+        assertEquals(0, alice.store.voiceChunkCount(received.messageId))
+        assertNull(alice.service.voiceRecording(received.messageId))
+
+        // Bob learns that it was delivered and then played (owner: like Telegram); his copy goes too.
+        assertEquals(listOf(IncomingV2Result.RECEIPT_APPLIED, IncomingV2Result.PLAYED_APPLIED), bob.service.synchronize())
+        assertEquals(V2MessageStatus.DELIVERED, bob.store.statusOf(sent))
+        val ours = bob.service.texts(aliceOnBob).single()
+        assertTrue(ours.voice!!.once)
+        assertEquals(V2MediaState.PLAYED, ours.voice!!.state)
+        assertEquals(0, bob.store.voiceChunkCount(sent))
+        assertNull(bob.service.voiceRecording(sent))
+
+        // An ordinary recording is never consumed; fetching it to play tells nothing (only
+        // markVoiceListened does, DEC-039).
+        bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        alice.service.synchronize()
+        val ordinary = alice.service.texts(bobOnAlice).single { it.voice?.once == false }
+        assertNull(alice.service.playOnce(ordinary.messageId))
+        assertArrayEquals(recording, alice.service.voiceRecording(ordinary.messageId))
+        assertEquals(listOf(IncomingV2Result.RECEIPT_APPLIED), bob.service.synchronize())
+    }
+
+    /**
+     * DEC-036, DEC-039: "played" from the contact touches only our own voice messages to that contact,
+     * once they are all up: an ordinary recording is marked listened (once) and kept; a text or an
+     * unknown ID changes nothing.
+     */
+    @Test
+    fun aPlayedMarkTouchesOnlyOurOwnVoiceMessages() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val ordinary = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        bob.service.sendText(aliceOnBob, "a text")
+        alice.service.synchronize()
+        bob.service.synchronize()
+        val ours = bob.service.texts(aliceOnBob)
+
+        // Alice's phone, made to send "played" for anything (as a hostile app could).
+        fun played(innerIdHex: String) {
+            val payload = InnerPayloadV2Codec.encode(InnerPayloadV2.Played(RandomId.random(java.security.SecureRandom()), clock, RandomId.fromHex(innerIdHex)))
+            val tag = RandomId.fromHex(alice.store.contact(bobOnAlice)!!.peerRoutingTagHex)
+            val envelope = EnvelopeV2Codec.encode(EnvelopeV2(tag, alice.sessions.encrypt(bobOnAlice, payload)))
+            relay.inject(RelayEncryptedBlob("played-$innerIdHex", bob.queueId, envelope, Long.MAX_VALUE))
+        }
+        ours.forEach { played(it.innerMessageIdHex) }
+        played("ab".repeat(16))
+
+        assertEquals(
+            listOf(IncomingV2Result.PLAYED_APPLIED, IncomingV2Result.AUTHENTICATED_IGNORED, IncomingV2Result.AUTHENTICATED_IGNORED),
+            bob.service.synchronize(),
+        )
+        assertTrue(bob.service.texts(aliceOnBob).single { it.messageId == ordinary }.voice!!.listened)
+        assertEquals("never deleted", V2MediaState.READY, bob.store.voiceState(ordinary))
+        assertArrayEquals(recording, bob.service.voiceRecording(ordinary))
+
+        // A second "played" for the same message changes nothing.
+        played(ours.single { it.messageId == ordinary }.innerMessageIdHex)
+        assertEquals(listOf(IncomingV2Result.AUTHENTICATED_IGNORED), bob.service.synchronize())
+    }
+
+    /**
+     * DEC-039: pressing play on the contact's ordinary voice message marks it listened and tells the
+     * contact once ("played", type 7); the contact's copy is then listened too, and stays playable.
+     * Our own messages and one-time recordings are never marked this way.
+     */
+    @Test
+    fun aListenedVoiceMessageIsToldOnceAndShownOnBothPhones() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        alice.service.synchronize()
+        val received = alice.service.texts(bobOnAlice).single()
+        assertFalse(received.voice!!.listened)
+        assertFalse(bob.service.texts(aliceOnBob).single().voice!!.listened)
+
+        assertFalse("ours is never marked by us", bob.service.markVoiceListened(sent))
+        assertTrue(alice.service.markVoiceListened(received.messageId))
+        assertTrue(alice.service.texts(bobOnAlice).single().voice!!.listened)
+        assertFalse("only once", alice.service.markVoiceListened(received.messageId))
+        assertArrayEquals("it stays playable here", recording, alice.service.voiceRecording(received.messageId))
+
+        assertEquals(listOf(IncomingV2Result.RECEIPT_APPLIED, IncomingV2Result.PLAYED_APPLIED), bob.service.synchronize())
+        val ours = bob.service.texts(aliceOnBob).single().voice!!
+        assertTrue(ours.listened)
+        assertEquals(V2MediaState.READY, ours.state)
+        assertArrayEquals("and there", recording, bob.service.voiceRecording(sent))
+        assertTrue("nothing more was sent", bob.service.synchronize().isEmpty())
+
+        // A one-time recording goes through playOnce only.
+        bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform, once = true)
+        alice.service.synchronize()
+        val once = alice.service.texts(bobOnAlice).single { it.voice?.once == true }
+        assertFalse(alice.service.markVoiceListened(once.messageId))
+        assertFalse(alice.service.texts(bobOnAlice).single { it.voice?.once == true }.voice!!.listened)
+    }
+
+    /**
+     * DEC-039: a voice message from a pending request, or from a blocked contact, is marked listened
+     * here when played, but nothing is sent: a request gets no receipts, a blocked contact nothing.
+     */
+    @Test
+    fun aListenedVoiceMessageIsNotToldToARequestOrABlockedContact() = runBlocking {
+        val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        alice.service.synchronize()
+        val requestId = alice.store.requests().single().requestId
+        val fromRequest = alice.store.incomingTexts(requestId).single()
+        assertTrue(alice.service.markVoiceListened(fromRequest.messageId))
+        assertTrue(alice.store.incomingTexts(requestId).single().voice!!.listened)
+        assertTrue("no receipt for a request", relay.queued(bob.queueId).isEmpty())
+
+        alice.service.acceptRequest(requestId, "Bob")
+        bob.service.synchronize()
+        bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        alice.service.synchronize()
+        bob.service.synchronize()
+        val second = alice.service.texts(requestId).single { !it.voice!!.listened }
+        alice.store.setContactState(requestId, V2ContactState.KEY_CHANGED)
+        assertTrue(alice.service.markVoiceListened(second.messageId))
+        assertTrue("nothing goes to a blocked contact", relay.queued(bob.queueId).isEmpty())
+    }
+
+    /**
+     * DEC-037: a message is deleted on this phone only, or for both of us; the contact's app deletes its
+     * copies (either direction) when the request arrives. Nothing is sent for "this phone only".
+     */
+    @Test
+    fun aMessageIsDeletedHereOnlyOrForBoth() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "keep")
+        bob.service.sendText(aliceOnBob, "mine, gone for both")
+        alice.service.sendText(bobOnAlice, "hers, gone for both")
+        bob.service.sendText(aliceOnBob, "gone here only")
+        alice.service.synchronize()
+        bob.service.synchronize()
+        alice.service.synchronize()
+        val bobs = bob.service.texts(aliceOnBob).associateBy { it.text }
+
+        assertEquals(1, bob.service.deleteMessages(aliceOnBob, listOf(bobs.getValue("gone here only").messageId), forBoth = false))
+        assertTrue("nothing is sent for this phone only", relay.queued(alice.queueId).isEmpty())
+
+        val both = listOf(bobs.getValue("mine, gone for both").messageId, bobs.getValue("hers, gone for both").messageId)
+        assertEquals(2, bob.service.deleteMessages(aliceOnBob, both, forBoth = true))
+        assertEquals(listOf("keep"), bob.service.texts(aliceOnBob).map { it.text })
+        assertEquals(listOf(IncomingV2Result.DELETE_APPLIED), alice.service.synchronize())
+        assertEquals(listOf("keep", "gone here only"), alice.service.texts(bobOnAlice).map { it.text })
+
+        // Already gone, unknown, or another chat's: nothing more is deleted, nothing else changes.
+        assertEquals(0, bob.service.deleteMessages(aliceOnBob, both, forBoth = true))
+        assertEquals(0, bob.service.deleteMessages("someone-else", listOf(bobs.getValue("keep").messageId), forBoth = false))
+        assertEquals(listOf("keep"), bob.service.texts(aliceOnBob).map { it.text })
+
+        // A blocked contact (changed key) cannot be asked; this phone's copy can still go.
+        bob.store.setContactState(aliceOnBob, V2ContactState.KEY_CHANGED)
+        val blocked = assertThrows(ConversationV2Exception::class.java) {
+            runBlocking { bob.service.deleteMessages(aliceOnBob, listOf(bobs.getValue("keep").messageId), forBoth = true) }
+        }
+        assertEquals("Contact is blocked", blocked.message)
+        assertEquals(1, bob.service.deleteMessages(aliceOnBob, listOf(bobs.getValue("keep").messageId), forBoth = false))
+    }
+
+    /** DEC-037: a request to delete names only this chat's messages; anything else in it is ignored. */
+    @Test
+    fun aDeleteRequestReachesOnlyThisChat() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        bob.service.sendText(aliceOnBob, "stays")
+        alice.service.synchronize()
+        bob.service.synchronize()
+        val payload = InnerPayloadV2Codec.encode(InnerPayloadV2.Delete(RandomId.random(java.security.SecureRandom()), clock, listOf(RandomId.fromHex("cd".repeat(16)))))
+        val tag = RandomId.fromHex(alice.store.contact(bobOnAlice)!!.peerRoutingTagHex)
+        relay.inject(RelayEncryptedBlob("delete-unknown", bob.queueId, EnvelopeV2Codec.encode(EnvelopeV2(tag, alice.sessions.encrypt(bobOnAlice, payload))), Long.MAX_VALUE))
+
+        assertEquals(listOf(IncomingV2Result.AUTHENTICATED_IGNORED), bob.service.synchronize())
+        assertEquals(listOf("stays"), bob.service.texts(aliceOnBob).map { it.text })
+    }
+
+    /** DEC-035 with DEC-036: a voice message can answer a text, like a text can; only known messages. */
+    @Test
+    fun aVoiceMessageCanAnswerAText() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        alice.service.sendText(bobOnAlice, "question")
+        bob.service.synchronize()
+        val question = bob.service.texts(aliceOnBob).single()
+
+        val answer = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform, question.innerMessageIdHex)
+        assertEquals(question.innerMessageIdHex, bob.service.texts(aliceOnBob).single { it.messageId == answer }.replyToInnerIdHex)
+        alice.service.synchronize()
+        val received = alice.service.texts(bobOnAlice).single { it.voice != null }
+        assertEquals(question.innerMessageIdHex, received.replyToInnerIdHex)
+
+        val unknown = assertThrows(ConversationV2Exception::class.java) {
+            runBlocking { bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform, "00".repeat(16)) }
+        }
+        assertEquals("Unknown message", unknown.message)
+    }
+
+    /** DEC-036: a voice message from a request is held like a text, fetched, and receipted on acceptance. */
+    @Test
+    fun aVoiceMessageFromARequestIsReceiptedOnlyOnAcceptance() = runBlocking {
+        val aliceOnBob = bob.service.acceptInvitation(alice.service.createInvitation(), "Alice")
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+
+        assertEquals(listOf(IncomingV2Result.REQUEST_RECEIVED, IncomingV2Result.VOICE_ACCEPTED), alice.service.synchronize())
+        val requestId = alice.store.requests().single().requestId
+        assertEquals(V2MediaState.READY, alice.store.incomingTexts(requestId).single().voice!!.state)
+        assertTrue("no receipt for a request", relay.queued(bob.queueId).isEmpty())
+
+        alice.service.acceptRequest(requestId, "Bob")
+        bob.service.synchronize()
+        assertEquals(V2MessageStatus.DELIVERED, bob.store.statusOf(sent))
+    }
+
+    /** DEC-035 with DEC-036: clearing a chat or deleting a contact also drops the stored pieces. */
+    @Test
+    fun clearingOrDeletingDropsTheStoredPieces() = runBlocking {
+        val (aliceOnBob, bobOnAlice) = pair()
+        val sent = bob.service.sendVoice(aliceOnBob, recording, 7_000, waveform)
+        alice.service.synchronize()
+        val received = alice.service.texts(bobOnAlice).single().messageId
+        assertTrue(alice.store.voiceChunkCount(received) > 0)
+
+        assertEquals(1, alice.service.clearHistory(bobOnAlice))
+        assertEquals(0, alice.store.voiceChunkCount(received))
+        assertTrue(bob.store.voiceChunkCount(sent) > 0)
+        bob.service.deleteContact(aliceOnBob)
+        assertEquals(0, bob.store.voiceChunkCount(sent))
     }
 
     /** Bob scans Alice's invitation and Alice accepts. Returns (Alice's ID on Bob, Bob's ID on Alice). */

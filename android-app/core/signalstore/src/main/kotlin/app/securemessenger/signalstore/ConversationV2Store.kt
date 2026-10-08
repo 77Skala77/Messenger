@@ -30,7 +30,83 @@ enum class V2ContactState {
     KEY_CHANGED,
 }
 
-enum class V2MessageKind { HELLO, ACCEPT, TEXT, RECEIPT }
+/**
+ * [PLAYED]: the contact's voice message was played here (DEC-036; every voice message since DEC-039); [DELETE]: "delete for both"
+ * (DEC-037). Both are control messages like [RECEIPT]: never shown.
+ */
+enum class V2MessageKind { HELLO, ACCEPT, TEXT, RECEIPT, VOICE, PLAYED, DELETE }
+
+/** Where a voice message's recording is (DEC-036). */
+enum class V2MediaState {
+    /** Ours: its encrypted pieces are still going up to the relay; the message itself waits for them. */
+    UPLOADING,
+
+    /** The contact's: its pieces are still to be fetched; no receipt until they are all here. */
+    DOWNLOADING,
+
+    /** The whole recording is on this phone (ours: also uploaded). */
+    READY,
+
+    /** The contact's recording could not be fetched in time, or did not check out. */
+    UNAVAILABLE,
+
+    /** The contact's one-time recording was played: its pieces are deleted from this phone. */
+    PLAYED,
+}
+
+/**
+ * A voice message's description (DEC-036): what the encrypted payload carries and what this phone
+ * keeps, vault-encrypted. [queueReadSecret] opens the one-time relay queue that holds the encrypted
+ * pieces of the recording; [key] decrypts them; [digest] checks the whole. Never logged, never shown.
+ */
+class V2VoiceNote(
+    val queueReadSecret: ByteArray,
+    val key: ByteArray,
+    val digest: ByteArray,
+    val plaintextSize: Int,
+    val chunkCount: Int,
+    val durationMillis: Int,
+    /** One loudness value (0 to 31) per slice of the recording, for the bars in the bubble. */
+    val waveform: ByteArray,
+    val codec: Int,
+    /** A one-time recording: the receiving phone plays it once and then deletes it. */
+    val once: Boolean = false,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is V2VoiceNote && queueReadSecret.contentEquals(other.queueReadSecret) && key.contentEquals(other.key) &&
+            digest.contentEquals(other.digest) && plaintextSize == other.plaintextSize && chunkCount == other.chunkCount &&
+            durationMillis == other.durationMillis && waveform.contentEquals(other.waveform) && codec == other.codec &&
+            once == other.once
+
+    override fun hashCode(): Int = digest.contentHashCode()
+
+    override fun toString(): String = "V2VoiceNote(redacted)"
+}
+
+/**
+ * What a screen may know about a voice message: no key, no queue. [once]: a one-time recording.
+ * [listened] (Room v13, DEC-039): the contact's was played here, or ours was played by the contact
+ * ("played", type 7); until then Telegram's small dot stands next to its length.
+ */
+class V2VoiceInfo(
+    val durationMillis: Int,
+    val waveform: ByteArray,
+    val state: V2MediaState,
+    val once: Boolean = false,
+    val listened: Boolean = true,
+)
+
+/** Our voice message whose pieces are not all on the relay yet: [uploaded] of the note's pieces are. */
+class V2PendingUpload(val messageId: String, val note: V2VoiceNote, val uploaded: Int)
+
+/** The contact's voice message whose pieces are still to be fetched. */
+class V2PendingDownload(
+    val messageId: String,
+    val contactId: String,
+    val innerMessageIdHex: String,
+    val note: V2VoiceNote,
+    val createdAtEpochMillis: Long,
+)
 
 enum class V2MessageStatus { PENDING, SENT, DELIVERED, RECEIVED, FAILED }
 
@@ -115,6 +191,11 @@ class V2OutgoingEnvelope(
     val attemptCount: Int,
     /** Earliest time of the next attempt after a failure; null means now. */
     val nextAttemptAtEpochMillis: Long? = null,
+    /**
+     * A voice message whose recording is still going up (DEC-036): it is not sent yet, and the
+     * contact's later envelopes wait behind it, so the order stays and no note arrives without its recording.
+     */
+    val waitsForMedia: Boolean = false,
 )
 
 class V2StoredMessage(
@@ -131,6 +212,8 @@ class V2StoredMessage(
     val createdAtEpochMillis: Long,
     /** The inner message ID of the text this one answers (DEC-035), either direction; null for a plain text. */
     val replyToInnerIdHex: String? = null,
+    /** Set for a voice message (DEC-036); its [text] is then empty. */
+    val voice: V2VoiceInfo? = null,
 )
 
 /**
@@ -235,18 +318,19 @@ interface ConversationV2Store {
     fun latestIncomingTextTime(contactId: String): Long?
 
     /**
-     * Deletes this chat's texts that have nothing left to do (DEC-035): every incoming one, and every
-     * outgoing one already handed to the relay. A text still waiting to be sent keeps its envelope and
-     * stays; control messages are untouched. Returns how many were deleted.
+     * Deletes this chat's texts and voice messages that have nothing left to do (DEC-035): every
+     * incoming one, and every outgoing one already handed to the relay, with the stored pieces of the
+     * voice messages among them. A message still waiting to be sent keeps its envelope and stays;
+     * control messages are untouched. Returns how many messages were deleted.
      */
     fun clearTexts(contactId: String): Int
 
-    /** Incoming texts of a contact or request, oldest first. */
+    /** Incoming texts and voice messages of a contact or request, oldest first. */
     fun incomingTexts(contactId: String): List<V2StoredMessage>
 
     /**
-     * Visible texts of a contact in both directions, oldest first (control messages excluded); texts
-     * with the same time in the order they were stored, never by their random IDs.
+     * Visible messages (texts and voice messages) of a contact in both directions, oldest first
+     * (control messages excluded); equal times in the order they were stored, never by their random IDs.
      */
     fun texts(contactId: String): List<V2StoredMessage>
 
@@ -283,8 +367,84 @@ interface ConversationV2Store {
 
     fun recordFailed(messageId: String, attemptCount: Int, nextAttemptAtEpochMillis: Long)
 
-    /** Marks this contact's outgoing TEXT with that inner ID delivered; false if there is none. */
+    /** Marks this contact's outgoing TEXT or VOICE with that inner ID delivered; false if there is none. */
     fun markDelivered(contactId: String, innerMessageIdHex: String): Boolean
 
+    /** Deletes every message of this contact or request, with the stored pieces of its voice messages. */
     fun deleteMessagesFor(contactId: String)
+
+    // --- Voice messages (DEC-036). The pieces are stored exactly as they travel: encrypted under the
+    // note's key, which is stored vault-encrypted with the message. ---
+
+    /**
+     * Queues our voice message: its envelope (held back until every piece is uploaded, see
+     * [V2OutgoingEnvelope.waitsForMedia]), its note (vault-encrypted) and its encrypted pieces.
+     * [replyToInnerIdHex] names the message it answers (DEC-035), or null.
+     */
+    fun enqueueOutgoingVoice(
+        envelope: V2OutgoingEnvelope,
+        note: V2VoiceNote,
+        chunks: List<ByteArray>,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String? = null,
+    )
+
+    /** Our voice messages whose pieces are not all uploaded, oldest first. */
+    fun pendingVoiceUploads(): List<V2PendingUpload>
+
+    /** [uploaded] pieces of our voice message are on the relay; with all of them it is ready and may be sent. */
+    fun recordVoiceUploaded(messageId: String, uploaded: Int)
+
+    /**
+     * Stores the contact's voice message as waiting for its recording; false (and nothing stored) if
+     * this contact's message with that inner ID already exists. No receipt is due yet.
+     */
+    fun storeIncomingVoice(
+        contactId: String,
+        innerMessageIdHex: String,
+        note: V2VoiceNote,
+        createdAtEpochMillis: Long,
+        replyToInnerIdHex: String? = null,
+    ): Boolean
+
+    /** The contacts' voice messages whose pieces are still to be fetched, oldest first. */
+    fun pendingVoiceDownloads(): List<V2PendingDownload>
+
+    /** Stores one piece of a voice message; false if that piece is already stored. */
+    fun storeVoiceChunk(messageId: String, index: Int, chunk: ByteArray): Boolean
+
+    fun voiceChunk(messageId: String, index: Int): ByteArray?
+
+    fun storedVoiceChunkIndices(messageId: String): Set<Int>
+
+    fun setVoiceState(messageId: String, state: V2MediaState)
+
+    /**
+     * Marks a voice message in either direction listened (DEC-039): the contact's was played here, or
+     * ours was played by the contact. Returns true only if it was not listened before.
+     */
+    fun setVoiceListened(messageId: String): Boolean
+
+    fun deleteVoiceChunks(messageId: String)
+
+    /** The note of a voice message in either direction, for playing it; null if there is none. */
+    fun voiceNote(messageId: String): V2VoiceNote?
+
+    /** The state of a voice message in either direction; null if there is none. */
+    fun voiceState(messageId: String): V2MediaState?
+
+    /** Whether a voice message is ours (true) or the contact's (false); null if there is none. */
+    fun voiceIsOutgoing(messageId: String): Boolean?
+
+    /** A text or voice message by its local ID, as a chat shows it; null if there is none. */
+    fun message(messageId: String): V2StoredMessage?
+
+    /** This chat's text or voice message in one direction by its inner message ID; null if there is none. */
+    fun messageByInnerId(contactId: String, innerMessageIdHex: String, outgoing: Boolean): V2StoredMessage?
+
+    /**
+     * Deletes one text or voice message with its stored pieces (DEC-037); an outgoing one still
+     * waiting to be sent loses its envelope too and is never sent. False if there was none.
+     */
+    fun deleteMessage(messageId: String): Boolean
 }

@@ -135,7 +135,7 @@ internal object ChatSwipeSetting {
 internal class SwipeLook(val color: Color, @DrawableRes val icon: Int, @StringRes val label: Int)
 
 /** Telegram's colors for the band (`chats_archiveBackground`, `dialogSwipeRemove`) and the reveal (`chats_archivePinBackground`). */
-private val SwipeRemove = Color(0xFFE56555)
+internal val SwipeRemove = Color(0xFFE56555)
 private val SwipeReveal = Color(0xFF9FAAB3)
 
 /** The look of [action] on a chat in its present state, or null when it would do nothing (read with nothing unread). */

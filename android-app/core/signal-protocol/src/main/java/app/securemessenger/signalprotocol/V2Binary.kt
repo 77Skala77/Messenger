@@ -57,6 +57,11 @@ internal class V2Writer {
         output.writeByte(value)
     }
 
+    fun u16(value: Int) = apply {
+        require(value in 0..0xFFFF)
+        output.writeShort(value)
+    }
+
     fun i32(value: Int) = apply { output.writeInt(value) }
 
     fun i64(value: Long) = apply { output.writeLong(value) }
@@ -88,6 +93,8 @@ internal class V2Reader(private val bytes: ByteArray) {
     }
 
     fun u8(): Int = raw(1)[0].toInt() and 0xFF
+
+    fun u16(): Int = ByteBuffer.wrap(raw(2)).short.toInt() and 0xFFFF
 
     fun i32(): Int = ByteBuffer.wrap(raw(4)).int
 

@@ -237,6 +237,75 @@ class SecureDatabaseMigrationInstrumentedTest {
     }
 
     /**
+     * DEC-036: Room v12 adds the recording's state and upload progress to every message (none has a
+     * recording yet) and an empty table for the pieces. Every row survives byte for byte.
+     */
+    @Test
+    fun migrationElevenToTwelveAddsVoiceColumnsAndThePiecesTableAndKeepsEveryRow() {
+        migrationHelper.createDatabase(TEST_DATABASE, 11).use { db ->
+            db.execSQL(
+                "INSERT INTO v2_messages (messageId, contactId, outgoing, kind, innerMessageIdHex, encryptedBody, status, " +
+                    "createdAtEpochMillis, peerQueueId, envelope, deliveryAttemptCount, nextRetryAtEpochMillis, isRead, replyToInnerIdHex) " +
+                    "VALUES ('m', 'c', 0, 'TEXT', '01', X'0C0D', 'RECEIVED', 5, NULL, NULL, 0, NULL, 0, 'ab')",
+            )
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(TEST_DATABASE, 12, true, SecureMessengerDatabase.MIGRATION_11_12)
+        migrated.query("SELECT hex(encryptedBody), isRead, replyToInnerIdHex, mediaState, mediaProgress FROM v2_messages").use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("0C0D", cursor.getString(0))
+            assertEquals(0, cursor.getInt(1))
+            assertEquals("ab", cursor.getString(2))
+            assertTrue(cursor.isNull(3))
+            assertEquals(0, cursor.getInt(4))
+        }
+        migrated.query("SELECT COUNT(*) FROM v2_media_chunks").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
+    /**
+     * DEC-039: Room v13 adds "listened" to every message. Voice messages stored before it count as
+     * listened (no old one gets the dot or sends "played" late); a text keeps the default. Every row
+     * survives byte for byte.
+     */
+    @Test
+    fun migrationTwelveToThirteenMarksOldVoiceMessagesListenedAndKeepsEveryRow() {
+        migrationHelper.createDatabase(TEST_DATABASE, 12).use { db ->
+            db.execSQL(
+                "INSERT INTO v2_messages (messageId, contactId, outgoing, kind, innerMessageIdHex, encryptedBody, status, " +
+                    "createdAtEpochMillis, peerQueueId, envelope, deliveryAttemptCount, nextRetryAtEpochMillis, isRead, replyToInnerIdHex, " +
+                    "mediaState, mediaProgress) VALUES ('t', 'c', 0, 'TEXT', '01', X'0C0D', 'RECEIVED', 5, NULL, NULL, 0, NULL, 0, NULL, NULL, 0)",
+            )
+            db.execSQL(
+                "INSERT INTO v2_messages (messageId, contactId, outgoing, kind, innerMessageIdHex, encryptedBody, status, " +
+                    "createdAtEpochMillis, peerQueueId, envelope, deliveryAttemptCount, nextRetryAtEpochMillis, isRead, replyToInnerIdHex, " +
+                    "mediaState, mediaProgress) VALUES ('v', 'c', 1, 'VOICE', '02', X'0E0F', 'SENT', 6, NULL, NULL, 1, NULL, 1, 'ab', 'READY', 3)",
+            )
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(TEST_DATABASE, 13, true, SecureMessengerDatabase.MIGRATION_12_13)
+        migrated.query("SELECT messageId, hex(encryptedBody), replyToInnerIdHex, mediaState, mediaProgress, mediaListened FROM v2_messages ORDER BY messageId").use { cursor ->
+            assertEquals(2, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("t", cursor.getString(0))
+            assertEquals("0C0D", cursor.getString(1))
+            assertEquals(0, cursor.getInt(5))
+            cursor.moveToNext()
+            assertEquals("v", cursor.getString(0))
+            assertEquals("0E0F", cursor.getString(1))
+            assertEquals("ab", cursor.getString(2))
+            assertEquals("READY", cursor.getString(3))
+            assertEquals(3, cursor.getInt(4))
+            assertEquals(1, cursor.getInt(5))
+        }
+        migrated.close()
+    }
+
+    /**
      * DEC-035: Room v11 only adds three nullable columns. Every row survives byte for byte, every chat
      * is unpinned and unmuted, every stored text answers nothing, and the seen marks stay as they were.
      */

@@ -155,6 +155,88 @@ class EnvelopeV2Test {
         }
     }
 
+    /** DEC-036: a voice note travels as type 6, and only with fields within the rules. */
+    @Test
+    fun aVoiceNoteRoundTripsAndABrokenOneIsRejected() {
+        val note = voiceNote()
+        val encoded = InnerPayloadV2Codec.encode(InnerPayloadV2.Voice(RandomId.random(random), NOW, note))
+        assertEquals(6, encoded[5].toInt())
+        val decoded = InnerPayloadV2Codec.decode(encoded) as InnerPayloadV2.Voice
+        assertEquals(note, decoded.note)
+        assertNull(decoded.replyTo)
+        assertArrayEquals(encoded, InnerPayloadV2Codec.encode(decoded))
+
+        // An answer to another message carries its inner ID after the note (DEC-035 with DEC-036).
+        val answered = RandomId.random(random)
+        val reply = InnerPayloadV2Codec.encode(InnerPayloadV2.Voice(RandomId.random(random), NOW, note, answered))
+        assertEquals(answered, (InnerPayloadV2Codec.decode(reply) as InnerPayloadV2.Voice).replyTo)
+
+        // A one-time recording says so; nothing else changes.
+        val once = InnerPayloadV2Codec.encode(InnerPayloadV2.Voice(RandomId.random(random), NOW, voiceNote(once = true)))
+        assertTrue((InnerPayloadV2Codec.decode(once) as InnerPayloadV2.Voice).note.once)
+        assertFalse(decoded.note.once)
+
+        // The last bytes before the padding marker: the codec, the options, then the reply marker (0 here).
+        val marker = encoded.indexOfLast { it != 0.toByte() }
+        // An unknown codec.
+        expectMalformedPayload(encoded.copyOf().also { it[marker - 3] = 2 })
+        // An option this app does not know.
+        expectMalformedPayload(encoded.copyOf().also { it[marker - 2] = 2 })
+        expectMalformedPayload(encoded.copyOf().also { it[marker - 2] = 0x81.toByte() })
+        // A reply marker other than 0 or 1, and a 1 with no ID behind it.
+        expectMalformedPayload(encoded.copyOf().also { it[marker - 1] = 2 })
+        expectMalformedPayload(encoded.copyOf().also { it[marker - 1] = 1 })
+        // A message that answers itself.
+        val self = RandomId.random(random)
+        assertThrows(IllegalArgumentException::class.java) {
+            InnerPayloadV2Codec.encode(InnerPayloadV2.Voice(self, NOW, note, self))
+        }
+        // A number of pieces that does not fit the size (after the 30-byte header, three 32-byte values and the size).
+        expectMalformedPayload(encoded.copyOf().also { it[30 + 96 + 4] = 9 })
+        // Cut short inside the key.
+        expectMalformedPayload(encoded.copyOf().also { bytes -> bytes[40] = 0x80.toByte(); bytes.fill(0, 41, bytes.size) })
+        assertThrows(IllegalArgumentException::class.java) {
+            InnerPayloadV2Codec.encode(InnerPayloadV2.Voice(RandomId.random(random), NOW, voiceNote(durationMillis = 0)))
+        }
+    }
+
+    /** DEC-036 and DEC-037: "played" names one message; "delete for both" 1 to 100 distinct ones, never itself. */
+    @Test
+    fun playedAndDeleteRoundTripAndBrokenOnesAreRejected() {
+        val original = RandomId.random(random)
+        val played = InnerPayloadV2Codec.decode(InnerPayloadV2Codec.encode(InnerPayloadV2.Played(RandomId.random(random), NOW, original)))
+        assertEquals(original, (played as InnerPayloadV2.Played).originalMessageId)
+
+        val targets = List(InnerPayloadV2Codec.MAX_DELETE_TARGETS) { RandomId.random(random) }
+        val delete = InnerPayloadV2Codec.encode(InnerPayloadV2.Delete(RandomId.random(random), NOW, targets))
+        assertEquals(targets, (InnerPayloadV2Codec.decode(delete) as InnerPayloadV2.Delete).targets)
+
+        val one = InnerPayloadV2Codec.encode(InnerPayloadV2.Delete(RandomId.random(random), NOW, listOf(original)))
+        // The count is the first byte after the 30-byte header.
+        expectMalformedPayload(one.copyOf().also { it[30] = 0 })
+        expectMalformedPayload(one.copyOf().also { it[30] = 2 })
+        val self = RandomId.random(random)
+        listOf(emptyList(), List(InnerPayloadV2Codec.MAX_DELETE_TARGETS + 1) { RandomId.random(random) }, listOf(original, original), listOf(self)).forEach { bad ->
+            assertThrows(IllegalArgumentException::class.java) { InnerPayloadV2Codec.encode(InnerPayloadV2.Delete(self, NOW, bad)) }
+        }
+    }
+
+    private fun voiceNote(durationMillis: Int = 7_000, once: Boolean = false): app.securemessenger.signalstore.V2VoiceNote {
+        val key = ByteArray(VoiceMedia.KEY_BYTES).also(random::nextBytes)
+        val sealed = VoiceMedia.seal(ByteArray(1_000).also(random::nextBytes), key)
+        return app.securemessenger.signalstore.V2VoiceNote(
+            queueReadSecret = app.securemessenger.domain.RelayQueueCredentials.generate(random).readSecret(),
+            key = key,
+            digest = sealed.digest,
+            plaintextSize = sealed.plaintextSize,
+            chunkCount = sealed.pieces.size,
+            durationMillis = durationMillis,
+            waveform = ByteArray(30) { (it % 32).toByte() },
+            codec = VoiceMedia.CODEC_AAC_ADTS,
+            once = once,
+        )
+    }
+
     @Test
     fun envelopeRoundTripsAndRejectsLegacyAndDamagedBytes() {
         val ciphertext = SignalCiphertext(CiphertextMessage.WHISPER_TYPE, ByteArray(90) { it.toByte() })

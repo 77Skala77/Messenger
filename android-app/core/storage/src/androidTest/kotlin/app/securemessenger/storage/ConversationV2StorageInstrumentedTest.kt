@@ -9,7 +9,9 @@ import app.securemessenger.signalstore.V2Contact
 import app.securemessenger.signalstore.V2ContactRequest
 import app.securemessenger.signalstore.V2ContactState
 import app.securemessenger.signalstore.V2Invitation
+import app.securemessenger.signalstore.V2MediaState
 import app.securemessenger.signalstore.V2MessageKind
+import app.securemessenger.signalstore.V2VoiceNote
 import app.securemessenger.signalstore.V2OutgoingEnvelope
 import app.securemessenger.signalstore.V2Route
 import kotlinx.coroutines.runBlocking
@@ -357,6 +359,134 @@ class ConversationV2StorageInstrumentedTest {
         assertThrows(IllegalArgumentException::class.java) {
             repository.enqueueOutgoing(outgoing("bad", "contact-1", V2MessageKind.RECEIPT, "d0d1d2d3d4d5d6d7d8d9dadbdcdddedf"), null, 11, INNER_1)
         }
+    }
+
+    /**
+     * DEC-036 on Room: a voice message's note is vault-encrypted, its pieces are kept as given, its
+     * state follows the upload or the download, and clearing and the wipe take the pieces with them.
+     */
+    @Test
+    fun voiceMessagesKeepTheirNoteEncryptedAndTheirPiecesUntilCleared() {
+        val note = V2VoiceNote(
+            queueReadSecret = ByteArray(32) { 1 },
+            key = ByteArray(32) { 0x5A },
+            digest = ByteArray(32) { 3 },
+            plaintextSize = 60_000,
+            chunkCount = 2,
+            durationMillis = 5_000,
+            waveform = byteArrayOf(1, 2, 3),
+            codec = 1,
+        )
+        repository.enqueueOutgoingVoice(outgoing("voice-out", "contact-1", V2MessageKind.VOICE, INNER_1), note, listOf(byteArrayOf(1), byteArrayOf(2)), 10)
+        assertEquals(listOf("voice-out"), repository.pendingVoiceUploads().map { it.messageId })
+        assertTrue("the note's envelope waits for its recording", repository.unsentOutgoing().single().waitsForMedia)
+        val raw = String(dao.getV2Message("voice-out")!!.encryptedBody!!, Charsets.ISO_8859_1)
+        assertFalse("the key is not stored in clear", raw.contains(String(note.key, Charsets.ISO_8859_1)))
+        repository.recordVoiceUploaded("voice-out", 1)
+        assertEquals(V2MediaState.UPLOADING, repository.voiceState("voice-out"))
+        repository.recordVoiceUploaded("voice-out", 2)
+        assertEquals(V2MediaState.READY, repository.voiceState("voice-out"))
+        assertFalse(repository.unsentOutgoing().single().waitsForMedia)
+        assertEquals(note, repository.voiceNote("voice-out"))
+
+        // The contact's answer to our voice message, itself a voice message.
+        assertTrue(repository.storeIncomingVoice("contact-1", INNER_2, note, 20, INNER_1))
+        assertFalse(repository.storeIncomingVoice("contact-1", INNER_2, note, 21, null))
+        val incoming = repository.pendingVoiceDownloads().single()
+        assertTrue(repository.storeVoiceChunk(incoming.messageId, 0, byteArrayOf(9)))
+        assertFalse(repository.storeVoiceChunk(incoming.messageId, 0, byteArrayOf(8)))
+        assertEquals(setOf(0), repository.storedVoiceChunkIndices(incoming.messageId))
+        assertArrayEquals(byteArrayOf(9), repository.voiceChunk(incoming.messageId, 0))
+        val shown = repository.texts("contact-1")
+        assertEquals(listOf(V2MediaState.READY, V2MediaState.DOWNLOADING), shown.map { it.voice!!.state })
+        assertEquals(listOf("", ""), shown.map { it.text })
+        assertEquals(listOf(null, INNER_1), shown.map { it.replyToInnerIdHex })
+        assertTrue(repository.hasText("contact-1", INNER_1))
+        assertEquals(mapOf("contact-1" to 1), repository.unreadCounts())
+
+        // Clearing: our voice message still holds its envelope and stays; the incoming one goes with its piece.
+        assertEquals(1, repository.clearTexts("contact-1"))
+        assertTrue(repository.storedVoiceChunkIndices(incoming.messageId).isEmpty())
+        assertEquals(setOf(0, 1), repository.storedVoiceChunkIndices("voice-out"))
+
+        LocalProfileRepository(dao, vault).wipeLocalData()
+        assertTrue(repository.storedVoiceChunkIndices("voice-out").isEmpty())
+    }
+
+    /** DEC-037 on Room: one message goes, with its pieces; control rows and the other messages stay. */
+    @Test
+    fun aSingleMessageIsDeletedAndFoundByItsInnerId() {
+        assertTrue(repository.storeIncomingText("contact-1", INNER_1, "first", 1, null))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_2, "second", 2, null))
+        repository.enqueueOutgoing(outgoing("rcpt", "contact-1", V2MessageKind.RECEIPT, INNER_3), null, 3, null)
+        val first = repository.messageByInnerId("contact-1", INNER_1, outgoing = false)!!
+        assertEquals("first", first.text)
+        assertEquals("first", repository.message(first.messageId)!!.text)
+        assertNull(repository.messageByInnerId("contact-1", INNER_1, outgoing = true))
+        assertNull(repository.messageByInnerId("contact-2", INNER_1, outgoing = false))
+        assertNull("a control row is not a message", repository.message("rcpt"))
+
+        assertTrue(repository.deleteMessage(first.messageId))
+        assertFalse(repository.deleteMessage(first.messageId))
+        assertFalse("a control message is not deleted this way", repository.deleteMessage("rcpt"))
+        assertEquals(listOf("second"), repository.texts("contact-1").map { it.text })
+        assertEquals(listOf("rcpt"), repository.unsentOutgoing().map { it.messageId })
+    }
+
+    /** DEC-036 on Room: a one-time note keeps its mark through the vault, and "played" is a state of its own. */
+    @Test
+    fun aOneTimeNoteKeepsItsMarkAndCanBeMarkedPlayed() {
+        val note = V2VoiceNote(
+            queueReadSecret = ByteArray(32) { 2 },
+            key = ByteArray(32) { 4 },
+            digest = ByteArray(32) { 6 },
+            plaintextSize = 1_000,
+            chunkCount = 1,
+            durationMillis = 2_000,
+            waveform = byteArrayOf(5),
+            codec = 1,
+            once = true,
+        )
+        assertTrue(repository.storeIncomingVoice("contact-1", INNER_1, note, 10, null))
+        val id = repository.pendingVoiceDownloads().single().messageId
+        assertEquals(note, repository.voiceNote(id))
+        assertTrue(repository.voiceNote(id)!!.once)
+        assertEquals(false, repository.voiceIsOutgoing(id))
+        assertNull(repository.voiceIsOutgoing("nothing"))
+        assertTrue(repository.texts("contact-1").single().voice!!.once)
+
+        repository.storeVoiceChunk(id, 0, byteArrayOf(1))
+        repository.setVoiceState(id, V2MediaState.PLAYED)
+        repository.deleteVoiceChunks(id)
+        assertEquals(V2MediaState.PLAYED, repository.voiceState(id))
+        assertTrue(repository.storedVoiceChunkIndices(id).isEmpty())
+        assertTrue("a played recording is no longer fetched", repository.pendingVoiceDownloads().isEmpty())
+    }
+
+    /** DEC-039 on Room: a new voice message is not listened; the mark is set once, and only on voice messages. */
+    @Test
+    fun aVoiceMessageIsMarkedListenedOnce() {
+        val note = V2VoiceNote(
+            queueReadSecret = ByteArray(32) { 2 },
+            key = ByteArray(32) { 4 },
+            digest = ByteArray(32) { 6 },
+            plaintextSize = 1_000,
+            chunkCount = 1,
+            durationMillis = 2_000,
+            waveform = byteArrayOf(5),
+            codec = 1,
+        )
+        assertTrue(repository.storeIncomingVoice("contact-1", INNER_1, note, 10, null))
+        assertTrue(repository.storeIncomingText("contact-1", INNER_2, "a text", 11, null))
+        val voice = repository.texts("contact-1").single { it.voice != null }
+        val text = repository.texts("contact-1").single { it.voice == null }
+        assertFalse(voice.voice!!.listened)
+
+        assertTrue(repository.setVoiceListened(voice.messageId))
+        assertFalse("only once", repository.setVoiceListened(voice.messageId))
+        assertFalse("never a text", repository.setVoiceListened(text.messageId))
+        assertFalse(repository.setVoiceListened("nothing"))
+        assertTrue(repository.texts("contact-1").single { it.voice != null }.voice!!.listened)
     }
 
     private fun V2Contact.withVerifiedAt(time: Long) = V2Contact(

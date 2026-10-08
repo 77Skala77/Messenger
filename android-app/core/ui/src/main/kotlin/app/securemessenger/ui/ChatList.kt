@@ -151,6 +151,8 @@ private fun ChatPreviewText(chat: V2ChatSummary, modifier: Modifier) {
     val colors = MaterialTheme.messenger
     val preview = chatPreview(chat)
     val you = stringResource(R.string.chat_preview_you)
+    val voiceText = stringResource(R.string.voice_message)
+    val onceText = stringResource(R.string.voice_once)
     val text = when (preview) {
         // Our own newest text starts with "You:" in the accent color, like Telegram's list.
         is ChatPreview.LastText -> buildAnnotatedString {
@@ -159,6 +161,14 @@ private fun ChatPreviewText(chat: V2ChatSummary, modifier: Modifier) {
                 append(" ")
             }
             append(preview.text)
+        }
+        // A voice message is named in the accent color, like Telegram's media in the list (DEC-036).
+        is ChatPreview.Voice -> buildAnnotatedString {
+            if (preview.outgoing) {
+                withStyle(SpanStyle(color = colors.link)) { append(you) }
+                append(" ")
+            }
+            withStyle(SpanStyle(color = colors.link)) { append(if (preview.once) onceText else voiceText) }
         }
         is ChatPreview.ContactState -> AnnotatedString(stateLabel(preview.state))
         ChatPreview.NoMessages -> AnnotatedString(stringResource(R.string.chat_preview_no_messages))

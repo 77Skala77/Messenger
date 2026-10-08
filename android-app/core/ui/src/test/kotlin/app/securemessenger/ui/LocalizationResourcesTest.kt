@@ -36,6 +36,17 @@ class LocalizationResourcesTest {
         "V2BackgroundSync.kt",
         "LegacyReset.kt",
         "V2Availability.kt",
+        "VoiceMessages.kt",
+        "VoiceModel.kt",
+        "VoicePlayer.kt",
+        "VoiceRecorder.kt",
+        "TelegramSettings.kt",
+        "ChatWallpaper.kt",
+        "BubbleGradient.kt",
+        "HomeTabs.kt",
+        "OnceVoicePlayer.kt",
+        "MessageDust.kt",
+        "Glass.kt",
     ).map { File("src/main/kotlin/app/securemessenger/ui/$it") }
 
     @Test
@@ -114,6 +125,26 @@ class LocalizationResourcesTest {
         }
         assertTrue(connection.contains("if (!V2Availability.isAvailable(context) || !enabled(context)) return"))
         assertTrue(connection.contains("if (!V2Availability.isAvailable(this) || !BackgroundConnection.enabled(this))"))
+    }
+
+    /**
+     * DEC-036: the microphone exists only where chats exist (debug), and a recording never touches a
+     * file: the recorder and the player work from memory only, and nothing of theirs logs.
+     */
+    @Test
+    fun `voice messages are debug only and never written to a file`() {
+        val mainManifest = File("src/main/AndroidManifest.xml").readText()
+        val debugManifest = File("src/debug/AndroidManifest.xml").readText()
+        assertFalse("the release manifest asks for the microphone", mainManifest.contains("RECORD_AUDIO"))
+        assertTrue("the debug manifest lacks the microphone", debugManifest.contains("android.permission.RECORD_AUDIO"))
+        listOf("VoiceRecorder.kt", "VoicePlayer.kt", "VoiceMessages.kt").forEach { name ->
+            val source = File("src/main/kotlin/app/securemessenger/ui/$name").readText()
+            listOf("FileOutputStream", "File(", "cacheDir", "filesDir", "createTempFile", "MediaRecorder.OutputFormat", "setOutputFile").forEach { banned ->
+                assertFalse("$name uses $banned", source.contains(banned))
+            }
+        }
+        val player = File("src/main/kotlin/app/securemessenger/ui/VoicePlayer.kt").readText()
+        assertTrue("the player reads from memory", player.contains("MediaDataSource()"))
     }
 
     @Test
