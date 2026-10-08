@@ -73,6 +73,10 @@ When changing an accepted decision:
 | DEC-032 | TQ-108: a lost inbox secret blocks with its own explanation; screen security a switch (off), invitation screens not protected; used invitations withdrawn from the relay; envelope digests kept 30 days | ACCEPTED |
 | DEC-034 | Message order by the sender's authenticated time (within one minute before arrival, never before the contact's previous text); background connection every 30 s through a foreground service (on by default, switch in settings, battery exemption asked) | ACCEPTED (owner, 2026-10-06) |
 | DEC-035 | Chat management and replies: pin, mute (for a time or for good), mark read, clear history, delete chat with its contact and keys (owner's choice); swipe and selection like Telegram; replies as inner payload type 5; Room v11 (three nullable columns) | ACCEPTED (owner, 2026-10-06) |
+| DEC-036 | Voice messages (no calls): recorded into memory as AAC, at most 15 minutes; the recording travels as AES-256-GCM pieces in a one-time relay queue, the note with key and secret as inner payload type 6; "Delivered" only once the recording itself arrived; pause and listen before sending; one-time recordings with a "played" message back (type 7, like Telegram); Room v12 | ACCEPTED (owner, 2026-10-06) |
+| DEC-037 | Deleting single messages, on this phone or for both (inner payload type 8, like Telegram), with the bubble falling apart into dust; the chat screen in Telegram 12's glass look, edge to edge | ACCEPTED (owner, 2026-10-06) |
+| DEC-038 | Telegram's own looks: the dark theme becomes Telegram's default "Dark Blue" (blue-to-violet outgoing bubbles), both themes get Telegram's default wallpaper (its gradient and doodle pattern), the settings take Telegram 12's layout, the recording controls Telegram's animations and tooltips; turning the phone keeps the open screen | ACCEPTED (owner, 2026-10-07) |
+| DEC-039 | "Played" for every voice message (Telegram's dot until the recipient presses play; type 7 widened, Room v13), seek and trim of voice messages, finer dust with a snap, the glass rim and the "down" button fixed, Telegram 12's main screen with bottom tabs | ACCEPTED (owner, 2026-10-07) |
 
 ---
 
@@ -1507,6 +1511,366 @@ the wrong channel claim above (fixed); the rest passed.
 
 ---
 
+## DEC-039 — "Played" for every voice message; trim, seek, the main screen's tabs
+
+**Status:** ACCEPTED (2026-10-07, the owner's requests the same day after the hand check of DEC-038:
+a voice message should show on both phones whether it was played, "like Telegram"; asked to choose,
+the owner took Telegram's way: a small dot next to the length until the recipient presses play, two
+ticks still mean "delivered". Also: seek in a voice message, trim a paused recording, finer dust with
+a finger snap, the rim of the glass less visible, the round "down" button out of the way while
+recording, and Telegram 12's main screen with its bottom tabs). Written on Opus.
+
+### Decision
+
+- **"Played" for every voice message.** Pressing play on the contact's ordinary voice message marks
+  it listened on this phone and queues "played" (inner payload type 7, unchanged since DEC-036) for
+  the contact, once, in one transaction. The contact's app marks its copy listened (an ordinary one is
+  kept, a one-time one is deleted as before). Until then both phones show Telegram's dot (3 dp, in the
+  bars' played color, 6 dp after the length). Our own messages are never marked by playing them;
+  one-time recordings keep their own path (`playOnce`). A pending request gets no "played" (no
+  receipts for requests), a blocked contact nothing; the dot goes here all the same. Fetching a
+  recording to play it tells nothing by itself: only the screen's play does (`markVoiceListened`).
+- **Room v13**: one column, `mediaListened`, on `v2_messages`. Voice messages stored before it count
+  as listened.
+- **Seek like Telegram's** (`SeekBarWaveform`): a tap on the bars plays or pauses; a finger moved
+  0.2 cm sideways drags the place along (from where it was, not to where the finger is), shown as it
+  goes and taken on release; on a message not playing the place stays and is where it starts. The
+  contact's one-time recording cannot be dragged.
+- **Trim while paused** (`RecordedAudioPlayerView`): the paused recording has two white handles; the
+  parts cut off are darker with faint bars, a label in the middle plays the kept part and gives its
+  length. Sending sends only the kept part; recording on asks "Trim the recording?" the first time
+  (Telegram's "trimvoicehint") and then cuts it and goes on. The cut is made on whole AAC frames, in
+  memory: the frames kept move to the front, the rest of the buffer is zeroed; nothing is written to
+  a file (DEC-036 rule).
+- **Dust and snap.** The grains of a deleted message are as fine as Telegram's (0.4 dp, at most
+  24,000 per bubble, drawn in batches); a short finger snap plays as it falls apart (the owner's joke
+  on the effect's name). The snap is our own sound, made in code from noise and a tone; no recording
+  of a film or anything else is used. It follows the chat sounds' switch and silent mode.
+- **Glass rim.** The light along a pane's top and bottom is Telegram's sliver (the rounded edge
+  minus itself moved in by the stroke width), full width only in the middle and fading down the round
+  sides; ours was an even line all round, which the owner saw as a gray rim.
+- **The round "down" button** goes while a recording runs (it sat between the recording's buttons).
+- **Main screen with tabs** (Telegram 12, `MainTabsActivity`, `GlassTabView`): a pill of glass at the
+  bottom (56 dp, 8 dp from the edges, at most 344 dp wide) with Chats (counting unread chats that are
+  not muted, and requests), Contacts, Settings and Profile; the selected tab gets a pill of its color
+  at 9 percent and its icon filled; pages slide sideways. Contacts lists the contacts by name with
+  "My invitation" and "Add contact"; Settings is the settings page without a way back; Profile shows
+  this phone's profile and the invitation. The bar goes while chats are searched or selected; Back on
+  another tab returns to the chats. Folders and calls are not part of this messenger. The tab icons
+  are Telegram's (`tab_chats`, `tab_contacts`, `tab_settings` Lottie files, their outline and filled
+  frames turned into vectors).
+- **Second round, after the owner's check the same evening** (screenshots and three recordings, one
+  of Telegram filmed with another phone): the glass panes lose Telegram's light lines along top and
+  bottom altogether and read the picture behind with a margin (an empty margin showed as a band); the
+  tab icons are 24 dp as Telegram draws its Lottie (they were 44 dp); a screen hidden under another
+  is not drawn at all instead of drawn clear, so it draws afresh when it shows (the main screen
+  flickered black during a swipe back, an old copy of the chat showed when a page over it closed);
+  the swipe back leaves alone a drag along a voice message's bars or a trim handle and is off while a
+  recording runs (both took the person out of the chat); messages are selected as in Telegram (a long
+  press starts it, a round tick at the start of each line, a tap anywhere on a line ticks it, "N
+  selected" with reply and delete in the glass header; a tap on a bubble now opens its menu); a
+  message the contact deleted for both falls apart here too, with the snap; a one-time voice message
+  plays in Telegram's own player (the chat blurred behind it, the bubble moved toward the middle, a
+  note that it can be heard once, "Delete and close"; at the end the bubble falls apart into dust).
+  Then (the owner's recording): opening a settings page from the Settings tab flashed the chats and
+  Back led to the chats, not the settings. The screen stack built a screen anew whenever its part
+  changed (top to below and back), losing its state (the tab, a chat's scroll); its screens are now
+  emitted in one keyed loop from one call, so each keeps its composition. Also by the owner's
+  decision (2026-10-07, after the consequences were explained): the chat list no longer shows the
+  "Secure chats (test)" title, the red "test build, not independently reviewed" banner or the gray
+  note about fetching; the title is "Chats". The warning stays only on the onboarding screen and on
+  the release build's "not for messaging" screen; the lack of an independent audit is still true
+  (TQ-106) and nothing may claim otherwise. After the next check: a voice message could not be
+  selected by a long press (its bars and its bubble both answered and the second took the tick away
+  again); a long press now only adds, and works on the empty part of a message's line too; the tabs
+  lost the ripple square Telegram does not have; at start the onboarding screen and "No chats yet"
+  no longer flash before the profile and the chats are read. A message's line now spans the whole
+  width (the list lost its side padding, the bubble keeps 8 dp inside its line), so the long press and
+  the selection tint reach the edges. Checked 2026-10-07: ui JVM tests green; on both phones the voice,
+  conversation, conversation motion and chat list classes 38 of 38, and the home tabs, system Back and
+  settings classes earlier the same evening; installed on both.
+  No format or storage change in this round.
+
+### Compatibility (AGENTS.md checklist)
+
+1. Wire format: unchanged. Type 7 keeps its layout (the 16-byte inner ID); its meaning widens from
+   "our one-time recording was played" to "our voice message was played". Room: v12 to v13 adds one
+   column (`INTEGER NOT NULL DEFAULT 0`) and sets it to 1 for every stored voice message.
+2. An older app that gets "played" for an ordinary recording ignores it after authenticating it (its
+   rule accepts one-time recordings only): the dot stays there. An older app never sends it for
+   ordinary recordings: the dot stays here until the contact updates. Nothing fails.
+3. Migration and rollback: additive; a downgrade below v13 is not supported by Room (as before,
+   debug builds only).
+4. Confusion: "played" for a one-time recording still deletes it as before; for an ordinary one it
+   only sets the mark, once (a second one is ignored). Texts and unknown IDs are ignored as before.
+5. Existing data: kept; old voice messages count as listened, so none sends "played" late.
+6. Tests: `ConversationV2ServiceTest` (told once and shown on both phones, kept playable; not for our
+   own or one-time messages; not told to a request or a blocked contact; a forged or repeated
+   "played" sets the mark once and deletes nothing), the Room migration and repository tests, JVM
+   tests of the trim, the seek and the tab counter, device tests of the dot, the drag, the trim with
+   its question and the tabs.
+
+### Security notes
+
+- New signal about listening, chosen by the owner: the contact learns when a voice message was first
+  played on this phone (roughly, by when "played" arrives), as Telegram shows it. It travels inside
+  the end-to-end session like a receipt; the relay sees one more small envelope. There is still no
+  read receipt for texts, and no switch to turn "played" off (Telegram has none either).
+- Trimming wipes the cut-off sound from memory; the sent recording is the kept part only.
+- The snap and the tabs change no rule; the tab bar shows only what the list already shows.
+
+---
+
+## DEC-038 — Telegram's dark theme, wallpaper, settings and recording animations; turning the phone
+
+**Status:** ACCEPTED (2026-10-07, the owner's requests with screenshots and screen recordings the same
+day: the dark theme and the settings "laid out the same way as in Telegram", the chat background
+"like the original, more detailed, not cartoonish", the recording's animations "exactly as shown
+there", the hint of "1" next to it each time, and the open chat surviving a turn of the phone).
+Written on Opus. No protocol, storage or security rule changes.
+
+### Decision
+
+- **Dark theme = Telegram's default night theme "Dark Blue"** (the owner's Telegram uses it; its
+  colors were measured on the screenshots: ground #151E27, sections and lists #1D2733): the values of
+  `darkblue.attheme` with the default accent of `Theme.java`, among them outgoing bubbles filled
+  from one gradient fixed to the screen (blue below, violet above: #258DE5, #4272DF, #8146D7,
+  #9F3EAA; `MessageDrawable`). As before (DEC-027), a Telegram value that fails WCAG AA is darkened
+  or lightened just enough (the first two bubble colors, the grays, the badge and button blues;
+  `MessengerColorsTest` checks every stop of the gradient). The light theme stays the classic one.
+- **Text color by default.** Text without its own color now takes the theme's text color everywhere
+  (on dark grounds it was black: the owner's dark-settings screenshot).
+- **Wallpaper = Telegram's default.** Telegram's four-color gradient (`MotionBackgroundDrawable`; the
+  native `generateGradient`, rewritten in Kotlin: a 60 by 80 grid, the colors at four of eight points
+  on a ring, a slight twist, (0.9 - distance)⁴ weights) with its doodle pattern (`default_pattern.svg`,
+  copied unchanged, 507 KB, 745 shapes) drawn once into an alpha mask as wide as the phone's shorter
+  side and laid over it with "soft light": light #DBDDBB, #6BA587, #D5D88D, #88B884 with the pattern
+  in black at 34 percent (`Theme.createDefaultWallpaper`); dark #0E141A, #172431, #0F171E, #141C2B
+  with it in white at 38 percent. Each message of ours turns the colors one step on in 500 ms, as
+  Telegram does. Our own drawn doodles are gone.
+- **Settings in Telegram 12's layout** (`SettingsActivity`): the person's avatar and name on top,
+  rounded sections on the gray ground, entries with Telegram's colored tiles and white icons (its
+  `settings_*` vectors, copied unchanged), each opening its own page: chat settings (a preview chat
+  on the wallpaper, the theme as three cards, the swipe action), privacy (screen security, deleting
+  the local data), notifications and sounds, the background connection, the delivery server, the
+  language. Telegram's switch, radio button, headings and notes are drawn from its numbers. What
+  each setting does is unchanged; release builds still show no chat settings that do not exist there.
+- **Recording like Telegram's** (`ChatActivityEnterView`, `ControlsView`, `RecordCircle`, `RecordDot`,
+  `HintView2`): the circle follows the finger to the left and shrinks to 70 percent while it slides;
+  the lock climbs with the finger (only the lock, slightly tilted and open at rest) and goes away once
+  the slide is past 30 percent; locked, the lock becomes the pause button and "1" snaps in above it;
+  a cancel by the finger takes the circle back into the microphone; "CANCEL" or the bin plays
+  Telegram's bin (the red dot turns into a bin whose lid jumps; drawn after the frames of its
+  animation) while the timer slides away and the text field fades back in; paused, the circle goes
+  into the bar, which shows the recording as Telegram does (a blue strip, white bars, a white label
+  with play and the length) and a send button. Tooltips stand next to their button as Telegram's do:
+  "1" switched on says what it means each time (and nothing when switched off); after locking, the
+  pause button is pointed at the first four times; paused, "1" is explained the first three times.
+  The send sign stays an arrow: a white paper plane in a blue circle is Telegram's logo (DEC-033).
+- **Turning the phone keeps the open screen.** The activity handles orientation, size and the
+  system's dark mode itself (like Telegram's), so nothing is rebuilt: the open chat, a draft and a
+  recording stay, and onboarding no longer flashes on a slow phone. The app's screen stack is saved,
+  so a language change (which still rebuilds the activity) comes back to the same page.
+
+### Compatibility
+
+No wire, storage, invitation or vault format changes; no Room change. The theme choice and all
+settings keep their stored values. The wallpaper pattern lives only in memory (about 4 MB on a
+1440-pixel-wide phone, 1 MB on the Redmi).
+
+### Security notes
+
+- Screen security (`FLAG_SECURE`), notifications, the relay and the protocol are untouched. The
+  person's own name, shown at the top of the settings, is read from the vault like before and kept
+  only in memory.
+- The saved screen stack holds only the names of screens, nothing of the chats.
+
+---
+
+## DEC-037 — Deleting single messages, for this phone or for both; the glass chat screen
+
+**Status:** ACCEPTED (2026-10-06, the owner's requests the same day: "delete just that message, like
+Telegram, where it shatters into pieces", with the choice to delete it for the other person too; and
+the chat screen "as sleek as liquid glass", the wallpaper under the status bar and the navigation
+bar, taken from Telegram's code). Written on Opus.
+
+### Decision
+
+- **Delete a message.** A long press on a bubble (or the accessibility menu) offers "Delete" next to
+  "Reply". Telegram's dialog asks "Delete message" / "Are you sure you want to delete this message?"
+  with a tick "Also delete for <name>" (not offered for a blocked contact). The message goes from
+  this phone: its row, its vault-encrypted body or note, its stored pieces. An outgoing one still
+  waiting to be sent is never sent (its ratchet step is skipped; libsignal tolerates the gap); a
+  receipt already queued for it still goes. Quotes of it then say "Message not available".
+- **For both: inner payload type 8**, inside the session: a count (1 to 100) and that many distinct
+  inner message IDs of this chat, never its own. The contact's app deletes its copies of those
+  texts and voice messages, in either direction (Telegram allows that in private chats), when the
+  request arrives. Only this chat's messages can be named; control messages, other chats and
+  unknown IDs are ignored, and so is a request from a pending contact request.
+- **Dust.** The deleted bubble's picture falls apart into small squares that drift, float up and
+  fade from left to right in about a second and a half (Telegram's `ThanosEffect`, its particle rules
+  rewritten for the CPU), while the list closes the gap.
+- **The glass chat screen (Telegram 12).** The app draws edge to edge: the chat's wallpaper and
+  messages run under the status bar and the navigation bar, and every other screen keeps its content
+  clear of the bars (its top bar's color goes under the status bar) and of the keyboard. In the chat,
+  the header is three glass pills (back, the contact, the menu; no call button: there are no calls)
+  and the input bar a glass island with the microphone or send button in a blue circle. Glass is
+  what lies behind it, recorded every frame into a render node, blurred 6 dp with three times the
+  saturation, under the panel color at 85 percent, with Telegram's liquid-glass shader bending it at
+  the rim on Android 13 and later (`Glass.kt`; the shader is Telegram's, copied unchanged). Nothing
+  of the chat leaves the GPU for it; no bitmap is kept.
+
+### Compatibility (AGENTS.md checklist)
+
+1. Payload type 8 is new; the envelope and types 1 to 7 are unchanged. No Room change: deleting rows
+   uses a new query; nothing is added to the schema.
+2. An app that predates type 8 drops the request after authenticating it: the other copy stays.
+3. Migration and rollback: none needed.
+4. Confusion: type 8 is read only by its own strict rule (count 1 to 100, distinct IDs, not itself).
+5. Existing data: unchanged.
+6. Tests: `EnvelopeV2Test` and `V2DecoderFuzzTest` (types 7 and 8), `ConversationV2ServiceTest`
+   (here only sends nothing; for both deletes on the other phone in both directions; gone, unknown
+   or another chat's IDs change nothing; a blocked contact cannot be asked), the Room test of the
+   single delete, device tests of the menu, the dialog and the glass screen.
+
+### Security notes
+
+- A contact can delete our copy of any message of our chat with it, ours included (owner: as in
+  Telegram). It cannot reach another chat; the relay cannot forge the request (authenticated).
+- "Delete for both" is not a guarantee: the other phone may have shown, copied or screenshotted the
+  message already, may never get the request (an old app, a deleted contact), and deletion is not a
+  secure erase of the flash (DEC-014).
+- Edge to edge and the glass change no rule: screen security (`FLAG_SECURE`) and the notification
+  rules are untouched.
+
+---
+
+## DEC-036 — Voice messages (inner payload type 6, one-time relay queues, Room v12)
+
+**Status:** ACCEPTED (2026-10-06, the owner's answers the same day: voice messages only, no calls;
+at most 15 minutes; "Delivered" once the recording itself has arrived). Written on Opus.
+
+### Context
+
+After the chat management block the owner asked for voice. Calls are not wanted ("only messages,
+calls are not needed"); files and photos come later, video not at all. A recording (about 3.7 MB
+for 15 minutes) does not fit one relay message (64 KiB of base64, 80 KB per request), should not
+pass through the session as one huge payload, must never be stored unencrypted, and should tell the
+relay as little as possible.
+
+### Decision
+
+- **Recording, in memory only.** The microphone's sound (16 kHz mono; 44.1 kHz where a phone cannot
+  record at 16 kHz) goes into the phone's own AAC-LC encoder at 32 kbit/s, and the frames, each
+  behind its ADTS header, into one buffer reserved at the largest allowed size. No file is written at
+  any point, so no unencrypted copy is ever on the flash; the buffers are zeroed when the recording
+  is handed over or thrown away. The bars of the bubble are at most 100 values of 0 to 31
+  (Telegram's rule: each slice's peak against 1.8 times their average, at least 2,500). Telegram's
+  gestures: hold to record and let go to send, slide left to cancel, slide up to lock; a tap only
+  explains; at most 15 minutes (sent at the limit), at least 0.7 seconds. Leaving the chat or the app
+  stops the microphone: nothing records in the background. The microphone permission is asked at
+  the first use and declared in the debug manifest only (chats exist only in debug builds).
+- **The recording travels beside the session.** It is cut into pieces of 47 KiB, the last filled up
+  with zeros, so the relay learns only how many pieces there are (at most 96). Each piece is
+  encrypted with AES-256-GCM under a fresh random 32-byte key used for this one recording; the nonce
+  is four zero bytes and the 64-bit piece index; the associated data is `"smp-voice-piece-v1\0"`,
+  the number of pieces and the index (16 bits each), so a piece cannot be moved, repeated or left
+  out unnoticed. A piece is `"SMM1"`, version 1, its index and the ciphertext with its tag: 48,151
+  bytes, 64,204 characters of base64, inside the relay's 64 KiB (a test reads the relay's and the
+  transport's limits). The digest is SHA-256 over `"smp-voice-recording-v1\0"` and the padded
+  recording. A standard AEAD with a single-use key; no construction of our own.
+- **One relay queue per recording.** The sender makes a fresh read secret (queue ID as in DEC-024)
+  and sends the pieces there. The read secret and the key travel only inside the note.
+- **The note is inner payload type 6**, inside the session like a text (authenticated, padded): the
+  queue's read secret, the key, the digest, the size, the number of pieces, the length in
+  milliseconds, the bars, the codec (1 = AAC in ADTS), then 0, or 1 and the 16-byte inner ID of the
+  message it answers (replies work as in DEC-035, in both directions). Decoding is strict: the
+  number of pieces must match the size, the length lies between 1 ms and 15 minutes and 2 seconds,
+  at most 100 bars of 0 to 31, codec 1, the reply marker 0 or 1, a message cannot answer itself.
+- **Sending order.** The note's envelope is held until every piece is up, and the contact's later
+  envelopes wait behind it (ordered sending, DEC-026), so a contact never gets a note before its
+  recording. Pieces go up across syncs (the relay's rate limit); progress only moves forward; one
+  upload and one download run at a time in the process. A recording whose stored piece is gone (a
+  damaged store) is given up so it cannot hold the chat back: its note goes, the contact never gets
+  the recording, and it never shows "Delivered".
+- **Receiving.** The note is stored once authenticated, like a text (order by DEC-034, it completes
+  a pairing waiting for acceptance, a request's is held). The app then fetches the one-time queue
+  (at most 3 pages per sync), keeps only pieces that decrypt under the note's key at their own
+  place, stores them as they came (still encrypted under that key; the note itself vault-encrypted),
+  and deletes everything it fetched from that queue after the commit, junk included. Once all pieces
+  are here and the whole matches the digest (and the padding is zeros), the message is ready, and
+  only then is its receipt queued: **"Delivered" means the recording itself is on the contact's
+  phone (owner).** A mismatch makes it unavailable (pieces deleted, no receipt); so does a recording
+  still incomplete 25 hours after its note (the relay keeps a piece a day). A request's voice
+  message is fetched, and receipted only when the request is accepted.
+- **Playing** decrypts the pieces into memory and hands them to Android's player through a
+  `MediaDataSource` (no file); the bytes are zeroed when playing ends. Our own plays at once.
+- **Pause (owner, like Telegram's newest screen):** once locked, a recording can be paused; the
+  microphone is let go, what was recorded so far can be listened to (from memory), and then it goes
+  on, is deleted, or is sent. The timer shows tenths ("0:04,3").
+- **One-time recordings (owner, like Telegram):** while locked or paused, the round "1" button above
+  the send button makes the recording one-time (a hint with a flame: "The recipient will be able to
+  play the message only once."; pressed again, it is an ordinary one). The note's options byte says
+  so (bit 0; any other bit is refused). The receiving phone gives such a recording only through a
+  one-time path that, in one transaction, decrypts it into memory, deletes its pieces and marks it
+  played, so it is never given again even if the app stops while it plays; it plays from the start
+  and cannot be jumped in. Bubbles carry Telegram's "1" until played; then they say "Played".
+- **"Played" (inner payload type 7, owner: "the 1 disappears and it says listened"):** the receiving
+  phone then tells the sender, inside the session, that the one-time recording was played; the
+  sender's "1" goes, its bubble says "Played" and its own copy is deleted too, as in Telegram. This
+  is the only thing about listening the app ever sends, and only for one-time recordings: a "played"
+  naming anything else (an ordinary recording, a text, an unknown ID, a recording not all uploaded)
+  changes nothing.
+- **Room v12**: `v2_messages.mediaState` (nullable text: uploading, downloading, ready, unavailable)
+  and `v2_messages.mediaProgress` (pieces uploaded, default 0); a new table `v2_media_chunks`
+  (message ID, index, piece) holds the pieces as they travel, one row each (a row stays far below
+  Android's 2 MB cursor window). A voice message's `encryptedBody` is its note, vault-encrypted with
+  its own record type (`voice-note`) bound to the row. Clearing history, deleting a contact and the
+  wipe delete the pieces too.
+
+### Compatibility (AGENTS.md checklist)
+
+1. Old and new: payload type 6 is new; types 1 to 5 and the envelope are unchanged. The relay API
+   is unchanged (v3: send, fetch, delete), now also used on one-time queues. Room v11 to v12 adds
+   two columns and one table.
+2. Backward compatibility: an app that predates type 6 decrypts the note, finds the type unknown,
+   keeps the ratchet step and drops it without a receipt; the sender sees "sent to the delivery
+   server" only, and the pieces expire on the relay within a day. Both test phones get one build.
+3. Migration and rollback: `MIGRATION_11_12` only adds; every row survives byte for byte
+   (instrumented test). A downgrade to a v11 build is not supported (Room refuses a newer schema).
+4. Confusion: pieces carry their own magic and domain-separated labels and use a key that exists for
+   one recording only; an envelope dropped into a one-time queue fails the piece check and is
+   deleted; a piece dropped into an inbox fails envelope parsing and is deleted (DEC-026).
+5. Existing data: no voice messages; other rows get no media state and progress 0.
+6. Tests: `VoiceMediaTest` (round trips, every tampering refused, the relay's size limit),
+   `EnvelopeV2Test` and `V2DecoderFuzzTest` (type 6 with and without a reply),
+   `ConversationV2ServiceTest` (delivered only with the recording, missing piece, junk deleted, note
+   held and texts behind it, given up after 25 hours, from a request, a reply, clearing and deleting,
+   a damaged store), `ConversationV2StorageInstrumentedTest` and `SecureDatabaseMigrationInstrumentedTest`
+   (Room v12), `VoiceModelTest` (lengths, bars, ADTS header), `VoiceMessagesInstrumentedTest` (the real
+   microphone and player on the phones; the recording is zeroed once played),
+   `LocalizationResourcesTest` (microphone in the debug manifest only; no file in recorder or player).
+
+### Security notes
+
+- The relay learns that a fresh queue receives N equal pieces and when, from which address they are
+  uploaded and from which they are fetched, so it can link the two phones (as it can for any envelope
+  sent to an inbox), and roughly how long the recording is (one piece is about 12 seconds). It cannot
+  read, change, reorder, swap or cut short a recording unnoticed.
+- "Played" tells the sender when a one-time recording was played: metadata about listening, sent by
+  design for one-time recordings only (owner). It is a courtesy, not a proof: a modified app could
+  stay silent or say it without playing, and nothing can stop a recipient from recording the sound
+  with another device.
+- The note's read secret gives our phone no power its sender lacks: a contact can only name a queue
+  whose secret it already holds, and could empty that queue itself. A hostile contact can make our
+  phone fetch and delete at most 3 pages a sync per voice message until it completes or expires: a
+  bounded cost, never a verdict.
+- Stored recordings are protected like stored texts: their key is in the vault-encrypted note, so
+  they are not forward secret against a thief who can also use the Keystore key (CLAUDE.md boundary).
+- While recording or playing, the sound exists in the app's memory and in Android's audio stack.
+
+---
+
 ## DEC-035 — Chat management and replies (Room v11, inner payload type 5)
 
 **Status:** ACCEPTED (2026-10-06, the owner's answers the same day: replies "yes"; "Delete chat"
@@ -1817,7 +2181,8 @@ Remaining roadmap topics that are still genuinely deferred, not active commitmen
 - opaque or single-use queues;
 - relay chaining;
 - Tor, P2P, or local transports;
-- attachments and media;
+- attachments and media other than voice messages (those are DEC-036; files and photos are wanted
+  next, video is not);
 - app lock and biometric unlock;
 - encrypted backup;
 - secure data-destruction design;

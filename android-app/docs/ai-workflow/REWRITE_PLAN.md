@@ -332,6 +332,13 @@ legal risk, from headerless files (1,366, among them the bubble drawable); unrea
 v10; notifications without message text. Step 6b done (`../PHASE6_PORTING_NOTES.md`: metrics,
 rules and colors; Compose code is written anew from them). Style chosen by the owner: Telegram's
 classic palette, a light wallpaper pattern of our own, a dark theme with an in-app switch.
+Steps 6c–6g, the Telegram port (DEC-033), the order and background connection (DEC-034) and chat
+management with replies (DEC-035) are committed (2026-10-06). Added by the owner on 2026-10-06 and
+written on Opus (uncommitted until the owner's check, results in HANDOFF): voice messages with pause,
+one-time recordings and "played" (DEC-036, Room v12; no calls), deleting single messages on this
+phone or for both with Telegram's dust, the chat screen in Telegram 12's glass look and the app edge
+to edge with the keyboard moving in step (DEC-037). Next by the owner's wish: files and photos;
+then the usability check (6h).
 
 ## Phase 7 — Release readiness (only if you want to actually ship it)
 

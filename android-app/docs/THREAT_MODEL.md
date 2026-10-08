@@ -347,6 +347,32 @@ A new pairing afterwards trusts the identity afresh, as any first pairing does; 
 comparison is the defence, as before. A reply names the text it answers inside the encrypted
 payload; a contact can only make its own quotes point at the wrong text in its own chat.
 
+Voice messages (DEC-036, debug builds only): the recording is made in memory and never written to a
+file; it travels as equal AES-256-GCM pieces in a fresh one-time relay queue, under a key that
+exists for this one recording and travels only inside the encrypted note (inner payload type 6),
+with that queue's read secret. The relay learns that a fresh queue gets N equal pieces (one piece is
+about 12 seconds of sound, so the length to within that), when, from which address they are
+uploaded and from which they are fetched; it can withhold or delete pieces (the message then turns
+"unavailable" after 25 hours, without a receipt) but cannot read, change, reorder, swap or cut a
+recording unnoticed (each piece is bound to its place and count; the whole to a digest in the note).
+"Delivered" is sent only once the whole recording is on the receiving phone and checks out. A
+hostile contact can only name queues whose secret it already holds and so already controls, and can
+make our phone fetch and delete at most three pages a sync per voice message until it completes or
+expires. Stored recordings stay encrypted under their note's key, the note under the vault key: like
+stored texts, not forward secret against a thief who can also use the Keystore key. While recording
+or playing, the sound is in the app's memory and in Android's audio stack; Android shows its
+microphone indicator while recording, and the app stops the microphone when the chat or the app is
+left. A one-time recording is given once on the receiving phone and deleted there in the same step;
+that phone then tells the sender "played" (owner, like Telegram), the only signal about listening
+the app sends, and only for one-time recordings; it is a courtesy, not a proof (a modified app can
+stay silent, and sound can always be recorded with another device).
+
+Deleting messages (DEC-037): "delete for both" asks the contact's app, inside the session, to delete
+named messages of that chat; it can name ours as well as theirs (owner, like Telegram), so a contact
+can remove our copy of our chat with it, never anything of another chat. The relay cannot forge
+or redirect such a request. It is best effort and no secure erase: the other phone may have shown or
+copied the message, may never receive the request, and flash keeps old blocks.
+
 ## Relay Limitations
 
 The relay stores opaque encrypted blobs with TTL and supports deletion after receipt.

@@ -66,6 +66,22 @@ until the independent review of Phase 5 (DEC-021). The legacy prototype (`Simpli
 - Replies (DEC-035) are not shown by an app that predates them (inner payload type 5): such an app
   drops the reply. A deleted contact is not told; its later texts stay at "sent to the delivery
   server" on its phone.
+- Voice messages (DEC-036, debug builds): only messages, no calls. A recording the receiver does not
+  fetch within a day is gone from the relay and shows as "Recording unavailable" (never
+  "Delivered"). Pieces go up within the relay's rate limit (20 at once, then about one a second per
+  address): a 15-minute recording (about 77 pieces) takes about a minute, and the note with the
+  texts after it waits for that; over `adb reverse` both test phones share one address and one limit.
+  A long recording comes down as one page of up to about 5 MB, which the app gives 30 seconds: a slow
+  connection may need several syncs. The relay sees how many pieces a recording has (its length to
+  within about 12 seconds). There is no playback speed, no "listened" mark, no playing in the
+  background or at the ear, and no review before sending; leaving the chat or the app stops a
+  recording without sending it. Sound quality depends on the phone's own AAC encoder. An app that
+  predates type 6 drops voice messages. A one-time recording that the app stops playing (the screen
+  is left, the phone rings) is gone all the same: it was deleted when it started.
+- Deleting a message for both (DEC-037) happens when the request reaches the contact's app; an app
+  that predates it, or a contact that deleted us, keeps its copy, and nothing confirms the deletion.
+- The glass look bends the picture at its rim only on Android 13 and later; Android 12 shows plain
+  frosted glass. The blur draws the chat twice on every frame, which costs some battery on slow phones.
 - The relay can delete, delay, reorder, replay, or withhold encrypted blobs. Authenticated
   encryption does not prevent denial of service. Unauthenticated or unroutable blobs are never
   accepted; the app deletes them once decided (DEC-026), but anyone who knows a queue ID can still

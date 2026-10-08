@@ -35,8 +35,9 @@ mutable against the code before relying on it.
   first Telegram port (DEC-033) checked on both phones and committed 2026-10-06 (`6a60deb`,
   `bca1240`); block A (icons, sounds, search) on Sonnet and the Opus batch (DEC-034, DEC-035:
   order, background connection, Room v11, replies, chat management) checked on both phones and by
-  the owner, committed 2026-10-06 (`7b53b33`); next: voice (messages or calls, owner to confirm),
-  designed on Opus; 6h on Sonnet later; **Opus 5.5 · High** for the Room
+  the owner, committed 2026-10-06 (`7b53b33`); voice messages (DEC-036, no calls: owner) written on
+  Opus 2026-10-06 (checks and commit see HANDOFF); next: files and photos (owner wants them after
+  voice; design on Opus), 6h on Sonnet later; **Opus 5.5 · High** for the Room
   migrations, the verified-mark rules (6f), the notification privacy rules (6f'), TQ-108 (6g) and
   anything touching the payload, storage or deletion. Routine test cases, docs, dependency updates
   and pure UI polish: Sonnet 5.5 · High.
@@ -74,7 +75,8 @@ mutable against the code before relying on it.
    deliberately **blocking** (not `suspend`): never hold the lock across a suspension point.
 6. **`Delivered`** = an authenticated receipt from the *same contact* naming the inner message ID.
    `Sent to delivery server` = relay acceptance only. Neither is a read receipt. WorkManager sync
-   is best effort, never a timing guarantee.
+   is best effort, never a timing guarantee. The only signal about listening or reading is
+   "played" (type 7) for voice messages, sent once when the person presses play (DEC-036, DEC-039).
 7. Invitations (`smp-invite-v3:`, v2 refused, one canonical text): one-time EC and Kyber pre-keys per
    invitation, digest-committed sealed bundle, strict parsing, expiry, one-sided pairing with
    explicit accept (TOFU). Kyber: only `KEMKeyType.KYBER_1024`. Only a HELLO using exactly the
@@ -135,7 +137,7 @@ mutable against the code before relying on it.
   has no `-Environment`; files with Cyrillic need a UTF-8 BOM to be read as UTF-8; `git commit -m`
   with a multi-line here-string breaks, use `git commit -F file`.
 - Room schemas are exported to `core/storage/schemas` and must be committed with every version
-  (currently 11.json, DEC-035). Migrations have instrumented tests.
+  (currently 13.json, DEC-039). Migrations have instrumented tests.
 
 ## Findings and owner ideas worth remembering
 
@@ -198,7 +200,27 @@ and sounds used unchanged and listed in the notices; Source Sans 3); DEC-034 inc
 the sender's authenticated time within one minute (never before the contact's previous text) and the
 background connection (foreground service every 30 s, on by default, debug manifest only, started by
 `MainActivity`, never by tests); DEC-035 pin, mute, mark read, clear history, delete chat with its
-contact and keys (owner's choice), replies as inner payload type 5, Room v11. Design docs:
+contact and keys (owner's choice), replies as inner payload type 5, Room v11; DEC-036 voice messages
+(no calls): recorded into memory as AAC (never a file), at most 15 minutes, sent as AES-256-GCM
+pieces of 47 KiB in a one-time relay queue whose read secret and key travel only in the note (inner
+payload type 6), "Delivered" only once the whole recording arrived, Room v12 (`v2_media_chunks`),
+microphone permission in the debug manifest only, pause and listen before sending, one-time
+recordings played once and answered by "played" (type 7, owner: like Telegram; the only signal about
+listening); DEC-037 deleting single messages on this phone or for both (type 8, either direction,
+this chat only, owner: like Telegram) with Telegram's dust effect, the chat screen in Telegram 12's
+glass look (`Glass.kt`, Telegram's liquid-glass shader) and the whole app edge to edge (keyboard
+insets move in step with the keyboard; every screen keeps clear of the bars); DEC-038 Telegram's own
+looks (owner, 2026-10-07): the dark theme is Telegram's default "Dark Blue" with the blue-to-violet
+outgoing bubbles fixed to the screen (`BubbleGradient.kt`), both themes use Telegram's default
+wallpaper (its gradient rewritten from `image.cpp`, its `default_pattern.svg` copied unchanged;
+`ChatWallpaper.kt`), the settings take Telegram 12's layout (`TelegramSettings.kt`, a page per entry),
+the recording takes Telegram's animations and tooltips (the send sign stays an arrow: the paper plane
+in a blue circle is the logo), and turning the phone no longer rebuilds the activity (the screen stack
+is saved for a language change); DEC-039 (owner, 2026-10-07) "played" for every voice message: pressing play on
+the contact's tells it once (type 7 widened, Room v13 `mediaListened`), Telegram's dot on both phones until
+then (still no read receipts for texts); seek by dragging the bars, trim of a paused recording (whole
+AAC frames, in memory), finer dust with a finger snap made in code, the glass rim as Telegram's sliver,
+and Telegram 12's main screen with bottom tabs (`HomeTabs.kt`). Design docs:
 `docs/PROTOCOL_V2.md`, `docs/PHASE3_RELAY_DESIGN.md`, `docs/PHASE4_MULTIDEVICE_DESIGN.md`
 (deferred), `docs/PHASE5_SECURITY_TEST_PLAN.md`, `docs/PHASE6_UI_PLAN.md`,
 `docs/PHASE6_THEME_NOTES.md`.
@@ -233,8 +255,9 @@ contact and keys (owner's choice), replies as inner payload type 5, Room v11. De
   tail, series = same direction within 5 minutes, time-on-last-line rule, avatar initials and 7
   gradients, chat-list row 70 dp / avatar 52 / badge 20.67 dp, date rules, header and input bar
   sizes; we write Compose code from these notes, nearly no Telegram code is copied). Owner's style:
-  **classic palette** (outgoing `#EFFFDE` green ticks, incoming white, accent `#229AF0`), **own light
-  wallpaper pattern**, **dark theme (Night values) with an in-app switch** Light/Dark/System. Next:
+  **classic palette** (outgoing `#EFFFDE` green ticks, incoming white, accent `#229AF0`), since
+  DEC-038 **Telegram's default wallpaper** (gradient and pattern) and **dark theme = Telegram's
+  "Dark Blue"** (it was Night until 2026-10-07), with an in-app switch Light/Dark/System. Next:
   6c theme and components, 6d chat list with
   unread marker (Room v10, Opus for the migration), 6e conversation, 6f screens and 6f'
   notifications, 6g TQ-108, 6h usability check. The owner will send screenshots and screen

@@ -52,11 +52,33 @@ safety number. The relay cannot substitute the bundle (digest) or read it (seal 
 
 - Envelope (relay-visible): `SME2`, version, recipient-assigned routing tag, libsignal message
   type, ciphertext. No sender identifier; no trial decryption.
-- Inner payload (encrypted): `SMI2`, type (HELLO / ACCEPT / TEXT / RECEIPT / TEXT_REPLY), sender
+- Inner payload (encrypted): `SMI2`, type (HELLO / ACCEPT / TEXT / RECEIPT / TEXT_REPLY / VOICE / PLAYED / DELETE), sender
   message ID, sent-at time, body; padded to 160-byte blocks. TEXT_REPLY (type 5, DEC-035) is a TEXT
   followed by the 16-byte inner message ID of the text it answers (either direction, same chat);
   only the reference travels, each phone shows the quote from its own copy. A plain TEXT is type 3
   exactly as before; an app that predates type 5 drops a reply after authenticating it.
+- Voice messages (DEC-036): the recording (AAC-LC in ADTS frames, made in memory, at most 15
+  minutes) never travels in the session. It is cut into 47 KiB pieces (the last padded with zeros,
+  at most 96), each encrypted with AES-256-GCM under a fresh 32-byte key for this recording only
+  (nonce: four zero bytes and the 64-bit index; associated data: `"smp-voice-piece-v1\0"`, the
+  number of pieces and the index), sent as `"SMM1"`, version 1, 16-bit index, ciphertext and tag to
+  a fresh one-time relay queue. The note, inner payload type 6 (VOICE), carries that queue's read
+  secret, the key, the SHA-256 digest of the padded recording (`"smp-voice-recording-v1\0"`), the
+  size, the number of pieces, the length, at most 100 loudness values of 0 to 31, the codec (1), and
+  0 or 1 and the inner ID of the message it answers. The note's envelope waits until every piece is
+  up (and the contact's later envelopes behind it). The receiver keeps only pieces that decrypt
+  under the note's key at their own place, deletes everything it fetched from that queue after its
+  commit, and receipts the note only once the whole recording is here and matches the digest:
+  "Delivered" means the recording arrived. A recording still incomplete 25 hours after its note is
+  marked unavailable without a receipt. An app that predates type 6 drops the note after
+  authenticating it. The note's options byte marks a one-time recording (bit 0): the receiving phone
+  gives it once, deleting its pieces in the same transaction, and answers with PLAYED (type 7: the
+  16-byte inner ID, a receipt's layout), on which the sender deletes its own copy and shows "Played";
+  a PLAYED naming anything but our own fully uploaded one-time recording changes nothing (DEC-036).
+- Delete for both (type 8, DEC-037): a count (1 to 100) and that many distinct inner message IDs of
+  the chat, either direction, never the request's own; the receiving phone deletes those texts and
+  voice messages of that chat only, and ignores anything else (and any request from a pending
+  contact request).
 - An incoming text is shown and sorted at its sender's time if that lies at most 60 seconds before
   its arrival, else at its arrival, and never before the contact's previous text; ties keep the
   stored order (DEC-034). The relay cannot change that time; a contact can move its own text at most
